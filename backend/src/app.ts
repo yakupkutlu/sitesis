@@ -1,5 +1,5 @@
 import process from "node:process";
-import express from "express";
+import express, { type Request, type Response } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
@@ -38,7 +38,7 @@ app.use(generalLimiter);
 
 app.use("/api/health", healthRoutes);
 
-app.use((_request, response) => {
+app.use((_request: Request, response: Response) => {
   response.status(404).json({
     success: false,
     message: "API adresi bulunamadı.",
