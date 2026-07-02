@@ -8,6 +8,8 @@ import rateLimit from "express-rate-limit";
 import healthRoutes from "./routes/health.routes.js";
 
 import usersRoutes from "./routes/users.routes.js";
+
+import authRoutes from "./routes/auth.routes.js";
 const app = express();
 
 const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
@@ -40,6 +42,8 @@ app.use(generalLimiter);
 app.use("/api/health", healthRoutes);
 
 app.use("/api/users", usersRoutes);
+
+app.use("/api/auth", authRoutes);
 
 app.use((_request: Request, response: Response) => {
   response.status(404).json({
