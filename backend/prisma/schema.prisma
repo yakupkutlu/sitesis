@@ -39,6 +39,11 @@ enum ReceiptStatus {
   APPROVED
   REJECTED
 }
+enum ManagerScopeType {
+  SITE
+  BLOCK
+}
+
 model User {
   id           String     @id @default(uuid())
   fullName     String
@@ -50,6 +55,7 @@ model User {
   apartmentResidents ApartmentResident[]
   uploadedReceipts PaymentReceipt[] @relation("UploadedReceipts")
   reviewedReceipts PaymentReceipt[] @relation("ReviewedReceipts")
+  managerAssignments ManagerAssignment[] @relation("ManagerAssignments")
 
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
@@ -65,6 +71,7 @@ model Site {
 
   blocks      Block[]
   paymentBatches PaymentBatch[]
+  managerAssignments ManagerAssignment[]
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -80,6 +87,7 @@ model Block {
 
   apartments  Apartment[]
   paymentBatches PaymentBatch[]
+  managerAssignments ManagerAssignment[]
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -214,4 +222,25 @@ model PaymentReceipt {
   @@index([uploadedByUserId])
   @@index([reviewedByUserId])
   @@index([status])
+}
+model ManagerAssignment {
+  id        String           @id @default(uuid())
+  scopeType ManagerScopeType
+
+  managerId String
+  manager   User             @relation("ManagerAssignments", fields: [managerId], references: [id], onDelete: Cascade)
+
+  siteId    String?
+  site      Site?            @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  blockId   String?
+  block     Block?           @relation(fields: [blockId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@index([managerId])
+  @@index([siteId])
+  @@index([blockId])
+  @@index([scopeType])
 }
