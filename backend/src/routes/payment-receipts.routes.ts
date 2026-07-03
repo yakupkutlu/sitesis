@@ -1,9 +1,17 @@
+import fs from "node:fs/promises";
+
 import express, { type Request, type Response } from "express";
 import { z } from "zod";
 
 import prisma from "../db/prisma.js";
-import { requireAuth, requireRole, type AuthenticatedRequest } from "../middlewares/auth.middleware.js";
+import {
+  requireAuth,
+  requireRole,
+  type AuthenticatedRequest,
+} from "../middlewares/auth.middleware.js";
 import { receiptUpload } from "../uploads/receipt-upload.js";
+import { asyncHandler } from "../utils/async-handler.js";
+import { HttpError } from "../utils/http-error.js";
 
 const router = express.Router();
 
@@ -14,87 +22,116 @@ const uploadReceiptSchema = z.object({
   note: z.string().trim().optional(),
 });
 
-router.get("/", requireRole("SUPER_ADMIN"), async (_request: Request, response: Response) => {
-  const receipts = await prisma.paymentReceipt.findMany({
-    include: {
-      uploadedByUser: {
-        select: {
-          id: true,
-          fullName: true,
-          email: true,
-          role: true,
+const receiptParamsSchema = z.object({
+  receiptId: z.string().uuid(),
+});
+
+const reviewReceiptSchema = z.object({
+  reviewNote: z.string().trim().optional(),
+});
+
+async function deleteUploadedFile(file?: Express.Multer.File) {
+  if (!file) {
+    return;
+  }
+
+  try {
+    await fs.unlink(file.path);
+  } catch (error) {
+    console.error("Yüklenen dosya silinemedi:", error);
+  }
+}
+
+router.get(
+  "/",
+  requireRole("SUPER_ADMIN"),
+  asyncHandler(async (_request: Request, response: Response) => {
+    const receipts = await prisma.paymentReceipt.findMany({
+      include: {
+        uploadedByUser: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            role: true,
+          },
         },
-      },
-      paymentAllocation: {
-        include: {
-          apartment: {
-            select: {
-              id: true,
-              number: true,
-              block: {
-                select: {
-                  id: true,
-                  name: true,
-                  site: {
-                    select: {
-                      id: true,
-                      name: true,
+        reviewedByUser: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            role: true,
+          },
+        },
+        paymentAllocation: {
+          include: {
+            apartment: {
+              select: {
+                id: true,
+                number: true,
+                block: {
+                  select: {
+                    id: true,
+                    name: true,
+                    site: {
+                      select: {
+                        id: true,
+                        name: true,
+                      },
                     },
                   },
                 },
               },
             },
-          },
-          paymentBatch: {
-            select: {
-              id: true,
-              title: true,
-              dueDate: true,
+            paymentBatch: {
+              select: {
+                id: true,
+                title: true,
+                dueDate: true,
+              },
             },
           },
         },
       },
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-  });
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
 
-  response.status(200).json({
-    success: true,
-    data: receipts,
-  });
-});
+    response.status(200).json({
+      success: true,
+      data: receipts,
+    });
+  })
+);
 
 router.post(
   "/",
   receiptUpload.single("receipt"),
-  async (request: AuthenticatedRequest, response: Response) => {
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
     const validationResult = uploadReceiptSchema.safeParse(request.body);
 
     if (!validationResult.success) {
-      response.status(400).json({
-        success: false,
-        message: "Gönderilen dekont bilgileri geçersiz.",
-        errors: validationResult.error.flatten().fieldErrors,
-      });
-      return;
+      await deleteUploadedFile(request.file);
+
+      throw new HttpError(
+        400,
+        "Gönderilen dekont bilgileri geçersiz.",
+        validationResult.error.flatten().fieldErrors
+      );
     }
 
     if (!request.file) {
-      response.status(400).json({
-        success: false,
-        message: "Dekont dosyası zorunludur.",
-      });
-      return;
+      throw new HttpError(400, "Dekont dosyası zorunludur.");
     }
 
-    if (!request.user) {
-      response.status(401).json({
-        success: false,
-        message: "Oturum bulunamadı.",
-      });
-      return;
+    if (!authenticatedRequest.user) {
+      await deleteUploadedFile(request.file);
+
+      throw new HttpError(401, "Oturum bulunamadı.");
     }
 
     const { paymentAllocationId, note } = validationResult.data;
@@ -109,17 +146,15 @@ router.post(
     });
 
     if (!allocation) {
-      response.status(404).json({
-        success: false,
-        message: "Ödeme kaydı bulunamadı.",
-      });
-      return;
+      await deleteUploadedFile(request.file);
+
+      throw new HttpError(404, "Ödeme kaydı bulunamadı.");
     }
 
     const receipt = await prisma.paymentReceipt.create({
       data: {
         paymentAllocationId,
-        uploadedByUserId: request.user.id,
+        uploadedByUserId: authenticatedRequest.user.id,
         originalFileName: request.file.originalname,
         storedFileName: request.file.filename,
         mimeType: request.file.mimetype,
@@ -133,38 +168,24 @@ router.post(
       message: "Dekont başarıyla yüklendi ve onay bekliyor.",
       data: receipt,
     });
-  }
+  })
 );
-
-const receiptParamsSchema = z.object({
-  receiptId: z.string().uuid(),
-});
-
-const reviewReceiptSchema = z.object({
-  reviewNote: z.string().trim().optional(),
-});
 
 router.patch(
   "/:receiptId/approve",
   requireRole("SUPER_ADMIN"),
-  async (request: AuthenticatedRequest, response: Response) => {
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
     const paramsResult = receiptParamsSchema.safeParse(request.params);
     const bodyResult = reviewReceiptSchema.safeParse(request.body);
 
     if (!paramsResult.success || !bodyResult.success) {
-      response.status(400).json({
-        success: false,
-        message: "Dekont onay bilgileri geçersiz.",
-      });
-      return;
+      throw new HttpError(400, "Dekont onay bilgileri geçersiz.");
     }
 
-    if (!request.user) {
-      response.status(401).json({
-        success: false,
-        message: "Oturum bulunamadı.",
-      });
-      return;
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
     }
 
     const { receiptId } = paramsResult.data;
@@ -182,27 +203,15 @@ router.patch(
     });
 
     if (!receipt) {
-      response.status(404).json({
-        success: false,
-        message: "Dekont bulunamadı.",
-      });
-      return;
+      throw new HttpError(404, "Dekont bulunamadı.");
     }
 
     if (receipt.status === "APPROVED") {
-      response.status(409).json({
-        success: false,
-        message: "Bu dekont zaten onaylanmış.",
-      });
-      return;
+      throw new HttpError(409, "Bu dekont zaten onaylanmış.");
     }
 
     if (receipt.status === "REJECTED") {
-      response.status(409).json({
-        success: false,
-        message: "Reddedilmiş dekont onaylanamaz.",
-      });
-      return;
+      throw new HttpError(409, "Reddedilmiş dekont onaylanamaz.");
     }
 
     const result = await prisma.$transaction(async (transaction) => {
@@ -214,7 +223,7 @@ router.patch(
           status: "APPROVED",
           reviewNote,
           reviewedAt: new Date(),
-          reviewedByUserId: request.user!.id,
+          reviewedByUserId: authenticatedRequest.user!.id,
         },
       });
 
@@ -239,30 +248,24 @@ router.patch(
       message: "Dekont onaylandı ve ödeme ödenmiş olarak işaretlendi.",
       data: result,
     });
-  }
+  })
 );
 
 router.patch(
   "/:receiptId/reject",
   requireRole("SUPER_ADMIN"),
-  async (request: AuthenticatedRequest, response: Response) => {
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
     const paramsResult = receiptParamsSchema.safeParse(request.params);
     const bodyResult = reviewReceiptSchema.safeParse(request.body);
 
     if (!paramsResult.success || !bodyResult.success) {
-      response.status(400).json({
-        success: false,
-        message: "Dekont red bilgileri geçersiz.",
-      });
-      return;
+      throw new HttpError(400, "Dekont red bilgileri geçersiz.");
     }
 
-    if (!request.user) {
-      response.status(401).json({
-        success: false,
-        message: "Oturum bulunamadı.",
-      });
-      return;
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
     }
 
     const { receiptId } = paramsResult.data;
@@ -279,27 +282,15 @@ router.patch(
     });
 
     if (!receipt) {
-      response.status(404).json({
-        success: false,
-        message: "Dekont bulunamadı.",
-      });
-      return;
+      throw new HttpError(404, "Dekont bulunamadı.");
     }
 
     if (receipt.status === "APPROVED") {
-      response.status(409).json({
-        success: false,
-        message: "Onaylanmış dekont reddedilemez.",
-      });
-      return;
+      throw new HttpError(409, "Onaylanmış dekont reddedilemez.");
     }
 
     if (receipt.status === "REJECTED") {
-      response.status(409).json({
-        success: false,
-        message: "Bu dekont zaten reddedilmiş.",
-      });
-      return;
+      throw new HttpError(409, "Bu dekont zaten reddedilmiş.");
     }
 
     const rejectedReceipt = await prisma.paymentReceipt.update({
@@ -310,7 +301,7 @@ router.patch(
         status: "REJECTED",
         reviewNote,
         reviewedAt: new Date(),
-        reviewedByUserId: request.user.id,
+        reviewedByUserId: authenticatedRequest.user.id,
       },
     });
 
@@ -319,7 +310,7 @@ router.patch(
       message: "Dekont reddedildi.",
       data: rejectedReceipt,
     });
-  }
+  })
 );
 
 export default router;
