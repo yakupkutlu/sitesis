@@ -18,9 +18,21 @@ enum UserStatus {
   PASSIVE
 }
 
-enum ApartmentResidentType {
+enum ApartmentResidentType {  
   OWNER
   TENANT
+}
+
+enum PaymentScopeType {
+  SITE
+  BLOCK
+  APARTMENTS
+}
+
+enum PaymentAllocationStatus {
+  PENDING
+  PAID
+  CANCELLED
 }
 
 model User {
@@ -46,6 +58,7 @@ model Site {
   systems     String[] @default([])
 
   blocks      Block[]
+  paymentBatches PaymentBatch[]
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -60,6 +73,7 @@ model Block {
   site        Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
 
   apartments  Apartment[]
+  paymentBatches PaymentBatch[]
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -77,6 +91,9 @@ model Apartment {
   block       Block    @relation(fields: [blockId], references: [id], onDelete: Cascade)
 
   residents ApartmentResident[]
+  paymentAllocations PaymentAllocation[]
+  paymentExemptions  PaymentExemption[]
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -100,4 +117,64 @@ model ApartmentResident {
   @@index([apartmentId])
   @@index([userId])
   @@unique([apartmentId, userId, type])
+}
+model PaymentBatch {
+  id               String           @id @default(uuid())
+  title            String
+  description      String?
+  totalAmountKurus Int
+  scopeType        PaymentScopeType
+  dueDate          DateTime
+
+  siteId           String?
+  site             Site?            @relation(fields: [siteId], references: [id], onDelete: SetNull)
+
+  blockId          String?
+  block            Block?           @relation(fields: [blockId], references: [id], onDelete: SetNull)
+
+  allocations      PaymentAllocation[]
+  exemptions       PaymentExemption[]
+
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@index([siteId])
+  @@index([blockId])
+  @@index([scopeType])
+}
+
+model PaymentAllocation {
+  id               String                  @id @default(uuid())
+  amountKurus      Int
+  status           PaymentAllocationStatus @default(PENDING)
+  paidAt           DateTime?
+
+  paymentBatchId   String
+  paymentBatch     PaymentBatch            @relation(fields: [paymentBatchId], references: [id], onDelete: Cascade)
+
+  apartmentId      String
+  apartment        Apartment               @relation(fields: [apartmentId], references: [id], onDelete: Cascade)
+
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+
+  @@index([paymentBatchId])
+  @@index([apartmentId])
+  @@unique([paymentBatchId, apartmentId])
+}
+
+model PaymentExemption {
+  id               String       @id @default(uuid())
+
+  paymentBatchId   String
+  paymentBatch     PaymentBatch @relation(fields: [paymentBatchId], references: [id], onDelete: Cascade)
+
+  apartmentId      String
+  apartment        Apartment    @relation(fields: [apartmentId], references: [id], onDelete: Cascade)
+
+  createdAt        DateTime     @default(now())
+
+  @@index([paymentBatchId])
+  @@index([apartmentId])
+  @@unique([paymentBatchId, apartmentId])
 }

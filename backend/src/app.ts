@@ -19,6 +19,7 @@ import apartmentsRoutes from "./routes/apartments.routes.js";
 
 import apartmentResidentsRoutes from "./routes/apartment-residents.routes.js";
 
+import paymentBatchesRoutes from "./routes/payment-batches.routes.js";
 const app = express();
 
 const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
@@ -61,6 +62,8 @@ app.use("/api/blocks", blocksRoutes);
 app.use("/api/apartments", apartmentsRoutes);
 
 app.use("/api/apartment-residents", apartmentResidentsRoutes);
+
+app.use("/api/payment-batches", paymentBatchesRoutes);
 
 app.use((_request: Request, response: Response) => {
   response.status(404).json({
