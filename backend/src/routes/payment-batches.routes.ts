@@ -275,4 +275,101 @@ router.post("/", async (request: Request, response: Response) => {
   });
 });
 
+const paymentAllocationParamsSchema = z.object({
+  allocationId: z.string().uuid(),
+});
+
+router.patch("/allocations/:allocationId/pay", async (request: Request, response: Response) => {
+  const paramsResult = paymentAllocationParamsSchema.safeParse(request.params);
+
+  if (!paramsResult.success) {
+    response.status(400).json({
+      success: false,
+      message: "Ödeme kaydı bilgisi geçersiz.",
+    });
+    return;
+  }
+
+  const { allocationId } = paramsResult.data;
+
+  const allocation = await prisma.paymentAllocation.findUnique({
+    where: {
+      id: allocationId,
+    },
+    select: {
+      id: true,
+      status: true,
+    },
+  });
+
+  if (!allocation) {
+    response.status(404).json({
+      success: false,
+      message: "Ödeme kaydı bulunamadı.",
+    });
+    return;
+  }
+
+  if (allocation.status === "PAID") {
+    response.status(409).json({
+      success: false,
+      message: "Bu ödeme zaten ödenmiş.",
+    });
+    return;
+  }
+
+  if (allocation.status === "CANCELLED") {
+    response.status(400).json({
+      success: false,
+      message: "İptal edilmiş ödeme ödenmiş olarak işaretlenemez.",
+    });
+    return;
+  }
+
+  const updatedAllocation = await prisma.paymentAllocation.update({
+    where: {
+      id: allocationId,
+    },
+    data: {
+      status: "PAID",
+      paidAt: new Date(),
+    },
+    include: {
+      apartment: {
+        select: {
+          id: true,
+          number: true,
+          floor: true,
+          block: {
+            select: {
+              id: true,
+              name: true,
+              site: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      },
+      paymentBatch: {
+        select: {
+          id: true,
+          title: true,
+          totalAmountKurus: true,
+          dueDate: true,
+        },
+      },
+    },
+  });
+
+  response.status(200).json({
+    success: true,
+    message: "Ödeme başarıyla ödenmiş olarak işaretlendi.",
+    data: updatedAllocation,
+  });
+});
+
 export default router;
