@@ -18,6 +18,11 @@ enum UserStatus {
   PASSIVE
 }
 
+enum ApartmentResidentType {
+  OWNER
+  TENANT
+}
+
 model User {
   id           String     @id @default(uuid())
   fullName     String
@@ -26,6 +31,7 @@ model User {
   passwordHash String
   role         UserRole
   status       UserStatus @default(ACTIVE)
+  apartmentResidents ApartmentResident[]
 
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
@@ -70,9 +76,28 @@ model Apartment {
   blockId     String
   block       Block    @relation(fields: [blockId], references: [id], onDelete: Cascade)
 
+  residents ApartmentResident[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([blockId])
   @@unique([blockId, number])
+}
+
+model ApartmentResident {
+  id          String                @id @default(uuid())
+  type        ApartmentResidentType
+
+  apartmentId String
+  apartment   Apartment             @relation(fields: [apartmentId], references: [id], onDelete: Cascade)
+
+  userId      String
+  user        User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  @@index([apartmentId])
+  @@index([userId])
+  @@unique([apartmentId, userId, type])
 }
