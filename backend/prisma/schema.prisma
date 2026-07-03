@@ -34,7 +34,11 @@ enum PaymentAllocationStatus {
   PAID
   CANCELLED
 }
-
+enum ReceiptStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
 model User {
   id           String     @id @default(uuid())
   fullName     String
@@ -44,6 +48,7 @@ model User {
   role         UserRole
   status       UserStatus @default(ACTIVE)
   apartmentResidents ApartmentResident[]
+  uploadedReceipts PaymentReceipt[]
 
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
@@ -154,6 +159,7 @@ model PaymentAllocation {
 
   apartmentId      String
   apartment        Apartment               @relation(fields: [apartmentId], references: [id], onDelete: Cascade)
+  receipts PaymentReceipt[]
 
   createdAt        DateTime                @default(now())
   updatedAt        DateTime                @updatedAt
@@ -177,4 +183,28 @@ model PaymentExemption {
   @@index([paymentBatchId])
   @@index([apartmentId])
   @@unique([paymentBatchId, apartmentId])
+}
+model PaymentReceipt {
+  id                  String        @id @default(uuid())
+
+  originalFileName    String
+  storedFileName      String
+  mimeType            String
+  sizeBytes           Int
+  status              ReceiptStatus @default(PENDING)
+
+  note                String?
+
+  paymentAllocationId String
+  paymentAllocation   PaymentAllocation @relation(fields: [paymentAllocationId], references: [id], onDelete: Cascade)
+
+  uploadedByUserId    String
+  uploadedByUser      User              @relation(fields: [uploadedByUserId], references: [id], onDelete: Cascade)
+
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  @@index([paymentAllocationId])
+  @@index([uploadedByUserId])
+  @@index([status])
 }
