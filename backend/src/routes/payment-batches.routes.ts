@@ -3,6 +3,13 @@ import { z } from "zod";
 
 import prisma from "../db/prisma.js";
 import { requireAuth, requireRole } from "../middlewares/auth.middleware.js";
+import {
+  distributeAmountToApartments,
+  excludeExemptApartments,
+  findInvalidExemptApartments,
+} from "../services/payment-distribution.service.js";
+import { asyncHandler } from "../utils/async-handler.js";
+import { HttpError } from "../utils/http-error.js";
 
 const router = express.Router();
 
@@ -16,50 +23,79 @@ const createPaymentBatchSchema = z.object({
   scopeType: z.enum(["SITE", "BLOCK", "APARTMENTS"]),
   siteId: z.string().uuid().optional(),
   blockId: z.string().uuid().optional(),
-  apartmentIds: z.array(z.string().uuid()).default([]),
-  exemptApartmentIds: z.array(z.string().uuid()).default([]),
-  dueDate: z.string().datetime(),
+  apartmentIds: z.array(z.string().uuid()).optional(),
+  exemptApartmentIds: z.array(z.string().uuid()).optional().default([]),
+  dueDate: z.coerce.date(),
 });
 
-function getDistributedAmounts(totalAmountKurus: number, count: number) {
-  const baseAmount = Math.floor(totalAmountKurus / count);
-  const remainder = totalAmountKurus % count;
+const allocationParamsSchema = z.object({
+  allocationId: z.string().uuid(),
+});
 
-  return Array.from({ length: count }, (_item, index) => {
-    return baseAmount + (index < remainder ? 1 : 0);
-  });
+function getUniqueIds(ids: string[] = []) {
+  return Array.from(new Set(ids));
 }
 
-router.get("/", async (_request: Request, response: Response) => {
-  const paymentBatches = await prisma.paymentBatch.findMany({
-    include: {
-      site: {
-        select: {
-          id: true,
-          name: true,
+router.get(
+  "/",
+  asyncHandler(async (_request: Request, response: Response) => {
+    const paymentBatches = await prisma.paymentBatch.findMany({
+      include: {
+        site: {
+          select: {
+            id: true,
+            name: true,
+          },
         },
-      },
-      block: {
-        select: {
-          id: true,
-          name: true,
+        block: {
+          select: {
+            id: true,
+            name: true,
+            site: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
         },
-      },
-      allocations: {
-        include: {
-          apartment: {
-            select: {
-              id: true,
-              number: true,
-              floor: true,
-              block: {
-                select: {
-                  id: true,
-                  name: true,
-                  site: {
-                    select: {
-                      id: true,
-                      name: true,
+        allocations: {
+          include: {
+            apartment: {
+              select: {
+                id: true,
+                number: true,
+                block: {
+                  select: {
+                    id: true,
+                    name: true,
+                    site: {
+                      select: {
+                        id: true,
+                        name: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        exemptions: {
+          include: {
+            apartment: {
+              select: {
+                id: true,
+                number: true,
+                block: {
+                  select: {
+                    id: true,
+                    name: true,
+                    site: {
+                      select: {
+                        id: true,
+                        name: true,
+                      },
                     },
                   },
                 },
@@ -68,308 +104,275 @@ router.get("/", async (_request: Request, response: Response) => {
           },
         },
       },
-      exemptions: {
-        include: {
-          apartment: {
-            select: {
-              id: true,
-              number: true,
-              block: {
-                select: {
-                  id: true,
-                  name: true,
-                },
-              },
-            },
-          },
-        },
+      orderBy: {
+        createdAt: "desc",
       },
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-  });
-
-  response.status(200).json({
-    success: true,
-    data: paymentBatches,
-  });
-});
-
-router.post("/", async (request: Request, response: Response) => {
-  const validationResult = createPaymentBatchSchema.safeParse(request.body);
-
-  if (!validationResult.success) {
-    response.status(400).json({
-      success: false,
-      message: "Gönderilen ödeme bilgileri geçersiz.",
-      errors: validationResult.error.flatten().fieldErrors,
     });
-    return;
-  }
 
-  const {
-    title,
-    description,
-    totalAmountKurus,
-    scopeType,
-    siteId,
-    blockId,
-    apartmentIds,
-    exemptApartmentIds,
-    dueDate,
-  } = validationResult.data;
+    response.status(200).json({
+      success: true,
+      data: paymentBatches,
+    });
+  })
+);
 
-  let targetApartments: Array<{ id: string }> = [];
+router.post(
+  "/",
+  asyncHandler(async (request: Request, response: Response) => {
+    const validationResult = createPaymentBatchSchema.safeParse(request.body);
 
-  if (scopeType === "SITE") {
-    if (!siteId) {
-      response.status(400).json({
-        success: false,
-        message: "Site kapsamı için siteId zorunludur.",
-      });
-      return;
+    if (!validationResult.success) {
+      throw new HttpError(
+        400,
+        "Gönderilen ödeme bilgileri geçersiz.",
+        validationResult.error.flatten().fieldErrors
+      );
     }
 
-    targetApartments = await prisma.apartment.findMany({
-      where: {
-        block: {
-          siteId,
-        },
-      },
-      select: {
-        id: true,
-      },
-    });
-  }
-
-  if (scopeType === "BLOCK") {
-    if (!blockId) {
-      response.status(400).json({
-        success: false,
-        message: "Blok kapsamı için blockId zorunludur.",
-      });
-      return;
-    }
-
-    targetApartments = await prisma.apartment.findMany({
-      where: {
-        blockId,
-      },
-      select: {
-        id: true,
-      },
-    });
-  }
-
-  if (scopeType === "APARTMENTS") {
-    if (apartmentIds.length === 0) {
-      response.status(400).json({
-        success: false,
-        message: "Belirli daireler kapsamı için en az bir daire seçilmelidir.",
-      });
-      return;
-    }
-
-    targetApartments = await prisma.apartment.findMany({
-      where: {
-        id: {
-          in: apartmentIds,
-        },
-      },
-      select: {
-        id: true,
-      },
-    });
-  }
-
-  if (targetApartments.length === 0) {
-    response.status(400).json({
-      success: false,
-      message: "Ödeme için uygun daire bulunamadı.",
-    });
-    return;
-  }
-
-  const targetApartmentIds = [...new Set(targetApartments.map((apartment) => apartment.id))];
-  const targetApartmentIdSet = new Set(targetApartmentIds);
-
-  const uniqueExemptApartmentIds = [...new Set(exemptApartmentIds)];
-
-  const invalidExemptApartmentIds = uniqueExemptApartmentIds.filter((apartmentId) => {
-    return !targetApartmentIdSet.has(apartmentId);
-  });
-
-  if (invalidExemptApartmentIds.length > 0) {
-    response.status(400).json({
-      success: false,
-      message: "Muaf seçilen dairelerden bazıları ödeme kapsamı içinde değil.",
-    });
-    return;
-  }
-
-  const payableApartmentIds = targetApartmentIds.filter((apartmentId) => {
-    return !uniqueExemptApartmentIds.includes(apartmentId);
-  });
-
-  if (payableApartmentIds.length === 0) {
-    response.status(400).json({
-      success: false,
-      message: "Muaf dairelerden sonra ödeme atanacak daire kalmadı.",
-    });
-    return;
-  }
-
-  const distributedAmounts = getDistributedAmounts(totalAmountKurus, payableApartmentIds.length);
-
-  const paymentBatch = await prisma.paymentBatch.create({
-    data: {
+    const {
       title,
       description,
       totalAmountKurus,
       scopeType,
-      dueDate: new Date(dueDate),
-      siteId: scopeType === "SITE" ? siteId : undefined,
-      blockId: scopeType === "BLOCK" ? blockId : undefined,
-      exemptions: {
-        create: uniqueExemptApartmentIds.map((apartmentId) => ({
-          apartmentId,
-        })),
-      },
-      allocations: {
-        create: payableApartmentIds.map((apartmentId, index) => ({
-          apartmentId,
-          amountKurus: distributedAmounts[index],
-        })),
-      },
-    },
-    include: {
-      allocations: {
-        include: {
-          apartment: {
-            select: {
-              id: true,
-              number: true,
-              floor: true,
-            },
-          },
+      siteId,
+      blockId,
+      apartmentIds,
+      exemptApartmentIds,
+      dueDate,
+    } = validationResult.data;
+
+    let scopedApartmentIds: string[] = [];
+    let paymentBatchSiteId: string | undefined;
+    let paymentBatchBlockId: string | undefined;
+
+    if (scopeType === "SITE") {
+      if (!siteId) {
+        throw new HttpError(400, "Site seçimi zorunludur.");
+      }
+
+      const site = await prisma.site.findUnique({
+        where: {
+          id: siteId,
         },
-      },
-      exemptions: {
-        include: {
-          apartment: {
-            select: {
-              id: true,
-              number: true,
-            },
-          },
-        },
-      },
-    },
-  });
-
-  response.status(201).json({
-    success: true,
-    message: "Ödeme başarıyla oluşturuldu ve dairelere dağıtıldı.",
-    data: paymentBatch,
-  });
-});
-
-const paymentAllocationParamsSchema = z.object({
-  allocationId: z.string().uuid(),
-});
-
-router.patch("/allocations/:allocationId/pay", async (request: Request, response: Response) => {
-  const paramsResult = paymentAllocationParamsSchema.safeParse(request.params);
-
-  if (!paramsResult.success) {
-    response.status(400).json({
-      success: false,
-      message: "Ödeme kaydı bilgisi geçersiz.",
-    });
-    return;
-  }
-
-  const { allocationId } = paramsResult.data;
-
-  const allocation = await prisma.paymentAllocation.findUnique({
-    where: {
-      id: allocationId,
-    },
-    select: {
-      id: true,
-      status: true,
-    },
-  });
-
-  if (!allocation) {
-    response.status(404).json({
-      success: false,
-      message: "Ödeme kaydı bulunamadı.",
-    });
-    return;
-  }
-
-  if (allocation.status === "PAID") {
-    response.status(409).json({
-      success: false,
-      message: "Bu ödeme zaten ödenmiş.",
-    });
-    return;
-  }
-
-  if (allocation.status === "CANCELLED") {
-    response.status(400).json({
-      success: false,
-      message: "İptal edilmiş ödeme ödenmiş olarak işaretlenemez.",
-    });
-    return;
-  }
-
-  const updatedAllocation = await prisma.paymentAllocation.update({
-    where: {
-      id: allocationId,
-    },
-    data: {
-      status: "PAID",
-      paidAt: new Date(),
-    },
-    include: {
-      apartment: {
         select: {
           id: true,
-          number: true,
-          floor: true,
+        },
+      });
+
+      if (!site) {
+        throw new HttpError(404, "Site bulunamadı.");
+      }
+
+      const apartments = await prisma.apartment.findMany({
+        where: {
           block: {
-            select: {
-              id: true,
-              name: true,
-              site: {
-                select: {
-                  id: true,
-                  name: true,
-                },
+            siteId,
+          },
+        },
+        select: {
+          id: true,
+        },
+        orderBy: {
+          createdAt: "asc",
+        },
+      });
+
+      scopedApartmentIds = apartments.map((apartment) => apartment.id);
+      paymentBatchSiteId = siteId;
+    }
+
+    if (scopeType === "BLOCK") {
+      if (!blockId) {
+        throw new HttpError(400, "Blok/Apartman seçimi zorunludur.");
+      }
+
+      const block = await prisma.block.findUnique({
+        where: {
+          id: blockId,
+        },
+        select: {
+          id: true,
+          siteId: true,
+        },
+      });
+
+      if (!block) {
+        throw new HttpError(404, "Blok/Apartman bulunamadı.");
+      }
+
+      const apartments = await prisma.apartment.findMany({
+        where: {
+          blockId,
+        },
+        select: {
+          id: true,
+        },
+        orderBy: {
+          createdAt: "asc",
+        },
+      });
+
+      scopedApartmentIds = apartments.map((apartment) => apartment.id);
+      paymentBatchSiteId = block.siteId;
+      paymentBatchBlockId = blockId;
+    }
+
+    if (scopeType === "APARTMENTS") {
+      const uniqueApartmentIds = getUniqueIds(apartmentIds);
+
+      if (uniqueApartmentIds.length === 0) {
+        throw new HttpError(400, "En az bir daire seçilmelidir.");
+      }
+
+      const apartments = await prisma.apartment.findMany({
+        where: {
+          id: {
+            in: uniqueApartmentIds,
+          },
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (apartments.length !== uniqueApartmentIds.length) {
+        throw new HttpError(404, "Seçilen dairelerden bazıları bulunamadı.");
+      }
+
+      scopedApartmentIds = apartments.map((apartment) => apartment.id);
+    }
+
+    if (scopedApartmentIds.length === 0) {
+      throw new HttpError(400, "Ödeme oluşturulacak daire bulunamadı.");
+    }
+
+    const uniqueExemptApartmentIds = getUniqueIds(exemptApartmentIds);
+
+    const invalidExemptApartmentIds = findInvalidExemptApartments(
+      scopedApartmentIds,
+      uniqueExemptApartmentIds
+    );
+
+    if (invalidExemptApartmentIds.length > 0) {
+      throw new HttpError(400, "Muaf seçilen daireler ödeme kapsamı içinde değil.", {
+        exemptApartmentIds: invalidExemptApartmentIds,
+      });
+    }
+
+    const payableApartmentIds = excludeExemptApartments(
+      scopedApartmentIds,
+      uniqueExemptApartmentIds
+    );
+
+    if (payableApartmentIds.length === 0) {
+      throw new HttpError(400, "Muaf olmayan en az bir daire bulunmalıdır.");
+    }
+
+    const distributions = distributeAmountToApartments(
+      totalAmountKurus,
+      payableApartmentIds
+    );
+
+    const paymentBatch = await prisma.paymentBatch.create({
+      data: {
+        title,
+        description,
+        totalAmountKurus,
+        scopeType,
+        dueDate,
+        siteId: paymentBatchSiteId,
+        blockId: paymentBatchBlockId,
+        exemptions: {
+          create: uniqueExemptApartmentIds.map((apartmentId) => {
+            return {
+              apartmentId,
+            };
+          }),
+        },
+        allocations: {
+          create: distributions.map((distribution) => {
+            return {
+              apartmentId: distribution.apartmentId,
+              amountKurus: distribution.amountKurus,
+            };
+          }),
+        },
+      },
+      include: {
+        allocations: true,
+        exemptions: true,
+      },
+    });
+
+    response.status(201).json({
+      success: true,
+      message: "Ödeme başarıyla oluşturuldu.",
+      data: paymentBatch,
+    });
+  })
+);
+
+router.patch(
+  "/allocations/:allocationId/pay",
+  asyncHandler(async (request: Request, response: Response) => {
+    const paramsResult = allocationParamsSchema.safeParse(request.params);
+
+    if (!paramsResult.success) {
+      throw new HttpError(400, "Ödeme kaydı bilgisi geçersiz.");
+    }
+
+    const { allocationId } = paramsResult.data;
+
+    const allocation = await prisma.paymentAllocation.findUnique({
+      where: {
+        id: allocationId,
+      },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+
+    if (!allocation) {
+      throw new HttpError(404, "Ödeme kaydı bulunamadı.");
+    }
+
+    if (allocation.status === "PAID") {
+      throw new HttpError(409, "Bu ödeme zaten ödenmiş.");
+    }
+
+    if (allocation.status === "CANCELLED") {
+      throw new HttpError(400, "İptal edilmiş ödeme ödenmiş olarak işaretlenemez.");
+    }
+
+    const updatedAllocation = await prisma.paymentAllocation.update({
+      where: {
+        id: allocationId,
+      },
+      data: {
+        status: "PAID",
+        paidAt: new Date(),
+      },
+      include: {
+        apartment: {
+          include: {
+            block: {
+              include: {
+                site: true,
               },
             },
           },
         },
+        paymentBatch: true,
       },
-      paymentBatch: {
-        select: {
-          id: true,
-          title: true,
-          totalAmountKurus: true,
-          dueDate: true,
-        },
-      },
-    },
-  });
+    });
 
-  response.status(200).json({
-    success: true,
-    message: "Ödeme başarıyla ödenmiş olarak işaretlendi.",
-    data: updatedAllocation,
-  });
-});
+    response.status(200).json({
+      success: true,
+      message: "Ödeme ödenmiş olarak işaretlendi.",
+      data: updatedAllocation,
+    });
+  })
+);
 
 export default router;
