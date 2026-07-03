@@ -2,14 +2,18 @@ import express, { type Request, type Response } from "express";
 import { z } from "zod";
 
 import prisma from "../db/prisma.js";
-import { requireAuth, requireRole } from "../middlewares/auth.middleware.js";
+import {
+  requireAuth,
+  requireRole,
+  type AuthenticatedRequest,
+} from "../middlewares/auth.middleware.js";
+
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
-
+import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
 const router = express.Router();
 
 router.use(requireAuth);
-router.use(requireRole("SUPER_ADMIN"));
 
 const getBlocksQuerySchema = z.object({
   siteId: z.string().uuid().optional(),
@@ -23,6 +27,7 @@ const createBlockSchema = z.object({
 
 router.get(
   "/",
+  requireRole("SUPER_ADMIN", "MANAGER"),
   asyncHandler(async (request: Request, response: Response) => {
     const queryResult = getBlocksQuerySchema.safeParse(request.query);
 
@@ -35,13 +40,65 @@ router.get(
     }
 
     const { siteId } = queryResult.data;
+    
+        const authenticatedRequest = request as AuthenticatedRequest;
 
-    const blocks = await prisma.block.findMany({
-      where: siteId
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    let whereCondition:
+      | {
+          siteId?: string;
+          OR?: Array<{
+            siteId?: {
+              in: string[];
+            };
+            id?: {
+              in: string[];
+            };
+          }>;
+        }
+      | undefined = siteId
+      ? {
+          siteId,
+        }
+      : undefined;
+
+    if (authenticatedRequest.user.role === "MANAGER") {
+      const managerScope = await getManagerScope(authenticatedRequest.user.id);
+
+      if (!hasManagerScope(managerScope)) {
+        throw new HttpError(403, "Bu yöneticiye atanmış bir site veya blok bulunamadı.");
+      }
+
+      const managerWhereCondition = {
+        OR: [
+          {
+            siteId: {
+              in: managerScope.siteIds,
+            },
+          },
+          {
+            id: {
+              in: managerScope.blockIds,
+            },
+          },
+        ],
+      };
+
+      if (siteId && !managerScope.siteIds.includes(siteId)) {
+        throw new HttpError(403, "Bu siteye ait blokları görüntüleme yetkiniz yok.");
+      }
+
+      whereCondition = siteId
         ? {
             siteId,
           }
-        : undefined,
+        : managerWhereCondition;
+    }
+    const blocks = await prisma.block.findMany({
+      where: whereCondition,
       include: {
         site: {
           select: {
@@ -70,6 +127,7 @@ router.get(
 
 router.post(
   "/",
+  requireRole("SUPER_ADMIN"),
   asyncHandler(async (request: Request, response: Response) => {
     const validationResult = createBlockSchema.safeParse(request.body);
 
