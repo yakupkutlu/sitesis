@@ -137,19 +137,41 @@ router.post(
     const { paymentAllocationId, note } = validationResult.data;
 
     const allocation = await prisma.paymentAllocation.findUnique({
-      where: {
-        id: paymentAllocationId,
-      },
+  where: {
+    id: paymentAllocationId,
+  },
+  select: {
+    id: true,
+    apartment: {
       select: {
-        id: true,
+        residents: {
+          where: {
+            userId: authenticatedRequest.user.id,
+          },
+          select: {
+            id: true,
+          },
+          take: 1,
+        },
       },
-    });
+    },
+  },
+});
 
-    if (!allocation) {
-      await deleteUploadedFile(request.file);
+if (!allocation) {
+  await deleteUploadedFile(request.file);
 
-      throw new HttpError(404, "Ödeme kaydı bulunamadı.");
-    }
+  throw new HttpError(404, "Ödeme kaydı bulunamadı.");
+}
+
+const isSuperAdmin = authenticatedRequest.user.role === "SUPER_ADMIN";
+const isResidentOwnerOfApartment = allocation.apartment.residents.length > 0;
+
+if (!isSuperAdmin && !isResidentOwnerOfApartment) {
+  await deleteUploadedFile(request.file);
+
+  throw new HttpError(403, "Bu ödeme kaydı için dekont yükleme yetkiniz yok.");
+}
 
     const receipt = await prisma.paymentReceipt.create({
       data: {
