@@ -12,6 +12,9 @@ import usersRoutes from "./routes/users.routes.js";
 import authRoutes from "./routes/auth.routes.js";
 
 import sitesRoutes from "./routes/sites.routes.js";
+
+import blocksRoutes from "./routes/blocks.routes.js";
+
 const app = express();
 
 const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
@@ -48,6 +51,8 @@ app.use("/api/users", usersRoutes);
 app.use("/api/auth", authRoutes);
 
 app.use("/api/sites", sitesRoutes);
+
+app.use("/api/blocks", blocksRoutes);
 
 app.use((_request: Request, response: Response) => {
   response.status(404).json({
