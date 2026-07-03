@@ -2,14 +2,16 @@ import express, { type Request, type Response } from "express";
 import { z } from "zod";
 
 import prisma from "../db/prisma.js";
-import { requireAuth, requireRole } from "../middlewares/auth.middleware.js";
+import {requireAuth,requireRole,type AuthenticatedRequest,} from "../middlewares/auth.middleware.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
+
+import { type Prisma } from "../generated/prisma/client.js";
+import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
 
 const router = express.Router();
 
 router.use(requireAuth);
-router.use(requireRole("SUPER_ADMIN"));
 
 const createSiteSchema = z.object({
   name: z.string().trim().min(2),
@@ -22,8 +24,52 @@ const createSiteSchema = z.object({
 
 router.get(
   "/",
-  asyncHandler(async (_request: Request, response: Response) => {
+  requireRole("SUPER_ADMIN", "MANAGER"),
+  asyncHandler(async (request: Request, response: Response) => {
+        const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    let whereCondition: Prisma.SiteWhereInput | undefined;
+
+    if (authenticatedRequest.user.role === "MANAGER") {
+      const managerScope = await getManagerScope(authenticatedRequest.user.id);
+
+      if (!hasManagerScope(managerScope)) {
+        throw new HttpError(403, "Bu yöneticiye atanmış bir site veya blok bulunamadı.");
+      }
+
+      const managerFilters: Prisma.SiteWhereInput[] = [];
+
+      if (managerScope.siteIds.length > 0) {
+        managerFilters.push({
+          id: {
+            in: managerScope.siteIds,
+          },
+        });
+      }
+
+      if (managerScope.blockIds.length > 0) {
+        managerFilters.push({
+          blocks: {
+            some: {
+              id: {
+                in: managerScope.blockIds,
+              },
+            },
+          },
+        });
+      }
+
+      whereCondition = {
+        OR: managerFilters,
+      };
+    }
+
     const sites = await prisma.site.findMany({
+      where: whereCondition,
       include: {
         blocks: {
           select: {
@@ -57,6 +103,7 @@ router.get(
 
 router.post(
   "/",
+  requireRole("SUPER_ADMIN"),
   asyncHandler(async (request: Request, response: Response) => {
     const validationResult = createSiteSchema.safeParse(request.body);
 
