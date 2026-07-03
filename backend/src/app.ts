@@ -23,6 +23,8 @@ import paymentBatchesRoutes from "./routes/payment-batches.routes.js";
 
 import paymentReceiptsRoutes from "./routes/payment-receipts.routes.js";
 
+import { errorHandler } from "./middlewares/error.middleware.js";
+
 const app = express();
 
 const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
@@ -69,11 +71,14 @@ app.use("/api/apartment-residents", apartmentResidentsRoutes);
 app.use("/api/payment-batches", paymentBatchesRoutes);
 
 app.use("/api/payment-receipts", paymentReceiptsRoutes);
+
 app.use((_request: Request, response: Response) => {
   response.status(404).json({
     success: false,
     message: "API adresi bulunamadı.",
   });
 });
+
+app.use(errorHandler);
 
 export default app;
