@@ -48,7 +48,8 @@ model User {
   role         UserRole
   status       UserStatus @default(ACTIVE)
   apartmentResidents ApartmentResident[]
-  uploadedReceipts PaymentReceipt[]
+  uploadedReceipts PaymentReceipt[] @relation("UploadedReceipts")
+  reviewedReceipts PaymentReceipt[] @relation("ReviewedReceipts")
 
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
@@ -194,17 +195,23 @@ model PaymentReceipt {
   status              ReceiptStatus @default(PENDING)
 
   note                String?
+  reviewNote          String?
+  reviewedAt          DateTime?
 
   paymentAllocationId String
   paymentAllocation   PaymentAllocation @relation(fields: [paymentAllocationId], references: [id], onDelete: Cascade)
 
   uploadedByUserId    String
-  uploadedByUser      User              @relation(fields: [uploadedByUserId], references: [id], onDelete: Cascade)
+  uploadedByUser      User              @relation("UploadedReceipts", fields: [uploadedByUserId], references: [id], onDelete: Cascade)
+
+  reviewedByUserId    String?
+  reviewedByUser      User?             @relation("ReviewedReceipts", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
 
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
 
   @@index([paymentAllocationId])
   @@index([uploadedByUserId])
+  @@index([reviewedByUserId])
   @@index([status])
 }

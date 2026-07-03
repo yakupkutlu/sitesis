@@ -136,4 +136,190 @@ router.post(
   }
 );
 
+const receiptParamsSchema = z.object({
+  receiptId: z.string().uuid(),
+});
+
+const reviewReceiptSchema = z.object({
+  reviewNote: z.string().trim().optional(),
+});
+
+router.patch(
+  "/:receiptId/approve",
+  requireRole("SUPER_ADMIN"),
+  async (request: AuthenticatedRequest, response: Response) => {
+    const paramsResult = receiptParamsSchema.safeParse(request.params);
+    const bodyResult = reviewReceiptSchema.safeParse(request.body);
+
+    if (!paramsResult.success || !bodyResult.success) {
+      response.status(400).json({
+        success: false,
+        message: "Dekont onay bilgileri geçersiz.",
+      });
+      return;
+    }
+
+    if (!request.user) {
+      response.status(401).json({
+        success: false,
+        message: "Oturum bulunamadı.",
+      });
+      return;
+    }
+
+    const { receiptId } = paramsResult.data;
+    const { reviewNote } = bodyResult.data;
+
+    const receipt = await prisma.paymentReceipt.findUnique({
+      where: {
+        id: receiptId,
+      },
+      select: {
+        id: true,
+        status: true,
+        paymentAllocationId: true,
+      },
+    });
+
+    if (!receipt) {
+      response.status(404).json({
+        success: false,
+        message: "Dekont bulunamadı.",
+      });
+      return;
+    }
+
+    if (receipt.status === "APPROVED") {
+      response.status(409).json({
+        success: false,
+        message: "Bu dekont zaten onaylanmış.",
+      });
+      return;
+    }
+
+    if (receipt.status === "REJECTED") {
+      response.status(409).json({
+        success: false,
+        message: "Reddedilmiş dekont onaylanamaz.",
+      });
+      return;
+    }
+
+    const result = await prisma.$transaction(async (transaction) => {
+      const approvedReceipt = await transaction.paymentReceipt.update({
+        where: {
+          id: receiptId,
+        },
+        data: {
+          status: "APPROVED",
+          reviewNote,
+          reviewedAt: new Date(),
+          reviewedByUserId: request.user!.id,
+        },
+      });
+
+      const updatedAllocation = await transaction.paymentAllocation.update({
+        where: {
+          id: receipt.paymentAllocationId,
+        },
+        data: {
+          status: "PAID",
+          paidAt: new Date(),
+        },
+      });
+
+      return {
+        receipt: approvedReceipt,
+        paymentAllocation: updatedAllocation,
+      };
+    });
+
+    response.status(200).json({
+      success: true,
+      message: "Dekont onaylandı ve ödeme ödenmiş olarak işaretlendi.",
+      data: result,
+    });
+  }
+);
+
+router.patch(
+  "/:receiptId/reject",
+  requireRole("SUPER_ADMIN"),
+  async (request: AuthenticatedRequest, response: Response) => {
+    const paramsResult = receiptParamsSchema.safeParse(request.params);
+    const bodyResult = reviewReceiptSchema.safeParse(request.body);
+
+    if (!paramsResult.success || !bodyResult.success) {
+      response.status(400).json({
+        success: false,
+        message: "Dekont red bilgileri geçersiz.",
+      });
+      return;
+    }
+
+    if (!request.user) {
+      response.status(401).json({
+        success: false,
+        message: "Oturum bulunamadı.",
+      });
+      return;
+    }
+
+    const { receiptId } = paramsResult.data;
+    const { reviewNote } = bodyResult.data;
+
+    const receipt = await prisma.paymentReceipt.findUnique({
+      where: {
+        id: receiptId,
+      },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+
+    if (!receipt) {
+      response.status(404).json({
+        success: false,
+        message: "Dekont bulunamadı.",
+      });
+      return;
+    }
+
+    if (receipt.status === "APPROVED") {
+      response.status(409).json({
+        success: false,
+        message: "Onaylanmış dekont reddedilemez.",
+      });
+      return;
+    }
+
+    if (receipt.status === "REJECTED") {
+      response.status(409).json({
+        success: false,
+        message: "Bu dekont zaten reddedilmiş.",
+      });
+      return;
+    }
+
+    const rejectedReceipt = await prisma.paymentReceipt.update({
+      where: {
+        id: receiptId,
+      },
+      data: {
+        status: "REJECTED",
+        reviewNote,
+        reviewedAt: new Date(),
+        reviewedByUserId: request.user.id,
+      },
+    });
+
+    response.status(200).json({
+      success: true,
+      message: "Dekont reddedildi.",
+      data: rejectedReceipt,
+    });
+  }
+);
+
 export default router;
