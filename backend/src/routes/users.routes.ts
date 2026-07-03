@@ -4,7 +4,12 @@ import { z } from "zod";
 
 import prisma from "../db/prisma.js";
 
+import { requireAuth, requireRole } from "../middlewares/auth.middleware.js";
+
 const router = express.Router();
+
+router.use(requireAuth);
+router.use(requireRole("SUPER_ADMIN"));
 
 const createUserSchema = z.object({
   fullName: z.string().trim().min(2),
