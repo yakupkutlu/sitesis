@@ -25,6 +25,7 @@ import paymentReceiptsRoutes from "./routes/payment-receipts.routes.js";
 
 import { errorHandler } from "./middlewares/error.middleware.js";
 
+import managerAssignmentsRoutes from "./routes/manager-assignments.routes.js";
 const app = express();
 
 const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
@@ -58,6 +59,8 @@ app.use("/api/health", healthRoutes);
 
 app.use("/api/users", usersRoutes);
 
+app.use("/api/manager-assignments", managerAssignmentsRoutes);
+
 app.use("/api/auth", authRoutes);
 
 app.use("/api/sites", sitesRoutes);
@@ -71,6 +74,7 @@ app.use("/api/apartment-residents", apartmentResidentsRoutes);
 app.use("/api/payment-batches", paymentBatchesRoutes);
 
 app.use("/api/payment-receipts", paymentReceiptsRoutes);
+
 
 app.use((_request: Request, response: Response) => {
   response.status(404).json({
