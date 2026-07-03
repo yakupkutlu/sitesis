@@ -2,14 +2,13 @@ import express, { type Request, type Response } from "express";
 import { z } from "zod";
 
 import prisma from "../db/prisma.js";
-import { requireAuth, requireRole } from "../middlewares/auth.middleware.js";
+import {requireAuth,requireRole,type AuthenticatedRequest,} from "../middlewares/auth.middleware.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
-
+import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
 const router = express.Router();
 
 router.use(requireAuth);
-router.use(requireRole("SUPER_ADMIN"));
 
 const getApartmentsQuerySchema = z.object({
   blockId: z.string().uuid().optional(),
@@ -24,6 +23,7 @@ const createApartmentSchema = z.object({
 
 router.get(
   "/",
+  requireRole("SUPER_ADMIN", "MANAGER"),
   asyncHandler(async (request: Request, response: Response) => {
     const queryResult = getApartmentsQuerySchema.safeParse(request.query);
 
@@ -36,13 +36,88 @@ router.get(
     }
 
     const { blockId } = queryResult.data;
+    
+        const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    let whereCondition:
+      | {
+          blockId?: string;
+          OR?: Array<{
+            blockId?: {
+              in: string[];
+            };
+            block?: {
+              siteId: {
+                in: string[];
+              };
+            };
+          }>;
+        }
+      | undefined = blockId
+      ? {
+          blockId,
+        }
+      : undefined;
+
+    if (authenticatedRequest.user.role === "MANAGER") {
+      const managerScope = await getManagerScope(authenticatedRequest.user.id);
+
+      if (!hasManagerScope(managerScope)) {
+        throw new HttpError(403, "Bu yöneticiye atanmış bir site veya blok bulunamadı.");
+      }
+
+      if (blockId) {
+        const selectedBlock = await prisma.block.findUnique({
+          where: {
+            id: blockId,
+          },
+          select: {
+            id: true,
+            siteId: true,
+          },
+        });
+
+        if (!selectedBlock) {
+          throw new HttpError(404, "Blok/Apartman bulunamadı.");
+        }
+
+        const canAccessBlock =
+          managerScope.blockIds.includes(selectedBlock.id) ||
+          managerScope.siteIds.includes(selectedBlock.siteId);
+
+        if (!canAccessBlock) {
+          throw new HttpError(403, "Bu blok/apartmana ait daireleri görüntüleme yetkiniz yok.");
+        }
+
+        whereCondition = {
+          blockId,
+        };
+      } else {
+        whereCondition = {
+          OR: [
+            {
+              blockId: {
+                in: managerScope.blockIds,
+              },
+            },
+            {
+              block: {
+                siteId: {
+                  in: managerScope.siteIds,
+                },
+              },
+            },
+          ],
+        };
+      }
+    }
 
     const apartments = await prisma.apartment.findMany({
-      where: blockId
-        ? {
-            blockId,
-          }
-        : undefined,
+      where: whereCondition,
       include: {
         block: {
           select: {
@@ -78,6 +153,7 @@ router.get(
 
 router.post(
   "/",
+  requireRole("SUPER_ADMIN"),
   asyncHandler(async (request: Request, response: Response) => {
     const validationResult = createApartmentSchema.safeParse(request.body);
 
