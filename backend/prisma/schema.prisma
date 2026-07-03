@@ -53,8 +53,26 @@ model Block {
   siteId      String
   site        Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
 
+  apartments  Apartment[]
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([siteId])
+}
+
+model Apartment {
+  id          String   @id @default(uuid())
+  number      String
+  floor       Int?
+  description String?
+
+  blockId     String
+  block       Block    @relation(fields: [blockId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([blockId])
+  @@unique([blockId, number])
 }
