@@ -12,7 +12,8 @@ import {
 import { receiptUpload } from "../uploads/receipt-upload.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
-
+import { type Prisma } from "../generated/prisma/client.js";
+import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
 const router = express.Router();
 
 router.use(requireAuth);
@@ -41,12 +42,79 @@ async function deleteUploadedFile(file?: Express.Multer.File) {
     console.error("Yüklenen dosya silinemedi:", error);
   }
 }
+async function getManagerReceiptAccessFilter(managerId: string) {
+  const managerScope = await getManagerScope(managerId);
+
+  if (!hasManagerScope(managerScope)) {
+    throw new HttpError(403, "Bu yöneticiye atanmış bir site veya blok bulunamadı.");
+  }
+
+  const filter: Prisma.PaymentReceiptWhereInput = {
+    OR: [
+      {
+        paymentAllocation: {
+          apartment: {
+            blockId: {
+              in: managerScope.blockIds,
+            },
+          },
+        },
+      },
+      {
+        paymentAllocation: {
+          apartment: {
+            block: {
+              siteId: {
+                in: managerScope.siteIds,
+              },
+            },
+          },
+        },
+      },
+    ],
+  };
+
+  return filter;
+}
+
+async function ensureManagerCanAccessReceipt(params: {
+  managerId: string;
+  receiptId: string;
+}) {
+  const managerReceiptFilter = await getManagerReceiptAccessFilter(params.managerId);
+
+  const receipt = await prisma.paymentReceipt.findFirst({
+    where: {
+      id: params.receiptId,
+      AND: [managerReceiptFilter],
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (!receipt) {
+    throw new HttpError(403, "Bu dekont için işlem yapma yetkiniz yok.");
+  }
+}
 
 router.get(
   "/",
-  requireRole("SUPER_ADMIN"),
+  requireRole("SUPER_ADMIN", "MANAGER"),
   asyncHandler(async (_request: Request, response: Response) => {
+    const authenticatedRequest = _request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    let whereCondition: Prisma.PaymentReceiptWhereInput | undefined;
+
+    if (authenticatedRequest.user.role === "MANAGER") {
+      whereCondition = await getManagerReceiptAccessFilter(authenticatedRequest.user.id);
+    }
     const receipts = await prisma.paymentReceipt.findMany({
+      where: whereCondition,
       include: {
         uploadedByUser: {
           select: {
@@ -195,7 +263,8 @@ if (!isSuperAdmin && !isResidentOwnerOfApartment) {
 
 router.patch(
   "/:receiptId/approve",
-  requireRole("SUPER_ADMIN"),
+  requireRole("SUPER_ADMIN", "MANAGER"),
+
   asyncHandler(async (request: Request, response: Response) => {
     const authenticatedRequest = request as AuthenticatedRequest;
 
@@ -212,7 +281,14 @@ router.patch(
 
     const { receiptId } = paramsResult.data;
     const { reviewNote } = bodyResult.data;
-
+    
+    if (authenticatedRequest.user.role === "MANAGER") {
+      await ensureManagerCanAccessReceipt({
+        managerId: authenticatedRequest.user.id,
+        receiptId,
+      });
+    }
+    
     const receipt = await prisma.paymentReceipt.findUnique({
       where: {
         id: receiptId,
@@ -275,7 +351,7 @@ router.patch(
 
 router.patch(
   "/:receiptId/reject",
-  requireRole("SUPER_ADMIN"),
+  requireRole("SUPER_ADMIN", "MANAGER"),
   asyncHandler(async (request: Request, response: Response) => {
     const authenticatedRequest = request as AuthenticatedRequest;
 
@@ -292,7 +368,13 @@ router.patch(
 
     const { receiptId } = paramsResult.data;
     const { reviewNote } = bodyResult.data;
-
+    
+        if (authenticatedRequest.user.role === "MANAGER") {
+      await ensureManagerCanAccessReceipt({
+        managerId: authenticatedRequest.user.id,
+        receiptId,
+      });
+    }
     const receipt = await prisma.paymentReceipt.findUnique({
       where: {
         id: receiptId,
