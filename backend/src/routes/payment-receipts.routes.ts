@@ -7,17 +7,13 @@ import { z } from "zod";
 
 import prisma from "../db/prisma.js";
 import { type Prisma } from "../generated/prisma/client.js";
-import {
-  requireAuth,
-  requireRole,
-  type AuthenticatedRequest,
-} from "../middlewares/auth.middleware.js";
+import {requireAuth,requireRole,type AuthenticatedRequest,} from "../middlewares/auth.middleware.js";
 import { createAuditLog } from "../services/audit-log.service.js";
 import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
 import { receiptUpload } from "../uploads/receipt-upload.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
-
+import { isAllowedReceiptFile } from "../utils/file-signature.js";
 const router = express.Router();
 
 router.use(requireAuth);
@@ -289,7 +285,14 @@ router.post(
     if (!request.file) {
       throw new HttpError(400, "Dekont dosyası zorunludur.");
     }
-
+    const isAllowedFile = await isAllowedReceiptFile(
+      request.file.path,
+      request.file.mimetype
+    );
+    if (!isAllowedFile) {
+     await deleteUploadedFile(request.file);
+     throw new HttpError(400, "Dekont dosyası gerçek PDF, PNG, JPG veya WEBP formatında olmalıdır.");
+    }
     if (!authenticatedRequest.user) {
       await deleteUploadedFile(request.file);
 
