@@ -56,6 +56,7 @@ model User {
   uploadedReceipts PaymentReceipt[] @relation("UploadedReceipts")
   reviewedReceipts PaymentReceipt[] @relation("ReviewedReceipts")
   managerAssignments ManagerAssignment[] @relation("ManagerAssignments")
+  auditLogs AuditLog[] @relation("UserAuditLogs")
 
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
@@ -243,4 +244,26 @@ model ManagerAssignment {
   @@index([siteId])
   @@index([blockId])
   @@index([scopeType])
+}
+model AuditLog {
+  id         String   @id @default(uuid())
+
+  userId     String?
+  user       User?    @relation("UserAuditLogs", fields: [userId], references: [id], onDelete: SetNull)
+
+  action     String
+  entityType String
+  entityId   String?
+
+  ipAddress  String?
+  userAgent  String?
+  metadata   Json?
+
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([entityType])
+  @@index([entityId])
+  @@index([createdAt])
 }
