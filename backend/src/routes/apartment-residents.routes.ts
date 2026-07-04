@@ -2,14 +2,19 @@ import express, { type Request, type Response } from "express";
 import { z } from "zod";
 
 import prisma from "../db/prisma.js";
-import { requireAuth, requireRole } from "../middlewares/auth.middleware.js";
+import { type Prisma } from "../generated/prisma/client.js";
+import {
+  requireAuth,
+  requireRole,
+  type AuthenticatedRequest,
+} from "../middlewares/auth.middleware.js";
+import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
 
 const router = express.Router();
 
 router.use(requireAuth);
-router.use(requireRole("SUPER_ADMIN"));
 
 const createApartmentResidentSchema = z.object({
   apartmentId: z.string().uuid(),
@@ -17,10 +22,55 @@ const createApartmentResidentSchema = z.object({
   type: z.enum(["OWNER", "TENANT"]),
 });
 
+async function getManagerApartmentResidentFilter(managerId: string) {
+  const managerScope = await getManagerScope(managerId);
+
+  if (!hasManagerScope(managerScope)) {
+    throw new HttpError(403, "Bu yöneticiye atanmış bir site veya blok bulunamadı.");
+  }
+
+  const filter: Prisma.ApartmentResidentWhereInput = {
+    OR: [
+      {
+        apartment: {
+          blockId: {
+            in: managerScope.blockIds,
+          },
+        },
+      },
+      {
+        apartment: {
+          block: {
+            siteId: {
+              in: managerScope.siteIds,
+            },
+          },
+        },
+      },
+    ],
+  };
+
+  return filter;
+}
+
 router.get(
   "/",
-  asyncHandler(async (_request: Request, response: Response) => {
+  requireRole("SUPER_ADMIN", "MANAGER"),
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    let whereCondition: Prisma.ApartmentResidentWhereInput | undefined;
+
+    if (authenticatedRequest.user.role === "MANAGER") {
+      whereCondition = await getManagerApartmentResidentFilter(authenticatedRequest.user.id);
+    }
+
     const apartmentResidents = await prisma.apartmentResident.findMany({
+      where: whereCondition,
       include: {
         apartment: {
           select: {
@@ -67,6 +117,7 @@ router.get(
 
 router.post(
   "/",
+  requireRole("SUPER_ADMIN"),
   asyncHandler(async (request: Request, response: Response) => {
     const validationResult = createApartmentResidentSchema.safeParse(request.body);
 
