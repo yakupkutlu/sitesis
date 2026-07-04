@@ -33,6 +33,8 @@ import managerDashboardRoutes from "./routes/manager-dashboard.routes.js";
 
 import superAdminDashboardRoutes from "./routes/super-admin-dashboard.routes.js";
 
+import auditLogsRoutes from "./routes/audit-logs.routes.js";
+
 const app = express();
 
 const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
@@ -87,6 +89,8 @@ app.use("/api/resident", residentRoutes);
 app.use("/api/manager", managerDashboardRoutes);
 
 app.use("/api/super-admin", superAdminDashboardRoutes);
+
+app.use("/api/audit-logs", auditLogsRoutes);
 
 app.use((_request: Request, response: Response) => {
   response.status(404).json({

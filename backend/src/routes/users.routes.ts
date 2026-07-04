@@ -3,10 +3,10 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 
 import prisma from "../db/prisma.js";
-import { requireAuth, requireRole } from "../middlewares/auth.middleware.js";
+import {requireAuth,requireRole,type AuthenticatedRequest,} from "../middlewares/auth.middleware.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
-
+import { createAuditLog } from "../services/audit-log.service.js";
 const router = express.Router();
 
 router.use(requireAuth);
@@ -49,6 +49,12 @@ router.get(
 router.post(
   "/",
   asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
     const validationResult = createUserSchema.safeParse(request.body);
 
     if (!validationResult.success) {
@@ -94,6 +100,18 @@ router.post(
         status: true,
         createdAt: true,
         updatedAt: true,
+      },
+    });
+    
+      await createAuditLog({
+      request,
+      userId: authenticatedRequest.user.id,
+      action: "CREATE_USER",
+      entityType: "User",
+      entityId: user.id,
+      metadata: {
+        createdUserEmail: user.email,
+        createdUserRole: user.role,
       },
     });
 
