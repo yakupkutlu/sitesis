@@ -27,7 +27,7 @@ import { errorHandler } from "./middlewares/error.middleware.js";
 
 import managerAssignmentsRoutes from "./routes/manager-assignments.routes.js";
 
-import residentPaymentsRoutes from "./routes/resident-payments.routes.js";
+import residentRoutes from "./routes/resident.routes.js";
 
 import managerDashboardRoutes from "./routes/manager-dashboard.routes.js";
 
@@ -80,7 +80,7 @@ app.use("/api/payment-batches", paymentBatchesRoutes);
 
 app.use("/api/payment-receipts", paymentReceiptsRoutes);
 
-app.use("/api/resident", residentPaymentsRoutes);
+app.use("/api/resident", residentRoutes);
 
 app.use("/api/manager", managerDashboardRoutes);
 
