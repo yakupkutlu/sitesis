@@ -20,7 +20,8 @@ import residentRoutes from "./routes/resident.routes.js";
 import managerDashboardRoutes from "./routes/manager-dashboard.routes.js";
 import superAdminDashboardRoutes from "./routes/super-admin-dashboard.routes.js";
 import auditLogsRoutes from "./routes/audit-logs.routes.js";
-
+import csrfRoutes from "./routes/csrf.routes.js";
+import { csrfProtection } from "./middlewares/csrf.middleware.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
 
 const app = express();
@@ -61,6 +62,9 @@ const generalLimiter = rateLimit({
 });
 
 app.use(generalLimiter);
+
+app.use("/api/csrf-token", csrfRoutes);
+app.use(csrfProtection);
 
 app.use("/api/health", healthRoutes);
 app.use("/api/users", usersRoutes);
