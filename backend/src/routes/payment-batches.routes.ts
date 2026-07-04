@@ -2,19 +2,24 @@ import express, { type Request, type Response } from "express";
 import { z } from "zod";
 
 import prisma from "../db/prisma.js";
-import { requireAuth, requireRole } from "../middlewares/auth.middleware.js";
+import { type Prisma } from "../generated/prisma/client.js";
+import {
+  requireAuth,
+  requireRole,
+  type AuthenticatedRequest,
+} from "../middlewares/auth.middleware.js";
 import {
   distributeAmountToApartments,
   excludeExemptApartments,
   findInvalidExemptApartments,
 } from "../services/payment-distribution.service.js";
+import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
 
 const router = express.Router();
 
 router.use(requireAuth);
-router.use(requireRole("SUPER_ADMIN"));
 
 const createPaymentBatchSchema = z.object({
   title: z.string().trim().min(2),
@@ -36,10 +41,103 @@ function getUniqueIds(ids: string[] = []) {
   return Array.from(new Set(ids));
 }
 
+async function ensureManagerCanCreatePayment(params: {
+  managerId: string;
+  scopeType: "SITE" | "BLOCK" | "APARTMENTS";
+  siteId?: string;
+  apartmentIds: string[];
+}) {
+  const managerScope = await getManagerScope(params.managerId);
+
+  if (!hasManagerScope(managerScope)) {
+    throw new HttpError(403, "Bu yöneticiye atanmış bir site veya blok bulunamadı.");
+  }
+
+  if (params.scopeType === "SITE") {
+    if (!params.siteId || !managerScope.siteIds.includes(params.siteId)) {
+      throw new HttpError(403, "Bu site için ödeme oluşturma yetkiniz yok.");
+    }
+  }
+
+  const apartments = await prisma.apartment.findMany({
+    where: {
+      id: {
+        in: params.apartmentIds,
+      },
+    },
+    select: {
+      id: true,
+      blockId: true,
+      block: {
+        select: {
+          siteId: true,
+        },
+      },
+    },
+  });
+
+  const inaccessibleApartment = apartments.find((apartment) => {
+    const canAccessByBlock = managerScope.blockIds.includes(apartment.blockId);
+    const canAccessBySite = managerScope.siteIds.includes(apartment.block.siteId);
+
+    return !canAccessByBlock && !canAccessBySite;
+  });
+
+  if (inaccessibleApartment) {
+    throw new HttpError(403, "Bu ödeme kapsamındaki bazı daireler için yetkiniz yok.");
+  }
+}
+
 router.get(
   "/",
-  asyncHandler(async (_request: Request, response: Response) => {
+  requireRole("SUPER_ADMIN", "MANAGER"),
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    let whereCondition: Prisma.PaymentBatchWhereInput | undefined;
+
+    if (authenticatedRequest.user.role === "MANAGER") {
+      const managerScope = await getManagerScope(authenticatedRequest.user.id);
+
+      if (!hasManagerScope(managerScope)) {
+        throw new HttpError(403, "Bu yöneticiye atanmış bir site veya blok bulunamadı.");
+      }
+
+      const accessibleAllocationFilter: Prisma.PaymentAllocationWhereInput = {
+        OR: [
+          {
+            apartment: {
+              blockId: {
+                in: managerScope.blockIds,
+              },
+            },
+          },
+          {
+            apartment: {
+              block: {
+                siteId: {
+                  in: managerScope.siteIds,
+                },
+              },
+            },
+          },
+        ],
+      };
+
+      whereCondition = {
+        allocations: {
+          some: accessibleAllocationFilter,
+          every: accessibleAllocationFilter,
+        },
+      };
+    }
+
     const paymentBatches = await prisma.paymentBatch.findMany({
+      where: whereCondition,
       include: {
         site: {
           select: {
@@ -118,7 +216,14 @@ router.get(
 
 router.post(
   "/",
+  requireRole("SUPER_ADMIN", "MANAGER"),
   asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
     const validationResult = createPaymentBatchSchema.safeParse(request.body);
 
     if (!validationResult.success) {
@@ -246,6 +351,15 @@ router.post(
       throw new HttpError(400, "Ödeme oluşturulacak daire bulunamadı.");
     }
 
+    if (authenticatedRequest.user.role === "MANAGER") {
+      await ensureManagerCanCreatePayment({
+        managerId: authenticatedRequest.user.id,
+        scopeType,
+        siteId,
+        apartmentIds: scopedApartmentIds,
+      });
+    }
+
     const uniqueExemptApartmentIds = getUniqueIds(exemptApartmentIds);
 
     const invalidExemptApartmentIds = findInvalidExemptApartments(
@@ -314,6 +428,7 @@ router.post(
 
 router.patch(
   "/allocations/:allocationId/pay",
+  requireRole("SUPER_ADMIN"),
   asyncHandler(async (request: Request, response: Response) => {
     const paramsResult = allocationParamsSchema.safeParse(request.params);
 
