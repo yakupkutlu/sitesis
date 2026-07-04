@@ -1,11 +1,17 @@
-import process from "node:process";
 import express, { type Response } from "express";
 import bcrypt from "bcryptjs";
 import jwt, { type SignOptions } from "jsonwebtoken";
 import { z } from "zod";
 
+import {
+  accessTokenCookieName,
+  accessTokenCookieOptions,
+  clearAccessTokenCookieOptions,
+} from "../config/cookie.js";
+import { env } from "../config/env.js";
 import prisma from "../db/prisma.js";
 import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth.middleware.js";
+import { loginLimiter } from "../middlewares/rate-limit.middleware.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
 
@@ -18,6 +24,7 @@ const loginSchema = z.object({
 
 router.post(
   "/login",
+  loginLimiter,
   asyncHandler(async (request, response) => {
     const validationResult = loginSchema.safeParse(request.body);
 
@@ -38,38 +45,30 @@ router.post(
       throw new HttpError(401, "E-posta veya şifre hatalı.");
     }
 
+    if (user.status !== "ACTIVE") {
+      throw new HttpError(403, "Bu kullanıcı hesabı aktif değildir.");
+    }
+
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
 
     if (!isPasswordValid) {
       throw new HttpError(401, "E-posta veya şifre hatalı.");
     }
 
-    const jwtSecret = process.env.JWT_SECRET;
-
-    if (!jwtSecret) {
-      throw new HttpError(500, "JWT ayarı bulunamadı.");
-    }
-
-    const jwtExpiresIn = (process.env.JWT_EXPIRES_IN || "1d") as SignOptions["expiresIn"];
+    const jwtExpiresIn = env.JWT_EXPIRES_IN as SignOptions["expiresIn"];
 
     const token = jwt.sign(
       {
         userId: user.id,
         role: user.role,
       },
-      jwtSecret,
+      env.JWT_SECRET,
       {
         expiresIn: jwtExpiresIn,
       }
     );
 
-    response.cookie("accessToken", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 24 * 60 * 60 * 1000,
-      path: "/",
-    });
+    response.cookie(accessTokenCookieName, token, accessTokenCookieOptions);
 
     response.status(200).json({
       success: true,
@@ -100,12 +99,7 @@ router.get("/me", requireAuth, (request: AuthenticatedRequest, response: Respons
 });
 
 router.post("/logout", (_request, response) => {
-  response.clearCookie("accessToken", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-  });
+  response.clearCookie(accessTokenCookieName, clearAccessTokenCookieOptions);
 
   response.status(200).json({
     success: true,

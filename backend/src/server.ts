@@ -1,12 +1,10 @@
 import process from "node:process";
-import "dotenv/config";
 
 import app from "./app.js";
+import { env } from "./config/env.js";
 
-const port = process.env.PORT || 5000;
-
-const server = app.listen(port, () => {
-  console.log(`Backend server ${port} portunda çalışıyor.`);
+const server = app.listen(env.PORT, () => {
+  console.log(`Backend server ${env.PORT} portunda çalışıyor.`);
 });
 
 process.on("unhandledRejection", (error) => {

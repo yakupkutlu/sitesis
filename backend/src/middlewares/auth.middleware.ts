@@ -1,7 +1,8 @@
-import process from "node:process";
 import { type NextFunction, type Request, type Response } from "express";
 import jwt, { type JwtPayload } from "jsonwebtoken";
 
+import { accessTokenCookieName } from "../config/cookie.js";
+import { env } from "../config/env.js";
 import prisma from "../db/prisma.js";
 
 export type AuthenticatedUser = {
@@ -22,7 +23,7 @@ export async function requireAuth(
   response: Response,
   next: NextFunction
 ) {
-  const token = request.cookies?.accessToken;
+  const token = request.cookies[accessTokenCookieName];
 
   if (!token) {
     response.status(401).json({
@@ -32,20 +33,10 @@ export async function requireAuth(
     return;
   }
 
-  const jwtSecret = process.env.JWT_SECRET;
-
-  if (!jwtSecret) {
-    response.status(500).json({
-      success: false,
-      message: "JWT ayarı bulunamadı.",
-    });
-    return;
-  }
-
   let payload: string | JwtPayload;
 
   try {
-    payload = jwt.verify(token, jwtSecret);
+    payload = jwt.verify(token, env.JWT_SECRET);
   } catch {
     response.status(401).json({
       success: false,
