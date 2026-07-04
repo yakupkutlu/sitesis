@@ -2,7 +2,12 @@ import express, { type Request, type Response } from "express";
 import { z } from "zod";
 
 import prisma from "../db/prisma.js";
-import { requireAuth, requireRole } from "../middlewares/auth.middleware.js";
+import {
+  requireAuth,
+  requireRole,
+  type AuthenticatedRequest,
+} from "../middlewares/auth.middleware.js";
+import { createAuditLog } from "../services/audit-log.service.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
 
@@ -69,6 +74,12 @@ router.get(
 router.post(
   "/",
   asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
     const validationResult = createManagerAssignmentSchema.safeParse(request.body);
 
     if (!validationResult.success) {
@@ -97,7 +108,10 @@ router.post(
     }
 
     if (manager.role !== "MANAGER") {
-      throw new HttpError(400, "Sadece MANAGER rolündeki kullanıcılar yönetici olarak atanabilir.");
+      throw new HttpError(
+        400,
+        "Sadece MANAGER rolündeki kullanıcılar yönetici olarak atanabilir."
+      );
     }
 
     if (manager.status !== "ACTIVE") {
@@ -164,6 +178,19 @@ router.post(
               address: true,
             },
           },
+        },
+      });
+
+      await createAuditLog({
+        request,
+        userId: authenticatedRequest.user.id,
+        action: "CREATE_MANAGER_ASSIGNMENT",
+        entityType: "ManagerAssignment",
+        entityId: assignment.id,
+        metadata: {
+          managerId: assignment.managerId,
+          scopeType: assignment.scopeType,
+          siteId: assignment.siteId,
         },
       });
 
@@ -241,6 +268,19 @@ router.post(
             },
           },
         },
+      },
+    });
+
+    await createAuditLog({
+      request,
+      userId: authenticatedRequest.user.id,
+      action: "CREATE_MANAGER_ASSIGNMENT",
+      entityType: "ManagerAssignment",
+      entityId: assignment.id,
+      metadata: {
+        managerId: assignment.managerId,
+        scopeType: assignment.scopeType,
+        blockId: assignment.blockId,
       },
     });
 
