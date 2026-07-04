@@ -16,6 +16,7 @@ import {
 import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
+import { createAuditLog } from "../services/audit-log.service.js";
 
 const router = express.Router();
 
@@ -417,7 +418,20 @@ router.post(
         exemptions: true,
       },
     });
-
+      await createAuditLog({
+        request,
+        userId: authenticatedRequest.user.id,
+        action: "CREATE_PAYMENT_BATCH",
+        entityType: "PaymentBatch",
+        entityId: paymentBatch.id,
+        metadata: {
+          title: paymentBatch.title,
+          scopeType: paymentBatch.scopeType,
+          totalAmountKurus: paymentBatch.totalAmountKurus,
+          allocationCount: paymentBatch.allocations.length,
+          exemptionCount: paymentBatch.exemptions.length,
+        },
+    });
     response.status(201).json({
       success: true,
       message: "Ödeme başarıyla oluşturuldu.",
