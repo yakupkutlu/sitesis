@@ -14,6 +14,7 @@ import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
 import { type Prisma } from "../generated/prisma/client.js";
 import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
+import { createAuditLog } from "../services/audit-log.service.js";
 const router = express.Router();
 
 router.use(requireAuth);
@@ -252,6 +253,20 @@ if (!isSuperAdmin && !isResidentOwnerOfApartment) {
         note,
       },
     });
+      await createAuditLog({
+        request,
+        userId: authenticatedRequest.user.id,
+        action: "UPLOAD_PAYMENT_RECEIPT",
+        entityType: "PaymentReceipt",
+        entityId: receipt.id,
+        metadata: {
+          paymentAllocationId: receipt.paymentAllocationId,
+          originalFileName: receipt.originalFileName,
+          mimeType: receipt.mimeType,
+          sizeBytes: receipt.sizeBytes,
+          status: receipt.status,
+        },
+    });
 
     response.status(201).json({
       success: true,
@@ -288,7 +303,7 @@ router.patch(
         receiptId,
       });
     }
-    
+
     const receipt = await prisma.paymentReceipt.findUnique({
       where: {
         id: receiptId,
@@ -340,7 +355,18 @@ router.patch(
         paymentAllocation: updatedAllocation,
       };
     });
-
+    await createAuditLog({
+      request,
+      userId: authenticatedRequest.user.id,
+      action: "APPROVE_PAYMENT_RECEIPT",
+      entityType: "PaymentReceipt",
+      entityId: receiptId,
+      metadata: {
+        paymentAllocationId: receipt.paymentAllocationId,
+        reviewNote,
+        paymentAllocationStatus: result.paymentAllocation.status,
+      },
+    });
     response.status(200).json({
       success: true,
       message: "Dekont onaylandı ve ödeme ödenmiş olarak işaretlendi.",
@@ -406,6 +432,17 @@ router.patch(
         reviewNote,
         reviewedAt: new Date(),
         reviewedByUserId: authenticatedRequest.user.id,
+      },
+    });
+    await createAuditLog({
+      request,
+      userId: authenticatedRequest.user.id,
+      action: "REJECT_PAYMENT_RECEIPT",
+      entityType: "PaymentReceipt",
+      entityId: rejectedReceipt.id,
+      metadata: {
+        reviewNote,
+        status: rejectedReceipt.status,
       },
     });
 
