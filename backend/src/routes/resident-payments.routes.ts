@@ -145,4 +145,90 @@ router.get(
     });
   })
 );
+
+router.get(
+  "/dashboard-summary",
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    const payments = await prisma.paymentAllocation.findMany({
+      where: {
+        apartment: {
+          residents: {
+            some: {
+              userId: authenticatedRequest.user.id,
+            },
+          },
+        },
+      },
+      select: {
+        id: true,
+        amountKurus: true,
+        status: true,
+        apartmentId: true,
+        paymentBatch: {
+          select: {
+            dueDate: true,
+          },
+        },
+        receipts: {
+          select: {
+            id: true,
+            status: true,
+          },
+        },
+      },
+    });
+
+    const apartmentIds = new Set<string>();
+    const now = new Date();
+
+    let totalDebtKurus = 0;
+    let paidAmountKurus = 0;
+    let remainingAmountKurus = 0;
+    let overduePaymentCount = 0;
+    let pendingReceiptCount = 0;
+
+    for (const payment of payments) {
+      apartmentIds.add(payment.apartmentId);
+
+      if (payment.status !== "CANCELLED") {
+        totalDebtKurus += payment.amountKurus;
+      }
+
+      if (payment.status === "PAID") {
+        paidAmountKurus += payment.amountKurus;
+      }
+
+      if (payment.status === "PENDING") {
+        remainingAmountKurus += payment.amountKurus;
+
+        if (payment.paymentBatch.dueDate < now) {
+          overduePaymentCount += 1;
+        }
+      }
+
+      pendingReceiptCount += payment.receipts.filter((receipt) => {
+        return receipt.status === "PENDING";
+      }).length;
+    }
+
+    response.status(200).json({
+      success: true,
+      data: {
+        apartmentCount: apartmentIds.size,
+        totalPaymentCount: payments.length,
+        totalDebtKurus,
+        paidAmountKurus,
+        remainingAmountKurus,
+        overduePaymentCount,
+        pendingReceiptCount,
+      },
+    });
+  })
+);
 export default router;
