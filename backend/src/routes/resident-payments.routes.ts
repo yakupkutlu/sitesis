@@ -94,4 +94,55 @@ router.get(
   })
 );
 
+router.get(
+  "/apartments",
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    const apartments = await prisma.apartmentResident.findMany({
+      where: {
+        userId: authenticatedRequest.user.id,
+      },
+      include: {
+        apartment: {
+          select: {
+            id: true,
+            number: true,
+            floor: true,
+            description: true,
+            block: {
+              select: {
+                id: true,
+                name: true,
+                description: true,
+                site: {
+                  select: {
+                    id: true,
+                    name: true,
+                    address: true,
+                    description: true,
+                    hasElevator: true,
+                    systems: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    response.status(200).json({
+      success: true,
+      data: apartments,
+    });
+  })
+);
 export default router;
