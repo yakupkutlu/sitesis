@@ -1,20 +1,23 @@
 import fs from "node:fs/promises";
+import path from "node:path";
+import process from "node:process";
 
 import express, { type Request, type Response } from "express";
 import { z } from "zod";
 
 import prisma from "../db/prisma.js";
+import { type Prisma } from "../generated/prisma/client.js";
 import {
   requireAuth,
   requireRole,
   type AuthenticatedRequest,
 } from "../middlewares/auth.middleware.js";
+import { createAuditLog } from "../services/audit-log.service.js";
+import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
 import { receiptUpload } from "../uploads/receipt-upload.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
-import { type Prisma } from "../generated/prisma/client.js";
-import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
-import { createAuditLog } from "../services/audit-log.service.js";
+
 const router = express.Router();
 
 router.use(requireAuth);
@@ -43,6 +46,7 @@ async function deleteUploadedFile(file?: Express.Multer.File) {
     console.error("Yüklenen dosya silinemedi:", error);
   }
 }
+
 async function getManagerReceiptAccessFilter(managerId: string) {
   const managerScope = await getManagerScope(managerId);
 
@@ -99,11 +103,99 @@ async function ensureManagerCanAccessReceipt(params: {
   }
 }
 
+async function ensureUserCanDownloadReceipt(params: {
+  user: AuthenticatedRequest["user"];
+  receiptId: string;
+}) {
+  if (!params.user) {
+    throw new HttpError(401, "Oturum bulunamadı.");
+  }
+
+  const receipt = await prisma.paymentReceipt.findUnique({
+    where: {
+      id: params.receiptId,
+    },
+    select: {
+      id: true,
+      originalFileName: true,
+      storedFileName: true,
+      mimeType: true,
+      paymentAllocation: {
+        select: {
+          apartment: {
+            select: {
+              id: true,
+              blockId: true,
+              block: {
+                select: {
+                  siteId: true,
+                },
+              },
+              residents: {
+                where: {
+                  userId: params.user.id,
+                },
+                select: {
+                  id: true,
+                },
+                take: 1,
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!receipt) {
+    throw new HttpError(404, "Dekont bulunamadı.");
+  }
+
+  if (params.user.role === "SUPER_ADMIN") {
+    return receipt;
+  }
+
+  if (params.user.role === "RESIDENT") {
+    const isResidentOfApartment =
+      receipt.paymentAllocation.apartment.residents.length > 0;
+
+    if (!isResidentOfApartment) {
+      throw new HttpError(403, "Bu dekontu indirme yetkiniz yok.");
+    }
+
+    return receipt;
+  }
+
+  if (params.user.role === "MANAGER") {
+    const managerScope = await getManagerScope(params.user.id);
+
+    if (!hasManagerScope(managerScope)) {
+      throw new HttpError(403, "Bu yöneticiye atanmış bir site veya blok bulunamadı.");
+    }
+
+    const canAccessByBlock = managerScope.blockIds.includes(
+      receipt.paymentAllocation.apartment.blockId
+    );
+
+    const canAccessBySite = managerScope.siteIds.includes(
+      receipt.paymentAllocation.apartment.block.siteId
+    );
+
+    if (!canAccessByBlock && !canAccessBySite) {
+      throw new HttpError(403, "Bu dekontu indirme yetkiniz yok.");
+    }
+
+    return receipt;
+  }
+
+  throw new HttpError(403, "Bu dekontu indirme yetkiniz yok.");
+}
+
 router.get(
   "/",
   requireRole("SUPER_ADMIN", "MANAGER"),
-  asyncHandler(async (_request: Request, response: Response) => {
-    const authenticatedRequest = _request as AuthenticatedRequest;
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
 
     if (!authenticatedRequest.user) {
       throw new HttpError(401, "Oturum bulunamadı.");
@@ -114,6 +206,7 @@ router.get(
     if (authenticatedRequest.user.role === "MANAGER") {
       whereCondition = await getManagerReceiptAccessFilter(authenticatedRequest.user.id);
     }
+
     const receipts = await prisma.paymentReceipt.findMany({
       where: whereCondition,
       include: {
@@ -206,41 +299,41 @@ router.post(
     const { paymentAllocationId, note } = validationResult.data;
 
     const allocation = await prisma.paymentAllocation.findUnique({
-  where: {
-    id: paymentAllocationId,
-  },
-  select: {
-    id: true,
-    apartment: {
+      where: {
+        id: paymentAllocationId,
+      },
       select: {
-        residents: {
-          where: {
-            userId: authenticatedRequest.user.id,
-          },
+        id: true,
+        apartment: {
           select: {
-            id: true,
+            residents: {
+              where: {
+                userId: authenticatedRequest.user.id,
+              },
+              select: {
+                id: true,
+              },
+              take: 1,
+            },
           },
-          take: 1,
         },
       },
-    },
-  },
-});
+    });
 
-if (!allocation) {
-  await deleteUploadedFile(request.file);
+    if (!allocation) {
+      await deleteUploadedFile(request.file);
 
-  throw new HttpError(404, "Ödeme kaydı bulunamadı.");
-}
+      throw new HttpError(404, "Ödeme kaydı bulunamadı.");
+    }
 
-const isSuperAdmin = authenticatedRequest.user.role === "SUPER_ADMIN";
-const isResidentOwnerOfApartment = allocation.apartment.residents.length > 0;
+    const isSuperAdmin = authenticatedRequest.user.role === "SUPER_ADMIN";
+    const isResidentOwnerOfApartment = allocation.apartment.residents.length > 0;
 
-if (!isSuperAdmin && !isResidentOwnerOfApartment) {
-  await deleteUploadedFile(request.file);
+    if (!isSuperAdmin && !isResidentOwnerOfApartment) {
+      await deleteUploadedFile(request.file);
 
-  throw new HttpError(403, "Bu ödeme kaydı için dekont yükleme yetkiniz yok.");
-}
+      throw new HttpError(403, "Bu ödeme kaydı için dekont yükleme yetkiniz yok.");
+    }
 
     const receipt = await prisma.paymentReceipt.create({
       data: {
@@ -253,19 +346,20 @@ if (!isSuperAdmin && !isResidentOwnerOfApartment) {
         note,
       },
     });
-      await createAuditLog({
-        request,
-        userId: authenticatedRequest.user.id,
-        action: "UPLOAD_PAYMENT_RECEIPT",
-        entityType: "PaymentReceipt",
-        entityId: receipt.id,
-        metadata: {
-          paymentAllocationId: receipt.paymentAllocationId,
-          originalFileName: receipt.originalFileName,
-          mimeType: receipt.mimeType,
-          sizeBytes: receipt.sizeBytes,
-          status: receipt.status,
-        },
+
+    await createAuditLog({
+      request,
+      userId: authenticatedRequest.user.id,
+      action: "UPLOAD_PAYMENT_RECEIPT",
+      entityType: "PaymentReceipt",
+      entityId: receipt.id,
+      metadata: {
+        paymentAllocationId: receipt.paymentAllocationId,
+        originalFileName: receipt.originalFileName,
+        mimeType: receipt.mimeType,
+        sizeBytes: receipt.sizeBytes,
+        status: receipt.status,
+      },
     });
 
     response.status(201).json({
@@ -276,10 +370,45 @@ if (!isSuperAdmin && !isResidentOwnerOfApartment) {
   })
 );
 
+router.get(
+  "/:receiptId/download",
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    const paramsResult = receiptParamsSchema.safeParse(request.params);
+
+    if (!paramsResult.success) {
+      throw new HttpError(400, "Dekont bilgisi geçersiz.");
+    }
+
+    const { receiptId } = paramsResult.data;
+
+    const receipt = await ensureUserCanDownloadReceipt({
+      user: authenticatedRequest.user,
+      receiptId,
+    });
+
+    const receiptFilePath = path.join(
+      process.cwd(),
+      "uploads",
+      "receipts",
+      receipt.storedFileName
+    );
+
+    try {
+      await fs.access(receiptFilePath);
+    } catch {
+      throw new HttpError(404, "Dekont dosyası bulunamadı.");
+    }
+
+    response.setHeader("Content-Type", receipt.mimeType);
+    response.download(receiptFilePath, receipt.originalFileName);
+  })
+);
+
 router.patch(
   "/:receiptId/approve",
   requireRole("SUPER_ADMIN", "MANAGER"),
-
   asyncHandler(async (request: Request, response: Response) => {
     const authenticatedRequest = request as AuthenticatedRequest;
 
@@ -296,7 +425,7 @@ router.patch(
 
     const { receiptId } = paramsResult.data;
     const { reviewNote } = bodyResult.data;
-    
+
     if (authenticatedRequest.user.role === "MANAGER") {
       await ensureManagerCanAccessReceipt({
         managerId: authenticatedRequest.user.id,
@@ -355,6 +484,7 @@ router.patch(
         paymentAllocation: updatedAllocation,
       };
     });
+
     await createAuditLog({
       request,
       userId: authenticatedRequest.user.id,
@@ -367,6 +497,7 @@ router.patch(
         paymentAllocationStatus: result.paymentAllocation.status,
       },
     });
+
     response.status(200).json({
       success: true,
       message: "Dekont onaylandı ve ödeme ödenmiş olarak işaretlendi.",
@@ -394,13 +525,14 @@ router.patch(
 
     const { receiptId } = paramsResult.data;
     const { reviewNote } = bodyResult.data;
-    
-        if (authenticatedRequest.user.role === "MANAGER") {
+
+    if (authenticatedRequest.user.role === "MANAGER") {
       await ensureManagerCanAccessReceipt({
         managerId: authenticatedRequest.user.id,
         receiptId,
       });
     }
+
     const receipt = await prisma.paymentReceipt.findUnique({
       where: {
         id: receiptId,
@@ -434,6 +566,7 @@ router.patch(
         reviewedByUserId: authenticatedRequest.user.id,
       },
     });
+
     await createAuditLog({
       request,
       userId: authenticatedRequest.user.id,
