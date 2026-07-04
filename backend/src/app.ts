@@ -26,6 +26,9 @@ import paymentReceiptsRoutes from "./routes/payment-receipts.routes.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
 
 import managerAssignmentsRoutes from "./routes/manager-assignments.routes.js";
+
+import residentPaymentsRoutes from "./routes/resident-payments.routes.js";
+
 const app = express();
 
 const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
@@ -75,6 +78,7 @@ app.use("/api/payment-batches", paymentBatchesRoutes);
 
 app.use("/api/payment-receipts", paymentReceiptsRoutes);
 
+app.use("/api/resident", residentPaymentsRoutes);
 
 app.use((_request: Request, response: Response) => {
   response.status(404).json({
