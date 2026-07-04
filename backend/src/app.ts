@@ -29,6 +29,8 @@ import managerAssignmentsRoutes from "./routes/manager-assignments.routes.js";
 
 import residentPaymentsRoutes from "./routes/resident-payments.routes.js";
 
+import managerDashboardRoutes from "./routes/manager-dashboard.routes.js";
+
 const app = express();
 
 const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
@@ -79,6 +81,8 @@ app.use("/api/payment-batches", paymentBatchesRoutes);
 app.use("/api/payment-receipts", paymentReceiptsRoutes);
 
 app.use("/api/resident", residentPaymentsRoutes);
+
+app.use("/api/manager", managerDashboardRoutes);
 
 app.use((_request: Request, response: Response) => {
   response.status(404).json({
