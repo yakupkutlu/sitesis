@@ -11,6 +11,7 @@ import {
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
 import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
+import { createAuditLog } from "../services/audit-log.service.js";
 const router = express.Router();
 
 router.use(requireAuth);
@@ -129,6 +130,12 @@ router.post(
   "/",
   requireRole("SUPER_ADMIN"),
   asyncHandler(async (request: Request, response: Response) => {
+        const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
     const validationResult = createBlockSchema.safeParse(request.body);
 
     if (!validationResult.success) {
@@ -170,7 +177,17 @@ router.post(
         },
       },
     });
-
+      await createAuditLog({
+      request,
+      userId: authenticatedRequest.user.id,
+      action: "CREATE_BLOCK",
+      entityType: "Block",
+      entityId: block.id,
+      metadata: {
+        name: block.name,
+        siteId: block.siteId,
+      },
+    });
     response.status(201).json({
       success: true,
       message: "Blok/Apartman başarıyla oluşturuldu.",

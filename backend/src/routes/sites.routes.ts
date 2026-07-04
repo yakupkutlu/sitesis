@@ -9,6 +9,7 @@ import { HttpError } from "../utils/http-error.js";
 import { type Prisma } from "../generated/prisma/client.js";
 import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
 
+import { createAuditLog } from "../services/audit-log.service.js";
 const router = express.Router();
 
 router.use(requireAuth);
@@ -105,6 +106,11 @@ router.post(
   "/",
   requireRole("SUPER_ADMIN"),
   asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
     const validationResult = createSiteSchema.safeParse(request.body);
 
     if (!validationResult.success) {
@@ -128,7 +134,20 @@ router.post(
         systems,
       },
     });
-
+        await createAuditLog({
+      request,
+      userId: authenticatedRequest.user.id,
+      action: "CREATE_SITE",
+      entityType: "Site",
+      entityId: site.id,
+      metadata: {
+        name: site.name,
+        address: site.address,
+        hasElevator: site.hasElevator,
+        systems: site.systems,
+      },
+    })
+    
     response.status(201).json({
       success: true,
       message: "Site başarıyla oluşturuldu.",

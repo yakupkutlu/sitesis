@@ -3,15 +3,11 @@ import { z } from "zod";
 
 import prisma from "../db/prisma.js";
 import { type Prisma } from "../generated/prisma/client.js";
-import {
-  requireAuth,
-  requireRole,
-  type AuthenticatedRequest,
-} from "../middlewares/auth.middleware.js";
+import {requireAuth,requireRole,type AuthenticatedRequest,} from "../middlewares/auth.middleware.js";
 import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
-
+import { createAuditLog } from "../services/audit-log.service.js";
 const router = express.Router();
 
 router.use(requireAuth);
@@ -119,6 +115,11 @@ router.post(
   "/",
   requireRole("SUPER_ADMIN"),
   asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    } 
     const validationResult = createApartmentResidentSchema.safeParse(request.body);
 
     if (!validationResult.success) {
@@ -223,7 +224,18 @@ router.post(
         },
       },
     });
-
+    await createAuditLog({
+      request,
+      userId: authenticatedRequest.user.id,
+      action: "ASSIGN_APARTMENT_RESIDENT",
+      entityType: "ApartmentResident",
+      entityId: apartmentResident.id,
+      metadata: {
+        apartmentId: apartmentResident.apartmentId,
+        userId: apartmentResident.userId,
+        type: apartmentResident.type,
+      },
+    });
     response.status(201).json({
       success: true,
       message: "Kullanıcı daireye başarıyla atandı.",

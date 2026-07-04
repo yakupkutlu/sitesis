@@ -6,6 +6,7 @@ import {requireAuth,requireRole,type AuthenticatedRequest,} from "../middlewares
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
 import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
+import { createAuditLog } from "../services/audit-log.service.js";
 const router = express.Router();
 
 router.use(requireAuth);
@@ -155,6 +156,11 @@ router.post(
   "/",
   requireRole("SUPER_ADMIN"),
   asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
     const validationResult = createApartmentSchema.safeParse(request.body);
 
     if (!validationResult.success) {
@@ -217,6 +223,19 @@ router.post(
             },
           },
         },
+      },
+    });
+    
+      await createAuditLog({
+      request,
+      userId: authenticatedRequest.user.id,
+      action: "CREATE_APARTMENT",
+      entityType: "Apartment",
+      entityId: apartment.id,
+      metadata: {
+        number: apartment.number,
+        floor: apartment.floor,
+        blockId: apartment.blockId,
       },
     });
 
