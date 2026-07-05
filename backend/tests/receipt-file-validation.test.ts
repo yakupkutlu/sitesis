@@ -12,6 +12,30 @@ const testSuperAdminEmail = "receipt-file-type-test-admin@example.com";
 
 let testSuperAdminId = "";
 
+async function buildAuthenticatedUploadRequest() {
+  const csrfResponse = await request(app).get("/api/csrf-token");
+  const csrfToken = csrfResponse.body.data.csrfToken;
+
+  const accessToken = jwt.sign(
+    {
+      userId: testSuperAdminId,
+      role: "SUPER_ADMIN",
+    },
+    env.JWT_SECRET,
+    {
+      expiresIn: "1h",
+    }
+  );
+
+  return {
+    csrfToken,
+    cookies: [
+      `${csrfCookieName}=${csrfToken}`,
+      `${accessTokenCookieName}=${accessToken}`,
+    ],
+  };
+}
+
 describe("Payment Receipt File Validation", () => {
   beforeAll(async () => {
     await prisma.user.deleteMany({
@@ -46,31 +70,33 @@ describe("Payment Receipt File Validation", () => {
   });
 
   it("POST /api/payment-receipts should reject unsupported file types", async () => {
-    const csrfResponse = await request(app).get("/api/csrf-token");
-    const csrfToken = csrfResponse.body.data.csrfToken;
-
-    const accessToken = jwt.sign(
-      {
-        userId: testSuperAdminId,
-        role: "SUPER_ADMIN",
-      },
-      env.JWT_SECRET,
-      {
-        expiresIn: "1h",
-      }
-    );
+    const auth = await buildAuthenticatedUploadRequest();
 
     const response = await request(app)
       .post("/api/payment-receipts")
-      .set("x-csrf-token", csrfToken)
-      .set("Cookie", [
-        `${csrfCookieName}=${csrfToken}`,
-        `${accessTokenCookieName}=${accessToken}`,
-      ])
+      .set("x-csrf-token", auth.csrfToken)
+      .set("Cookie", auth.cookies)
       .field("paymentAllocationId", "00000000-0000-0000-0000-000000000000")
       .attach("receipt", Buffer.from("not a valid receipt file"), {
         filename: "receipt.txt",
         contentType: "text/plain",
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.success).toBe(false);
+  });
+
+  it("POST /api/payment-receipts should reject fake pdf files", async () => {
+    const auth = await buildAuthenticatedUploadRequest();
+
+    const response = await request(app)
+      .post("/api/payment-receipts")
+      .set("x-csrf-token", auth.csrfToken)
+      .set("Cookie", auth.cookies)
+      .field("paymentAllocationId", "00000000-0000-0000-0000-000000000000")
+      .attach("receipt", Buffer.from("this is not a real pdf file"), {
+        filename: "receipt.pdf",
+        contentType: "application/pdf",
       });
 
     expect(response.status).toBe(400);
