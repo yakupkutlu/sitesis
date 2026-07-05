@@ -23,6 +23,7 @@ import auditLogsRoutes from "./routes/audit-logs.routes.js";
 import csrfRoutes from "./routes/csrf.routes.js";
 import { csrfProtection } from "./middlewares/csrf.middleware.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
+import announcementsRoutes from "./routes/announcements.routes.js";
 
 const app = express();
 
@@ -80,7 +81,7 @@ app.use("/api/resident", residentRoutes);
 app.use("/api/manager", managerDashboardRoutes);
 app.use("/api/super-admin", superAdminDashboardRoutes);
 app.use("/api/audit-logs", auditLogsRoutes);
-
+app.use("/api/announcements", announcementsRoutes);
 app.use((_request: Request, response: Response) => {
   response.status(404).json({
     success: false,
