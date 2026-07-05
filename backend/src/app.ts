@@ -27,6 +27,7 @@ import announcementsRoutes from "./routes/announcements.routes.js";
 import requestsRoutes from "./routes/requests.routes.js";
 import smsSettingsRoutes from "./routes/sms-settings.routes.js";
 import emailSettingsRoutes from "./routes/email-settings.routes.js";
+import notificationLogsRoutes from "./routes/notification-logs.routes.js";
 const app = express();
 
 app.use(helmet());
@@ -87,6 +88,8 @@ app.use("/api/announcements", announcementsRoutes);
 app.use("/api/requests", requestsRoutes);
 app.use("/api/sms-settings", smsSettingsRoutes);
 app.use("/api/email-settings", emailSettingsRoutes);
+app.use("/api/notification-logs", notificationLogsRoutes);
+
 app.use((_request: Request, response: Response) => {
   response.status(404).json({
     success: false,

@@ -88,26 +88,48 @@ enum EmailProvider {
   SENDGRID
 }
 
+enum NotificationChannel {
+  SMS
+  EMAIL
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum NotificationSourceType {
+  MANUAL
+  PAYMENT_BATCH
+  ANNOUNCEMENT
+  RESIDENT_REQUEST
+  SYSTEM
+}
+
 model User {
-  id                   String              @id @default(uuid())
-  fullName             String
-  email                String              @unique
-  phone                String?
-  passwordHash         String
-  role                 UserRole
-  status               UserStatus          @default(ACTIVE)
-  apartmentResidents   ApartmentResident[]
-  uploadedReceipts     PaymentReceipt[]    @relation("UploadedReceipts")
-  reviewedReceipts     PaymentReceipt[]    @relation("ReviewedReceipts")
-  managerAssignments   ManagerAssignment[] @relation("ManagerAssignments")
-  auditLogs            AuditLog[]          @relation("UserAuditLogs")
-  announcements        Announcement[]      @relation("UserAnnouncements")
-  createdRequests      ResidentRequest[]   @relation("UserCreatedRequests")
-  assignedRequests     ResidentRequest[]   @relation("UserAssignedRequests")
-  createdSmsSettings   SmsSetting[]        @relation("UserCreatedSmsSettings")
-  updatedSmsSettings   SmsSetting[]        @relation("UserUpdatedSmsSettings")
-  createdEmailSettings EmailSetting[]      @relation("UserCreatedEmailSettings")
-  updatedEmailSettings EmailSetting[]      @relation("UserUpdatedEmailSettings")
+  id                       String              @id @default(uuid())
+  fullName                 String
+  email                    String              @unique
+  phone                    String?
+  passwordHash             String
+  role                     UserRole
+  status                   UserStatus          @default(ACTIVE)
+  apartmentResidents       ApartmentResident[]
+  uploadedReceipts         PaymentReceipt[]    @relation("UploadedReceipts")
+  reviewedReceipts         PaymentReceipt[]    @relation("ReviewedReceipts")
+  managerAssignments       ManagerAssignment[] @relation("ManagerAssignments")
+  auditLogs                AuditLog[]          @relation("UserAuditLogs")
+  announcements            Announcement[]      @relation("UserAnnouncements")
+  createdRequests          ResidentRequest[]   @relation("UserCreatedRequests")
+  assignedRequests         ResidentRequest[]   @relation("UserAssignedRequests")
+  createdSmsSettings       SmsSetting[]        @relation("UserCreatedSmsSettings")
+  updatedSmsSettings       SmsSetting[]        @relation("UserUpdatedSmsSettings")
+  createdEmailSettings     EmailSetting[]      @relation("UserCreatedEmailSettings")
+  updatedEmailSettings     EmailSetting[]      @relation("UserUpdatedEmailSettings")
+  createdNotificationLogs  NotificationLog[]   @relation("UserCreatedNotificationLogs")
+  receivedNotificationLogs NotificationLog[]   @relation("UserReceivedNotificationLogs")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -450,4 +472,47 @@ model EmailSetting {
   @@index([status])
   @@index([createdByUserId])
   @@index([updatedByUserId])
+}
+
+model NotificationLog {
+  id String @id @default(uuid())
+
+  channel    NotificationChannel
+  status     NotificationStatus     @default(PENDING)
+  sourceType NotificationSourceType
+
+  recipientUserId String?
+  recipientUser   User?   @relation("UserReceivedNotificationLogs", fields: [recipientUserId], references: [id], onDelete: SetNull)
+
+  recipientEmail String?
+  recipientPhone String?
+
+  subject String?
+  message String
+
+  provider          String?
+  providerMessageId String?
+
+  entityType String?
+  entityId   String?
+
+  errorMessage String?
+
+  metadata Json?
+
+  createdByUserId String?
+  createdByUser   User?   @relation("UserCreatedNotificationLogs", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  sentAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([channel])
+  @@index([status])
+  @@index([sourceType])
+  @@index([recipientUserId])
+  @@index([createdByUserId])
+  @@index([entityType])
+  @@index([entityId])
+  @@index([createdAt])
 }
