@@ -140,3 +140,48 @@ npx prisma migrate status
 ## Durum
 
 Backend MVP buyuk olcude tamamlanmistir ve production cleanup asamasina getirilmistir.
+
+## Test ve Kalite Kontrol
+
+Backend testleri Vitest ile çalıştırılır.
+
+```bash
+npm test
+```
+
+Bu komut şu şekilde çalışır:
+
+```bash
+vitest run --fileParallelism=false
+```
+
+PostgreSQL kullanan entegrasyon testlerinde aynı anda çok fazla test dosyası çalışınca bağlantı sorunları oluşabileceği için test dosyaları sıralı çalıştırılır.
+
+Build kontrolü için:
+
+```bash
+npm run build
+```
+
+Şu anda test kapsamı şunları içerir:
+
+- Health check
+- CSRF koruması
+- Auth ve protected route kontrolleri
+- Password reset privacy ve rate limit
+- Role permission kontrolleri
+- Manager scope kontrolleri
+- Güvenli dekont yükleme
+- Dekont dosya tipi ve gerçek dosya imzası doğrulama
+- Dekont onay/red süreçleri
+- Notification logs
+- Email/SMS notification queue fallback kontrolleri
+
+## Güvenlik Notları
+
+- JWT HttpOnly cookie içinde tutulur.
+- POST, PATCH ve DELETE isteklerinde CSRF token zorunludur.
+- Dekont dosyaları public path altında tutulmaz.
+- Dekont yüklemede MIME type ve dosya imzası kontrolü yapılır.
+- Hassas ayarlar `.env` içinde tutulur ve Git'e eklenmez.
+- SMS/E-posta secret bilgileri şifreli saklanmalıdır.
