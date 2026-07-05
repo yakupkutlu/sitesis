@@ -1,4 +1,4 @@
-import express, { type Request, type Response } from "express";
+﻿import express, { type Request, type Response } from "express";
 import { z } from "zod";
 
 import prisma from "../db/prisma.js";
@@ -10,6 +10,10 @@ import {
   type AuthenticatedUser,
 } from "../middlewares/auth.middleware.js";
 import { createAuditLog } from "../services/audit-log.service.js";
+import {
+  queueEmailNotification,
+  queueSmsNotification,
+} from "../services/notification.service.js";
 import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
@@ -58,6 +62,8 @@ const createAnnouncementSchema = z.object({
   siteId: z.string().uuid().optional(),
   blockId: z.string().uuid().optional(),
   apartmentId: z.string().uuid().optional(),
+  sendSms: z.boolean().optional().default(false),
+  sendEmail: z.boolean().optional().default(false),
 });
 
 const updateAnnouncementSchema = z
@@ -70,7 +76,7 @@ const updateAnnouncementSchema = z
   .refine(
     (data) => Object.values(data).some((value) => value !== undefined),
     {
-      message: "En az bir alan gönderilmelidir.",
+      message: "En az bir alan gأ¶nderilmelidir.",
     }
   );
 
@@ -87,7 +93,7 @@ async function getAnnouncementWhereForUser(user: AuthenticatedUser) {
     const managerScope = await getManagerScope(user.id);
 
     if (!hasManagerScope(managerScope)) {
-      throw new HttpError(403, "Bu yöneticiye atanmış bir site veya blok bulunamadı.");
+      throw new HttpError(403, "Bu yأ¶neticiye atanmؤ±إں bir site veya blok bulunamadؤ±.");
     }
 
     const whereCondition: Prisma.AnnouncementWhereInput = {
@@ -193,7 +199,7 @@ async function ensureTargetIsValidAndAccessible(params: {
 }) {
   if (params.targetType === "ALL") {
     if (params.user.role !== "SUPER_ADMIN") {
-      throw new HttpError(403, "Tüm sisteme duyuru gönderme yetkiniz yok.");
+      throw new HttpError(403, "Tأ¼m sisteme duyuru gأ¶nderme yetkiniz yok.");
     }
 
     return {
@@ -205,7 +211,7 @@ async function ensureTargetIsValidAndAccessible(params: {
 
   if (params.targetType === "SITE") {
     if (!params.siteId) {
-      throw new HttpError(400, "Site seçimi zorunludur.");
+      throw new HttpError(400, "Site seأ§imi zorunludur.");
     }
 
     const site = await prisma.site.findUnique({
@@ -218,14 +224,14 @@ async function ensureTargetIsValidAndAccessible(params: {
     });
 
     if (!site) {
-      throw new HttpError(404, "Site bulunamadı.");
+      throw new HttpError(404, "Site bulunamadؤ±.");
     }
 
     if (params.user.role === "MANAGER") {
       const managerScope = await getManagerScope(params.user.id);
 
       if (!managerScope.siteIds.includes(params.siteId)) {
-        throw new HttpError(403, "Bu siteye duyuru gönderme yetkiniz yok.");
+        throw new HttpError(403, "Bu siteye duyuru gأ¶nderme yetkiniz yok.");
       }
     }
 
@@ -238,7 +244,7 @@ async function ensureTargetIsValidAndAccessible(params: {
 
   if (params.targetType === "BLOCK") {
     if (!params.blockId) {
-      throw new HttpError(400, "Blok/Apartman seçimi zorunludur.");
+      throw new HttpError(400, "Blok/Apartman seأ§imi zorunludur.");
     }
 
     const block = await prisma.block.findUnique({
@@ -252,7 +258,7 @@ async function ensureTargetIsValidAndAccessible(params: {
     });
 
     if (!block) {
-      throw new HttpError(404, "Blok/Apartman bulunamadı.");
+      throw new HttpError(404, "Blok/Apartman bulunamadؤ±.");
     }
 
     if (params.user.role === "MANAGER") {
@@ -261,7 +267,7 @@ async function ensureTargetIsValidAndAccessible(params: {
         managerScope.blockIds.includes(block.id) || managerScope.siteIds.includes(block.siteId);
 
       if (!canAccessBlock) {
-        throw new HttpError(403, "Bu blok/apartmana duyuru gönderme yetkiniz yok.");
+        throw new HttpError(403, "Bu blok/apartmana duyuru gأ¶nderme yetkiniz yok.");
       }
     }
 
@@ -273,7 +279,7 @@ async function ensureTargetIsValidAndAccessible(params: {
   }
 
   if (!params.apartmentId) {
-    throw new HttpError(400, "Daire seçimi zorunludur.");
+    throw new HttpError(400, "Daire seأ§imi zorunludur.");
   }
 
   const apartment = await prisma.apartment.findUnique({
@@ -292,7 +298,7 @@ async function ensureTargetIsValidAndAccessible(params: {
   });
 
   if (!apartment) {
-    throw new HttpError(404, "Daire bulunamadı.");
+    throw new HttpError(404, "Daire bulunamadؤ±.");
   }
 
   if (params.user.role === "MANAGER") {
@@ -302,7 +308,7 @@ async function ensureTargetIsValidAndAccessible(params: {
       managerScope.siteIds.includes(apartment.block.siteId);
 
     if (!canAccessApartment) {
-      throw new HttpError(403, "Bu daireye duyuru gönderme yetkiniz yok.");
+      throw new HttpError(403, "Bu daireye duyuru gأ¶nderme yetkiniz yok.");
     }
   }
 
@@ -313,6 +319,135 @@ async function ensureTargetIsValidAndAccessible(params: {
   };
 }
 
+type AnnouncementTargetType = "ALL" | "SITE" | "BLOCK" | "APARTMENT";
+
+async function getAnnouncementRecipients(params: {
+  targetType: AnnouncementTargetType;
+  siteId: string | null;
+  blockId: string | null;
+  apartmentId: string | null;
+}) {
+  const apartmentResidentWhere: Prisma.ApartmentResidentWhereInput = {};
+
+  if (params.targetType === "SITE" && params.siteId) {
+    apartmentResidentWhere.apartment = {
+      block: {
+        siteId: params.siteId,
+      },
+    };
+  }
+
+  if (params.targetType === "BLOCK" && params.blockId) {
+    apartmentResidentWhere.apartment = {
+      blockId: params.blockId,
+    };
+  }
+
+  if (params.targetType === "APARTMENT" && params.apartmentId) {
+    apartmentResidentWhere.apartmentId = params.apartmentId;
+  }
+
+  return prisma.user.findMany({
+    where: {
+      role: "RESIDENT",
+      status: "ACTIVE",
+      apartmentResidents: {
+        some: apartmentResidentWhere,
+      },
+    },
+    select: {
+      id: true,
+      email: true,
+      phone: true,
+    },
+  });
+}
+
+async function queueAnnouncementNotifications(params: {
+  announcement: {
+    id: string;
+    title: string;
+    content: string;
+    targetType: AnnouncementTargetType;
+    siteId: string | null;
+    blockId: string | null;
+    apartmentId: string | null;
+  };
+  sendSms: boolean;
+  sendEmail: boolean;
+  createdByUserId: string;
+}) {
+  const summary = {
+    recipientCount: 0,
+    emailNotificationCount: 0,
+    smsNotificationCount: 0,
+  };
+
+  if (!params.sendSms && !params.sendEmail) {
+    return summary;
+  }
+
+  const recipients = await getAnnouncementRecipients({
+    targetType: params.announcement.targetType,
+    siteId: params.announcement.siteId,
+    blockId: params.announcement.blockId,
+    apartmentId: params.announcement.apartmentId,
+  });
+
+  summary.recipientCount = recipients.length;
+
+  const notificationJobs: Promise<unknown>[] = [];
+
+  for (const recipient of recipients) {
+    const metadata = {
+      purpose: "ANNOUNCEMENT",
+      targetType: params.announcement.targetType,
+      ...(params.announcement.siteId ? { siteId: params.announcement.siteId } : {}),
+      ...(params.announcement.blockId ? { blockId: params.announcement.blockId } : {}),
+      ...(params.announcement.apartmentId ? { apartmentId: params.announcement.apartmentId } : {}),
+    };
+
+    if (params.sendEmail && recipient.email) {
+      summary.emailNotificationCount += 1;
+
+      notificationJobs.push(
+        queueEmailNotification({
+          recipientUserId: recipient.id,
+          recipientEmail: recipient.email,
+          subject: params.announcement.title,
+          message: params.announcement.content,
+          sourceType: "ANNOUNCEMENT",
+          entityType: "Announcement",
+          entityId: params.announcement.id,
+          metadata,
+          createdByUserId: params.createdByUserId,
+        })
+      );
+    }
+
+    if (params.sendSms && recipient.phone) {
+      summary.smsNotificationCount += 1;
+
+      notificationJobs.push(
+        queueSmsNotification({
+          recipientUserId: recipient.id,
+          recipientPhone: recipient.phone,
+          message: `${params.announcement.title}: ${params.announcement.content}`,
+          sourceType: "ANNOUNCEMENT",
+          entityType: "Announcement",
+          entityId: params.announcement.id,
+          metadata,
+          createdByUserId: params.createdByUserId,
+        })
+      );
+    }
+  }
+
+  await Promise.all(notificationJobs);
+
+  return summary;
+}
+
 router.get(
   "/",
   requireRole("SUPER_ADMIN", "MANAGER", "RESIDENT"),
@@ -320,13 +455,13 @@ router.get(
     const authenticatedRequest = request as AuthenticatedRequest;
 
     if (!authenticatedRequest.user) {
-      throw new HttpError(401, "Oturum bulunamadı.");
+      throw new HttpError(401, "Oturum bulunamadؤ±.");
     }
 
     const paginationParams = getPaginationParams(request.query);
 
     if (!paginationParams.success) {
-      throw new HttpError(400, "Sayfalama bilgileri geçersiz.", paginationParams.errors);
+      throw new HttpError(400, "Sayfalama bilgileri geأ§ersiz.", paginationParams.errors);
     }
 
     const userWhereCondition = await getAnnouncementWhereForUser(authenticatedRequest.user);
@@ -388,7 +523,7 @@ router.post(
     const authenticatedRequest = request as AuthenticatedRequest;
 
     if (!authenticatedRequest.user) {
-      throw new HttpError(401, "Oturum bulunamadı.");
+      throw new HttpError(401, "Oturum bulunamadؤ±.");
     }
 
     const validationResult = createAnnouncementSchema.safeParse(request.body);
@@ -396,12 +531,12 @@ router.post(
     if (!validationResult.success) {
       throw new HttpError(
         400,
-        "Gönderilen duyuru bilgileri geçersiz.",
+        "Gأ¶nderilen duyuru bilgileri geأ§ersiz.",
         validationResult.error.flatten().fieldErrors
       );
     }
 
-    const { title, content, targetType, siteId, blockId, apartmentId } = validationResult.data;
+    const { title, content, targetType, siteId, blockId, apartmentId, sendSms, sendEmail } = validationResult.data;
 
     const target = await ensureTargetIsValidAndAccessible({
       user: authenticatedRequest.user,
@@ -424,6 +559,22 @@ router.post(
       include: announcementInclude,
     });
 
+    const notificationSummary = await queueAnnouncementNotifications({
+      announcement: {
+        id: announcement.id,
+        title: announcement.title,
+        content: announcement.content,
+        targetType: announcement.targetType,
+        siteId: announcement.siteId,
+        blockId: announcement.blockId,
+        apartmentId: announcement.apartmentId,
+      },
+      sendSms,
+      sendEmail,
+      createdByUserId: authenticatedRequest.user.id,
+    });
+
+
     await createAuditLog({
       request,
       userId: authenticatedRequest.user.id,
@@ -436,12 +587,15 @@ router.post(
         siteId: announcement.siteId,
         blockId: announcement.blockId,
         apartmentId: announcement.apartmentId,
+        sendSms,
+        sendEmail,
+        notificationSummary,
       },
     });
 
     response.status(201).json({
       success: true,
-      message: "Duyuru başarıyla oluşturuldu.",
+      message: "Duyuru baإںarؤ±yla oluإںturuldu.",
       data: announcement,
     });
   })
@@ -454,13 +608,13 @@ router.patch(
     const authenticatedRequest = request as AuthenticatedRequest;
 
     if (!authenticatedRequest.user) {
-      throw new HttpError(401, "Oturum bulunamadı.");
+      throw new HttpError(401, "Oturum bulunamadؤ±.");
     }
 
     const paramsResult = announcementParamsSchema.safeParse(request.params);
 
     if (!paramsResult.success) {
-      throw new HttpError(400, "Duyuru bilgisi geçersiz.");
+      throw new HttpError(400, "Duyuru bilgisi geأ§ersiz.");
     }
 
     const validationResult = updateAnnouncementSchema.safeParse(request.body);
@@ -468,7 +622,7 @@ router.patch(
     if (!validationResult.success) {
       throw new HttpError(
         400,
-        "Gönderilen duyuru güncelleme bilgileri geçersiz.",
+        "Gأ¶nderilen duyuru gأ¼ncelleme bilgileri geأ§ersiz.",
         validationResult.error.flatten().fieldErrors
       );
     }
@@ -482,7 +636,7 @@ router.patch(
     });
 
     if (!targetAnnouncement) {
-      throw new HttpError(404, "Duyuru bulunamadı.");
+      throw new HttpError(404, "Duyuru bulunamadؤ±.");
     }
 
     await ensureTargetIsValidAndAccessible({
@@ -529,7 +683,7 @@ router.patch(
 
     response.status(200).json({
       success: true,
-      message: "Duyuru başarıyla güncellendi.",
+      message: "Duyuru baإںarؤ±yla gأ¼ncellendi.",
       data: updatedAnnouncement,
     });
   })
@@ -542,13 +696,13 @@ router.patch(
     const authenticatedRequest = request as AuthenticatedRequest;
 
     if (!authenticatedRequest.user) {
-      throw new HttpError(401, "Oturum bulunamadı.");
+      throw new HttpError(401, "Oturum bulunamadؤ±.");
     }
 
     const paramsResult = announcementParamsSchema.safeParse(request.params);
 
     if (!paramsResult.success) {
-      throw new HttpError(400, "Duyuru bilgisi geçersiz.");
+      throw new HttpError(400, "Duyuru bilgisi geأ§ersiz.");
     }
 
     const { announcementId } = paramsResult.data;
@@ -560,11 +714,11 @@ router.patch(
     });
 
     if (!targetAnnouncement) {
-      throw new HttpError(404, "Duyuru bulunamadı.");
+      throw new HttpError(404, "Duyuru bulunamadؤ±.");
     }
 
     if (targetAnnouncement.status === "ARCHIVED") {
-      throw new HttpError(409, "Duyuru zaten arşivlenmiş.");
+      throw new HttpError(409, "Duyuru zaten arإںivlenmiإں.");
     }
 
     await ensureTargetIsValidAndAccessible({
@@ -599,10 +753,11 @@ router.patch(
 
     response.status(200).json({
       success: true,
-      message: "Duyuru başarıyla arşivlendi.",
+      message: "Duyuru baإںarؤ±yla arإںivlendi.",
       data: updatedAnnouncement,
     });
   })
 );
 
 export default router;
+
