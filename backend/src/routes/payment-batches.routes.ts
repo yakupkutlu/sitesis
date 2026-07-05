@@ -7,20 +7,86 @@ import {
   requireAuth,
   requireRole,
   type AuthenticatedRequest,
+  type AuthenticatedUser,
 } from "../middlewares/auth.middleware.js";
+import { createAuditLog } from "../services/audit-log.service.js";
+import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
 import {
   distributeAmountToApartments,
   excludeExemptApartments,
   findInvalidExemptApartments,
 } from "../services/payment-distribution.service.js";
-import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
-import { createAuditLog } from "../services/audit-log.service.js";
 
 const router = express.Router();
 
 router.use(requireAuth);
+
+const paymentBatchInclude = {
+  site: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+  block: {
+    select: {
+      id: true,
+      name: true,
+      site: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+    },
+  },
+  allocations: {
+    include: {
+      apartment: {
+        select: {
+          id: true,
+          number: true,
+          block: {
+            select: {
+              id: true,
+              name: true,
+              site: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  exemptions: {
+    include: {
+      apartment: {
+        select: {
+          id: true,
+          number: true,
+          block: {
+            select: {
+              id: true,
+              name: true,
+              site: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+} as const;
 
 const createPaymentBatchSchema = z.object({
   title: z.string().trim().min(2),
@@ -32,6 +98,26 @@ const createPaymentBatchSchema = z.object({
   apartmentIds: z.array(z.string().uuid()).optional(),
   exemptApartmentIds: z.array(z.string().uuid()).optional().default([]),
   dueDate: z.coerce.date(),
+});
+
+const updatePaymentBatchSchema = z
+  .object({
+    title: z.string().trim().min(2).optional(),
+    description: z.string().trim().nullable().optional(),
+    dueDate: z.coerce.date().optional(),
+  })
+  .strict()
+  .refine(
+    (data) => {
+      return Object.values(data).some((value) => value !== undefined);
+    },
+    {
+      message: "En az bir alan gönderilmelidir.",
+    }
+  );
+
+const paymentBatchParamsSchema = z.object({
+  paymentBatchId: z.string().uuid(),
 });
 
 const allocationParamsSchema = z.object({
@@ -89,6 +175,59 @@ async function ensureManagerCanCreatePayment(params: {
   }
 }
 
+async function getPaymentBatchForManagement(paymentBatchId: string, user: AuthenticatedUser) {
+  const paymentBatch = await prisma.paymentBatch.findUnique({
+    where: {
+      id: paymentBatchId,
+    },
+    include: {
+      allocations: {
+        select: {
+          id: true,
+          status: true,
+          apartment: {
+            select: {
+              blockId: true,
+              block: {
+                select: {
+                  siteId: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!paymentBatch) {
+    throw new HttpError(404, "Ödeme bulunamadı.");
+  }
+
+  if (user.role === "SUPER_ADMIN") {
+    return paymentBatch;
+  }
+
+  const managerScope = await getManagerScope(user.id);
+
+  if (!hasManagerScope(managerScope)) {
+    throw new HttpError(403, "Bu yöneticiye atanmış bir site veya blok bulunamadı.");
+  }
+
+  const inaccessibleAllocation = paymentBatch.allocations.find((allocation) => {
+    const canAccessByBlock = managerScope.blockIds.includes(allocation.apartment.blockId);
+    const canAccessBySite = managerScope.siteIds.includes(allocation.apartment.block.siteId);
+
+    return !canAccessByBlock && !canAccessBySite;
+  });
+
+  if (inaccessibleAllocation) {
+    throw new HttpError(403, "Bu ödeme üzerinde işlem yapma yetkiniz yok.");
+  }
+
+  return paymentBatch;
+}
+
 router.get(
   "/",
   requireRole("SUPER_ADMIN", "MANAGER"),
@@ -139,70 +278,7 @@ router.get(
 
     const paymentBatches = await prisma.paymentBatch.findMany({
       where: whereCondition,
-      include: {
-        site: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        block: {
-          select: {
-            id: true,
-            name: true,
-            site: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-          },
-        },
-        allocations: {
-          include: {
-            apartment: {
-              select: {
-                id: true,
-                number: true,
-                block: {
-                  select: {
-                    id: true,
-                    name: true,
-                    site: {
-                      select: {
-                        id: true,
-                        name: true,
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-        exemptions: {
-          include: {
-            apartment: {
-              select: {
-                id: true,
-                number: true,
-                block: {
-                  select: {
-                    id: true,
-                    name: true,
-                    site: {
-                      select: {
-                        id: true,
-                        name: true,
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
+      include: paymentBatchInclude,
       orderBy: {
         createdAt: "desc",
       },
@@ -418,20 +494,22 @@ router.post(
         exemptions: true,
       },
     });
-      await createAuditLog({
-        request,
-        userId: authenticatedRequest.user.id,
-        action: "CREATE_PAYMENT_BATCH",
-        entityType: "PaymentBatch",
-        entityId: paymentBatch.id,
-        metadata: {
-          title: paymentBatch.title,
-          scopeType: paymentBatch.scopeType,
-          totalAmountKurus: paymentBatch.totalAmountKurus,
-          allocationCount: paymentBatch.allocations.length,
-          exemptionCount: paymentBatch.exemptions.length,
-        },
+
+    await createAuditLog({
+      request,
+      userId: authenticatedRequest.user.id,
+      action: "CREATE_PAYMENT_BATCH",
+      entityType: "PaymentBatch",
+      entityId: paymentBatch.id,
+      metadata: {
+        title: paymentBatch.title,
+        scopeType: paymentBatch.scopeType,
+        totalAmountKurus: paymentBatch.totalAmountKurus,
+        allocationCount: paymentBatch.allocations.length,
+        exemptionCount: paymentBatch.exemptions.length,
+      },
     });
+
     response.status(201).json({
       success: true,
       message: "Ödeme başarıyla oluşturuldu.",
@@ -441,9 +519,178 @@ router.post(
 );
 
 router.patch(
+  "/:paymentBatchId",
+  requireRole("SUPER_ADMIN", "MANAGER"),
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    const paramsResult = paymentBatchParamsSchema.safeParse(request.params);
+
+    if (!paramsResult.success) {
+      throw new HttpError(400, "Ödeme bilgisi geçersiz.");
+    }
+
+    const { paymentBatchId } = paramsResult.data;
+
+    const validationResult = updatePaymentBatchSchema.safeParse(request.body);
+
+    if (!validationResult.success) {
+      throw new HttpError(
+        400,
+        "Gönderilen ödeme güncelleme bilgileri geçersiz.",
+        validationResult.error.flatten().fieldErrors
+      );
+    }
+
+    const targetPaymentBatch = await getPaymentBatchForManagement(
+      paymentBatchId,
+      authenticatedRequest.user
+    );
+
+    const { title, description, dueDate } = validationResult.data;
+
+    const updateData: Prisma.PaymentBatchUpdateInput = {};
+
+    if (title !== undefined) {
+      updateData.title = title;
+    }
+
+    if (description !== undefined) {
+      updateData.description = description && description.length > 0 ? description : null;
+    }
+
+    if (dueDate !== undefined) {
+      updateData.dueDate = dueDate;
+    }
+
+    const updatedPaymentBatch = await prisma.paymentBatch.update({
+      where: {
+        id: paymentBatchId,
+      },
+      data: updateData,
+      include: paymentBatchInclude,
+    });
+
+    await createAuditLog({
+      request,
+      userId: authenticatedRequest.user.id,
+      action: "UPDATE_PAYMENT_BATCH",
+      entityType: "PaymentBatch",
+      entityId: updatedPaymentBatch.id,
+      metadata: {
+        previous: {
+          title: targetPaymentBatch.title,
+          description: targetPaymentBatch.description,
+          dueDate: targetPaymentBatch.dueDate,
+        },
+        current: {
+          title: updatedPaymentBatch.title,
+          description: updatedPaymentBatch.description,
+          dueDate: updatedPaymentBatch.dueDate,
+        },
+      },
+    });
+
+    response.status(200).json({
+      success: true,
+      message: "Ödeme başarıyla güncellendi.",
+      data: updatedPaymentBatch,
+    });
+  })
+);
+
+router.patch(
+  "/:paymentBatchId/cancel",
+  requireRole("SUPER_ADMIN", "MANAGER"),
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    const paramsResult = paymentBatchParamsSchema.safeParse(request.params);
+
+    if (!paramsResult.success) {
+      throw new HttpError(400, "Ödeme bilgisi geçersiz.");
+    }
+
+    const { paymentBatchId } = paramsResult.data;
+
+    const targetPaymentBatch = await getPaymentBatchForManagement(
+      paymentBatchId,
+      authenticatedRequest.user
+    );
+
+    const hasPaidAllocation = targetPaymentBatch.allocations.some((allocation) => {
+      return allocation.status === "PAID";
+    });
+
+    if (hasPaidAllocation) {
+      throw new HttpError(400, "İçinde ödenmiş kayıt olan ödeme toplu olarak iptal edilemez.");
+    }
+
+    const pendingAllocationCount = targetPaymentBatch.allocations.filter((allocation) => {
+      return allocation.status === "PENDING";
+    }).length;
+
+    if (pendingAllocationCount === 0) {
+      throw new HttpError(409, "Bu ödeme zaten tamamen iptal edilmiş.");
+    }
+
+    const updatedPaymentBatch = await prisma.$transaction(async (transaction) => {
+      await transaction.paymentAllocation.updateMany({
+        where: {
+          paymentBatchId,
+          status: "PENDING",
+        },
+        data: {
+          status: "CANCELLED",
+        },
+      });
+
+      return transaction.paymentBatch.findUniqueOrThrow({
+        where: {
+          id: paymentBatchId,
+        },
+        include: paymentBatchInclude,
+      });
+    });
+
+    await createAuditLog({
+      request,
+      userId: authenticatedRequest.user.id,
+      action: "CANCEL_PAYMENT_BATCH",
+      entityType: "PaymentBatch",
+      entityId: updatedPaymentBatch.id,
+      metadata: {
+        title: targetPaymentBatch.title,
+        cancelledAllocationCount: pendingAllocationCount,
+      },
+    });
+
+    response.status(200).json({
+      success: true,
+      message: "Ödeme başarıyla iptal edildi.",
+      data: updatedPaymentBatch,
+    });
+  })
+);
+
+router.patch(
   "/allocations/:allocationId/pay",
   requireRole("SUPER_ADMIN"),
   asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
     const paramsResult = allocationParamsSchema.safeParse(request.params);
 
     if (!paramsResult.success) {
@@ -493,6 +740,20 @@ router.patch(
           },
         },
         paymentBatch: true,
+      },
+    });
+
+    await createAuditLog({
+      request,
+      userId: authenticatedRequest.user.id,
+      action: "MARK_PAYMENT_ALLOCATION_PAID",
+      entityType: "PaymentAllocation",
+      entityId: updatedAllocation.id,
+      metadata: {
+        paymentBatchId: updatedAllocation.paymentBatchId,
+        apartmentId: updatedAllocation.apartmentId,
+        previousStatus: allocation.status,
+        currentStatus: updatedAllocation.status,
       },
     });
 
