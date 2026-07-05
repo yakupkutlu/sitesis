@@ -14,6 +14,7 @@ import { receiptUpload } from "../uploads/receipt-upload.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
 import { isAllowedReceiptFile } from "../utils/file-signature.js";
+import { buildPaginationMeta, getPaginationParams } from "../utils/pagination.js";
 const router = express.Router();
 
 router.use(requireAuth);
@@ -197,69 +198,138 @@ router.get(
       throw new HttpError(401, "Oturum bulunamadı.");
     }
 
-    let whereCondition: Prisma.PaymentReceiptWhereInput | undefined;
+    const paginationParams = getPaginationParams(request.query);
 
-    if (authenticatedRequest.user.role === "MANAGER") {
-      whereCondition = await getManagerReceiptAccessFilter(authenticatedRequest.user.id);
+    if (!paginationParams.success) {
+      throw new HttpError(400, "Sayfalama bilgileri geçersiz.", paginationParams.errors);
     }
 
-    const receipts = await prisma.paymentReceipt.findMany({
-      where: whereCondition,
-      include: {
-        uploadedByUser: {
-          select: {
-            id: true,
-            fullName: true,
-            email: true,
-            role: true,
+    const searchCondition: Prisma.PaymentReceiptWhereInput = paginationParams.search
+      ? {
+          OR: [
+            {
+              originalFileName: {
+                contains: paginationParams.search,
+                mode: "insensitive",
+              },
+            },
+            {
+              note: {
+                contains: paginationParams.search,
+                mode: "insensitive",
+              },
+            },
+            {
+              uploadedByUser: {
+                fullName: {
+                  contains: paginationParams.search,
+                  mode: "insensitive",
+                },
+              },
+            },
+            {
+              uploadedByUser: {
+                email: {
+                  contains: paginationParams.search,
+                  mode: "insensitive",
+                },
+              },
+            },
+            {
+              paymentAllocation: {
+                paymentBatch: {
+                  title: {
+                    contains: paginationParams.search,
+                    mode: "insensitive",
+                  },
+                },
+              },
+            },
+          ],
+        }
+      : {};
+
+    let whereCondition: Prisma.PaymentReceiptWhereInput = searchCondition;
+
+    if (authenticatedRequest.user.role === "MANAGER") {
+      const managerFilter = await getManagerReceiptAccessFilter(
+        authenticatedRequest.user.id
+      );
+
+      whereCondition = {
+        AND: [searchCondition, managerFilter],
+      };
+    }
+
+    const [receipts, totalCount] = await Promise.all([
+      prisma.paymentReceipt.findMany({
+        where: whereCondition,
+        include: {
+          uploadedByUser: {
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+              role: true,
+            },
           },
-        },
-        reviewedByUser: {
-          select: {
-            id: true,
-            fullName: true,
-            email: true,
-            role: true,
+          reviewedByUser: {
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+              role: true,
+            },
           },
-        },
-        paymentAllocation: {
-          include: {
-            apartment: {
-              select: {
-                id: true,
-                number: true,
-                block: {
-                  select: {
-                    id: true,
-                    name: true,
-                    site: {
-                      select: {
-                        id: true,
-                        name: true,
+          paymentAllocation: {
+            include: {
+              apartment: {
+                select: {
+                  id: true,
+                  number: true,
+                  block: {
+                    select: {
+                      id: true,
+                      name: true,
+                      site: {
+                        select: {
+                          id: true,
+                          name: true,
+                        },
                       },
                     },
                   },
                 },
               },
-            },
-            paymentBatch: {
-              select: {
-                id: true,
-                title: true,
-                dueDate: true,
+              paymentBatch: {
+                select: {
+                  id: true,
+                  title: true,
+                  dueDate: true,
+                },
               },
             },
           },
         },
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
+        orderBy: {
+          createdAt: "desc",
+        },
+        skip: paginationParams.skip,
+        take: paginationParams.limit,
+      }),
+      prisma.paymentReceipt.count({
+        where: whereCondition,
+      }),
+    ]);
 
     response.status(200).json({
       success: true,
       data: receipts,
+      pagination: buildPaginationMeta({
+        page: paginationParams.page,
+        limit: paginationParams.limit,
+        totalCount,
+      }),
     });
   })
 );
