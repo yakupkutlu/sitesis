@@ -12,7 +12,7 @@ import {
 import { env } from "../config/env.js";
 import prisma from "../db/prisma.js";
 import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth.middleware.js";
-import { forgotPasswordLimiter, loginLimiter } from "../middlewares/rate-limit.middleware.js";
+import { forgotPasswordLimiter, loginLimiter, resetPasswordLimiter } from "../middlewares/rate-limit.middleware.js";
 import { queueEmailNotification } from "../services/notification.service.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
@@ -208,6 +208,7 @@ router.post(
 
 router.post(
   "/reset-password",
+  resetPasswordLimiter,
   asyncHandler(async (request, response) => {
     const validationResult = resetPasswordSchema.safeParse(request.body);
 
@@ -317,3 +318,4 @@ router.post("/logout", (_request, response) => {
 });
 
 export default router;
+

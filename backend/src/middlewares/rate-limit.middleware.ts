@@ -25,3 +25,15 @@ export const forgotPasswordLimiter = rateLimit({
     message: "Çok fazla şifre sıfırlama talebi gönderildi. Lütfen daha sonra tekrar deneyin.",
   },
 });
+
+export const resetPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: env.NODE_ENV === "production" ? 5 : 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  message: {
+    success: false,
+    message: "Çok fazla şifre yenileme denemesi yapıldı. Lütfen daha sonra tekrar deneyin.",
+  },
+});
