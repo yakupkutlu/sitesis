@@ -2,11 +2,17 @@ import express, { type Request, type Response } from "express";
 import { z } from "zod";
 
 import prisma from "../db/prisma.js";
-import {requireAuth,requireRole,type AuthenticatedRequest,} from "../middlewares/auth.middleware.js";
+import {
+  requireAuth,
+  requireRole,
+  type AuthenticatedRequest,
+} from "../middlewares/auth.middleware.js";
+import { createAuditLog } from "../services/audit-log.service.js";
+import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
+import { type Prisma } from "../generated/prisma/client.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
-import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
-import { createAuditLog } from "../services/audit-log.service.js";
+
 const router = express.Router();
 
 router.use(requireAuth);
@@ -22,6 +28,33 @@ const createApartmentSchema = z.object({
   blockId: z.string().uuid(),
 });
 
+const updateApartmentSchema = z
+  .object({
+    number: z.string().trim().min(1).optional(),
+    floor: z.number().int().nullable().optional(),
+    description: z.string().trim().nullable().optional(),
+    blockId: z.string().uuid().optional(),
+  })
+  .strict()
+  .refine(
+    (data) => {
+      return Object.values(data).some((value) => value !== undefined);
+    },
+    {
+      message: "En az bir alan gönderilmelidir.",
+    }
+  );
+
+function getRequiredParam(request: Request, paramName: string) {
+  const paramValue = request.params[paramName];
+
+  if (typeof paramValue !== "string" || paramValue.trim().length === 0) {
+    throw new HttpError(400, "Daire id bilgisi zorunludur.");
+  }
+
+  return paramValue;
+}
+
 router.get(
   "/",
   requireRole("SUPER_ADMIN", "MANAGER"),
@@ -36,33 +69,19 @@ router.get(
       );
     }
 
-    const { blockId } = queryResult.data;
-    
-        const authenticatedRequest = request as AuthenticatedRequest;
+    const authenticatedRequest = request as AuthenticatedRequest;
 
     if (!authenticatedRequest.user) {
       throw new HttpError(401, "Oturum bulunamadı.");
     }
 
-    let whereCondition:
-      | {
-          blockId?: string;
-          OR?: Array<{
-            blockId?: {
-              in: string[];
-            };
-            block?: {
-              siteId: {
-                in: string[];
-              };
-            };
-          }>;
-        }
-      | undefined = blockId
+    const { blockId } = queryResult.data;
+
+    let whereCondition: Prisma.ApartmentWhereInput = blockId
       ? {
           blockId,
         }
-      : undefined;
+      : {};
 
     if (authenticatedRequest.user.role === "MANAGER") {
       const managerScope = await getManagerScope(authenticatedRequest.user.id);
@@ -161,6 +180,7 @@ router.post(
     if (!authenticatedRequest.user) {
       throw new HttpError(401, "Oturum bulunamadı.");
     }
+
     const validationResult = createApartmentSchema.safeParse(request.body);
 
     if (!validationResult.success) {
@@ -225,8 +245,8 @@ router.post(
         },
       },
     });
-    
-      await createAuditLog({
+
+    await createAuditLog({
       request,
       userId: authenticatedRequest.user.id,
       action: "CREATE_APARTMENT",
@@ -243,6 +263,158 @@ router.post(
       success: true,
       message: "Daire başarıyla oluşturuldu.",
       data: apartment,
+    });
+  })
+);
+
+router.patch(
+  "/:apartmentId",
+  requireRole("SUPER_ADMIN"),
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    const apartmentId = getRequiredParam(request, "apartmentId");
+
+    const validationResult = updateApartmentSchema.safeParse(request.body);
+
+    if (!validationResult.success) {
+      throw new HttpError(
+        400,
+        "Gönderilen daire güncelleme bilgileri geçersiz.",
+        validationResult.error.flatten().fieldErrors
+      );
+    }
+
+    const targetApartment = await prisma.apartment.findUnique({
+      where: {
+        id: apartmentId,
+      },
+      select: {
+        id: true,
+        number: true,
+        floor: true,
+        description: true,
+        blockId: true,
+      },
+    });
+
+    if (!targetApartment) {
+      throw new HttpError(404, "Daire bulunamadı.");
+    }
+
+    const { number, floor, description, blockId } = validationResult.data;
+
+    const nextBlockId = blockId ?? targetApartment.blockId;
+    const nextNumber = number ?? targetApartment.number;
+
+    if (blockId !== undefined && blockId !== targetApartment.blockId) {
+      const block = await prisma.block.findUnique({
+        where: {
+          id: blockId,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (!block) {
+        throw new HttpError(404, "Blok/Apartman bulunamadı.");
+      }
+    }
+
+    if (nextBlockId !== targetApartment.blockId || nextNumber !== targetApartment.number) {
+      const existingApartment = await prisma.apartment.findUnique({
+        where: {
+          blockId_number: {
+            blockId: nextBlockId,
+            number: nextNumber,
+          },
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (existingApartment && existingApartment.id !== targetApartment.id) {
+        throw new HttpError(409, "Bu blok içinde aynı daire numarası zaten var.");
+      }
+    }
+
+    const updateData: {
+      number?: string;
+      floor?: number | null;
+      description?: string | null;
+      blockId?: string;
+    } = {};
+
+    if (number !== undefined) {
+      updateData.number = number;
+    }
+
+    if (floor !== undefined) {
+      updateData.floor = floor;
+    }
+
+    if (description !== undefined) {
+      updateData.description = description && description.length > 0 ? description : null;
+    }
+
+    if (blockId !== undefined) {
+      updateData.blockId = blockId;
+    }
+
+    const updatedApartment = await prisma.apartment.update({
+      where: {
+        id: apartmentId,
+      },
+      data: updateData,
+      include: {
+        block: {
+          select: {
+            id: true,
+            name: true,
+            site: {
+              select: {
+                id: true,
+                name: true,
+                address: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    await createAuditLog({
+      request,
+      userId: authenticatedRequest.user.id,
+      action: "UPDATE_APARTMENT",
+      entityType: "Apartment",
+      entityId: updatedApartment.id,
+      metadata: {
+        previous: {
+          number: targetApartment.number,
+          floor: targetApartment.floor,
+          description: targetApartment.description,
+          blockId: targetApartment.blockId,
+        },
+        current: {
+          number: updatedApartment.number,
+          floor: updatedApartment.floor,
+          description: updatedApartment.description,
+          blockId: updatedApartment.blockId,
+        },
+      },
+    });
+
+    response.status(200).json({
+      success: true,
+      message: "Daire başarıyla güncellendi.",
+      data: updatedApartment,
     });
   })
 );
