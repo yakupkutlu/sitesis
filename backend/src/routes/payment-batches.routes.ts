@@ -3,22 +3,13 @@ import { z } from "zod";
 
 import prisma from "../db/prisma.js";
 import { type Prisma } from "../generated/prisma/client.js";
-import {
-  requireAuth,
-  requireRole,
-  type AuthenticatedRequest,
-  type AuthenticatedUser,
-} from "../middlewares/auth.middleware.js";
+import {requireAuth,requireRole,type AuthenticatedRequest,type AuthenticatedUser,} from "../middlewares/auth.middleware.js";
 import { createAuditLog } from "../services/audit-log.service.js";
 import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
-import {
-  distributeAmountToApartments,
-  excludeExemptApartments,
-  findInvalidExemptApartments,
-} from "../services/payment-distribution.service.js";
+import {distributeAmountToApartments,excludeExemptApartments,findInvalidExemptApartments,} from "../services/payment-distribution.service.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
-
+import { buildPaginationMeta, getPaginationParams } from "../utils/pagination.js";
 const router = express.Router();
 
 router.use(requireAuth);
@@ -238,7 +229,32 @@ router.get(
       throw new HttpError(401, "Oturum bulunamadı.");
     }
 
-    let whereCondition: Prisma.PaymentBatchWhereInput | undefined;
+    const paginationParams = getPaginationParams(request.query);
+
+    if (!paginationParams.success) {
+      throw new HttpError(400, "Sayfalama bilgileri geçersiz.", paginationParams.errors);
+    }
+
+    const searchCondition: Prisma.PaymentBatchWhereInput = paginationParams.search
+      ? {
+          OR: [
+            {
+              title: {
+                contains: paginationParams.search,
+                mode: "insensitive",
+              },
+            },
+            {
+              description: {
+                contains: paginationParams.search,
+                mode: "insensitive",
+              },
+            },
+          ],
+        }
+      : {};
+
+    let whereCondition: Prisma.PaymentBatchWhereInput = searchCondition;
 
     if (authenticatedRequest.user.role === "MANAGER") {
       const managerScope = await getManagerScope(authenticatedRequest.user.id);
@@ -269,24 +285,41 @@ router.get(
       };
 
       whereCondition = {
-        allocations: {
-          some: accessibleAllocationFilter,
-          every: accessibleAllocationFilter,
-        },
+        AND: [
+          searchCondition,
+          {
+            allocations: {
+              some: accessibleAllocationFilter,
+              every: accessibleAllocationFilter,
+            },
+          },
+        ],
       };
     }
 
-    const paymentBatches = await prisma.paymentBatch.findMany({
-      where: whereCondition,
-      include: paymentBatchInclude,
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
+    const [paymentBatches, totalCount] = await Promise.all([
+      prisma.paymentBatch.findMany({
+        where: whereCondition,
+        include: paymentBatchInclude,
+        orderBy: {
+          createdAt: "desc",
+        },
+        skip: paginationParams.skip,
+        take: paginationParams.limit,
+      }),
+      prisma.paymentBatch.count({
+        where: whereCondition,
+      }),
+    ]);
 
     response.status(200).json({
       success: true,
       data: paymentBatches,
+      pagination: buildPaginationMeta({
+        page: paginationParams.page,
+        limit: paginationParams.limit,
+        totalCount,
+      }),
     });
   })
 );
