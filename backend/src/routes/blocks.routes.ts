@@ -2,17 +2,13 @@ import express, { type Request, type Response } from "express";
 import { z } from "zod";
 
 import prisma from "../db/prisma.js";
-import {
-  requireAuth,
-  requireRole,
-  type AuthenticatedRequest,
-} from "../middlewares/auth.middleware.js";
+import {requireAuth,requireRole,type AuthenticatedRequest,} from "../middlewares/auth.middleware.js";
 import { createAuditLog } from "../services/audit-log.service.js";
 import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
 import { type Prisma } from "../generated/prisma/client.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
-
+import { buildPaginationMeta, getPaginationParams } from "../utils/pagination.js";
 const router = express.Router();
 
 router.use(requireAuth);
@@ -73,13 +69,43 @@ router.get(
       throw new HttpError(401, "Oturum bulunamadı.");
     }
 
+    const paginationParams = getPaginationParams(request.query);
+
+    if (!paginationParams.success) {
+      throw new HttpError(400, "Sayfalama bilgileri geçersiz.", paginationParams.errors);
+    }
+
     const { siteId } = queryResult.data;
+
+    const searchCondition: Prisma.BlockWhereInput = paginationParams.search
+      ? {
+          OR: [
+            {
+              name: {
+                contains: paginationParams.search,
+                mode: "insensitive",
+              },
+            },
+            {
+              description: {
+                contains: paginationParams.search,
+                mode: "insensitive",
+              },
+            },
+          ],
+        }
+      : {};
 
     let whereCondition: Prisma.BlockWhereInput = siteId
       ? {
-          siteId,
+          AND: [
+            searchCondition,
+            {
+              siteId,
+            },
+          ],
         }
-      : {};
+      : searchCondition;
 
     if (authenticatedRequest.user.role === "MANAGER") {
       const managerScope = await getManagerScope(authenticatedRequest.user.id);
@@ -106,46 +132,52 @@ router.get(
         });
       }
 
-      whereCondition = siteId
-        ? {
-            AND: [
-              {
-                siteId,
-              },
-              {
-                OR: managerFilters,
-              },
-            ],
-          }
-        : {
+      whereCondition = {
+        AND: [
+          whereCondition,
+          {
             OR: managerFilters,
-          };
+          },
+        ],
+      };
     }
 
-    const blocks = await prisma.block.findMany({
-      where: whereCondition,
-      include: {
-        site: {
-          select: {
-            id: true,
-            name: true,
-            address: true,
+    const [blocks, totalCount] = await Promise.all([
+      prisma.block.findMany({
+        where: whereCondition,
+        include: {
+          site: {
+            select: {
+              id: true,
+              name: true,
+              address: true,
+            },
+          },
+          _count: {
+            select: {
+              apartments: true,
+            },
           },
         },
-        _count: {
-          select: {
-            apartments: true,
-          },
+        orderBy: {
+          createdAt: "desc",
         },
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
+        skip: paginationParams.skip,
+        take: paginationParams.limit,
+      }),
+      prisma.block.count({
+        where: whereCondition,
+      }),
+    ]);
 
     response.status(200).json({
       success: true,
       data: blocks,
+      pagination: buildPaginationMeta({
+        page: paginationParams.page,
+        limit: paginationParams.limit,
+        totalCount,
+      }),
     });
   })
 );
