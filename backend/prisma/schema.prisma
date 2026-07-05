@@ -109,27 +109,28 @@ enum NotificationSourceType {
 }
 
 model User {
-  id                       String              @id @default(uuid())
+  id                       String               @id @default(uuid())
   fullName                 String
-  email                    String              @unique
+  email                    String               @unique
   phone                    String?
   passwordHash             String
   role                     UserRole
-  status                   UserStatus          @default(ACTIVE)
+  status                   UserStatus           @default(ACTIVE)
   apartmentResidents       ApartmentResident[]
-  uploadedReceipts         PaymentReceipt[]    @relation("UploadedReceipts")
-  reviewedReceipts         PaymentReceipt[]    @relation("ReviewedReceipts")
-  managerAssignments       ManagerAssignment[] @relation("ManagerAssignments")
-  auditLogs                AuditLog[]          @relation("UserAuditLogs")
-  announcements            Announcement[]      @relation("UserAnnouncements")
-  createdRequests          ResidentRequest[]   @relation("UserCreatedRequests")
-  assignedRequests         ResidentRequest[]   @relation("UserAssignedRequests")
-  createdSmsSettings       SmsSetting[]        @relation("UserCreatedSmsSettings")
-  updatedSmsSettings       SmsSetting[]        @relation("UserUpdatedSmsSettings")
-  createdEmailSettings     EmailSetting[]      @relation("UserCreatedEmailSettings")
-  updatedEmailSettings     EmailSetting[]      @relation("UserUpdatedEmailSettings")
-  createdNotificationLogs  NotificationLog[]   @relation("UserCreatedNotificationLogs")
-  receivedNotificationLogs NotificationLog[]   @relation("UserReceivedNotificationLogs")
+  uploadedReceipts         PaymentReceipt[]     @relation("UploadedReceipts")
+  reviewedReceipts         PaymentReceipt[]     @relation("ReviewedReceipts")
+  managerAssignments       ManagerAssignment[]  @relation("ManagerAssignments")
+  auditLogs                AuditLog[]           @relation("UserAuditLogs")
+  announcements            Announcement[]       @relation("UserAnnouncements")
+  createdRequests          ResidentRequest[]    @relation("UserCreatedRequests")
+  assignedRequests         ResidentRequest[]    @relation("UserAssignedRequests")
+  createdSmsSettings       SmsSetting[]         @relation("UserCreatedSmsSettings")
+  updatedSmsSettings       SmsSetting[]         @relation("UserUpdatedSmsSettings")
+  createdEmailSettings     EmailSetting[]       @relation("UserCreatedEmailSettings")
+  updatedEmailSettings     EmailSetting[]       @relation("UserUpdatedEmailSettings")
+  createdNotificationLogs  NotificationLog[]    @relation("UserCreatedNotificationLogs")
+  receivedNotificationLogs NotificationLog[]    @relation("UserReceivedNotificationLogs")
+  passwordResetTokens      PasswordResetToken[] @relation("UserPasswordResetTokens")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -515,4 +516,20 @@ model NotificationLog {
   @@index([entityType])
   @@index([entityId])
   @@index([createdAt])
+}
+
+model PasswordResetToken {
+  id String @id @default(uuid())
+
+  userId String
+  user   User   @relation("UserPasswordResetTokens", fields: [userId], references: [id], onDelete: Cascade)
+
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
 }
