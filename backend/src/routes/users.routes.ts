@@ -7,7 +7,8 @@ import {requireAuth,requireRole,type AuthenticatedRequest,} from "../middlewares
 import { createAuditLog } from "../services/audit-log.service.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
-
+import { type Prisma } from "../generated/prisma/client.js";
+import { buildPaginationMeta, getPaginationParams } from "../utils/pagination.js";
 const router = express.Router();
 
 router.use(requireAuth);
@@ -92,17 +93,61 @@ async function ensureCanModifySuperAdmin(
 
 router.get(
   "/",
-  asyncHandler(async (_request: Request, response: Response) => {
-    const users = await prisma.user.findMany({
-      orderBy: {
-        createdAt: "desc",
-      },
-      select: userSelectFields,
-    });
+  asyncHandler(async (request: Request, response: Response) => {
+    const paginationParams = getPaginationParams(request.query);
+
+    if (!paginationParams.success) {
+      throw new HttpError(400, "Sayfalama bilgileri geçersiz.", paginationParams.errors);
+    }
+
+    const whereCondition: Prisma.UserWhereInput = paginationParams.search
+      ? {
+          OR: [
+            {
+              fullName: {
+                contains: paginationParams.search,
+                mode: "insensitive",
+              },
+            },
+            {
+              email: {
+                contains: paginationParams.search,
+                mode: "insensitive",
+              },
+            },
+            {
+              phone: {
+                contains: paginationParams.search,
+                mode: "insensitive",
+              },
+            },
+          ],
+        }
+      : {};
+
+    const [users, totalCount] = await Promise.all([
+      prisma.user.findMany({
+        where: whereCondition,
+        orderBy: {
+          createdAt: "desc",
+        },
+        skip: paginationParams.skip,
+        take: paginationParams.limit,
+        select: userSelectFields,
+      }),
+      prisma.user.count({
+        where: whereCondition,
+      }),
+    ]);
 
     response.status(200).json({
       success: true,
       data: users,
+      pagination: buildPaginationMeta({
+        page: paginationParams.page,
+        limit: paginationParams.limit,
+        totalCount,
+      }),
     });
   })
 );
