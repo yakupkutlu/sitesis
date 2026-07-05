@@ -2,17 +2,13 @@ import express, { type Request, type Response } from "express";
 import { z } from "zod";
 
 import prisma from "../db/prisma.js";
-import {
-  requireAuth,
-  requireRole,
-  type AuthenticatedRequest,
-} from "../middlewares/auth.middleware.js";
+import {requireAuth,requireRole,type AuthenticatedRequest,} from "../middlewares/auth.middleware.js";
 import { createAuditLog } from "../services/audit-log.service.js";
 import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
 import { type Prisma } from "../generated/prisma/client.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
-
+import { buildPaginationMeta, getPaginationParams } from "../utils/pagination.js";
 const router = express.Router();
 
 router.use(requireAuth);
@@ -65,7 +61,36 @@ router.get(
       throw new HttpError(401, "Oturum bulunamadı.");
     }
 
-    let whereCondition: Prisma.SiteWhereInput | undefined;
+    const paginationParams = getPaginationParams(request.query);
+
+    if (!paginationParams.success) {
+      throw new HttpError(400, "Sayfalama bilgileri geçersiz.", paginationParams.errors);
+    }
+
+    let whereCondition: Prisma.SiteWhereInput = paginationParams.search
+      ? {
+          OR: [
+            {
+              name: {
+                contains: paginationParams.search,
+                mode: "insensitive",
+              },
+            },
+            {
+              address: {
+                contains: paginationParams.search,
+                mode: "insensitive",
+              },
+            },
+            {
+              description: {
+                contains: paginationParams.search,
+                mode: "insensitive",
+              },
+            },
+          ],
+        }
+      : {};
 
     if (authenticatedRequest.user.role === "MANAGER") {
       const managerScope = await getManagerScope(authenticatedRequest.user.id);
@@ -97,39 +122,56 @@ router.get(
       }
 
       whereCondition = {
-        OR: managerFilters,
+        AND: [
+          whereCondition,
+          {
+            OR: managerFilters,
+          },
+        ],
       };
     }
 
-    const sites = await prisma.site.findMany({
-      where: whereCondition,
-      include: {
-        blocks: {
-          select: {
-            id: true,
-            name: true,
-            description: true,
-            createdAt: true,
-            updatedAt: true,
-            _count: {
-              select: {
-                apartments: true,
+    const [sites, totalCount] = await Promise.all([
+      prisma.site.findMany({
+        where: whereCondition,
+        include: {
+          blocks: {
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              createdAt: true,
+              updatedAt: true,
+              _count: {
+                select: {
+                  apartments: true,
+                },
               },
             },
-          },
-          orderBy: {
-            createdAt: "asc",
+            orderBy: {
+              createdAt: "asc",
+            },
           },
         },
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
+        orderBy: {
+          createdAt: "desc",
+        },
+        skip: paginationParams.skip,
+        take: paginationParams.limit,
+      }),
+      prisma.site.count({
+        where: whereCondition,
+      }),
+    ]);
 
     response.status(200).json({
       success: true,
       data: sites,
+      pagination: buildPaginationMeta({
+        page: paginationParams.page,
+        limit: paginationParams.limit,
+        totalCount,
+      }),
     });
   })
 );
