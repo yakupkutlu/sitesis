@@ -49,11 +49,23 @@ enum AnnouncementTargetType {
   BLOCK
   APARTMENT
 }
-
 enum AnnouncementStatus {
   ACTIVE
   ARCHIVED
 }
+enum RequestType {
+  MAINTENANCE
+  COMPLAINT
+  SUGGESTION
+  GENERAL
+}
+enum RequestStatus {
+  OPEN
+  IN_PROGRESS
+  DONE
+  REJECTED
+}
+
 model User {
   id           String     @id @default(uuid())
   fullName     String
@@ -68,10 +80,13 @@ model User {
   managerAssignments ManagerAssignment[] @relation("ManagerAssignments")
   auditLogs AuditLog[] @relation("UserAuditLogs")
   announcements Announcement[] @relation("UserAnnouncements")
+  createdRequests  ResidentRequest[] @relation("UserCreatedRequests")
+assignedRequests ResidentRequest[] @relation("UserAssignedRequests")
 
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 }
+
 model Site {
   id          String   @id @default(uuid())
   name        String
@@ -122,7 +137,8 @@ model Apartment {
   paymentAllocations PaymentAllocation[]
   paymentExemptions  PaymentExemption[]
   announcements Announcement[] @relation("ApartmentAnnouncements")
-
+  requests ResidentRequest[] @relation("ApartmentRequests")
+  
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -311,5 +327,33 @@ model Announcement {
   @@index([blockId])
   @@index([apartmentId])
   @@index([createdByUserId])
+  @@index([createdAt])
+}
+model ResidentRequest {
+  id          String        @id @default(uuid())
+
+  title       String
+  description String
+
+  type        RequestType
+  status      RequestStatus @default(OPEN)
+
+  apartmentId String
+  apartment   Apartment     @relation("ApartmentRequests", fields: [apartmentId], references: [id], onDelete: Cascade)
+
+  createdByUserId String?
+  createdByUser   User?     @relation("UserCreatedRequests", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  assignedToUserId String?
+  assignedToUser   User?    @relation("UserAssignedRequests", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([type])
+  @@index([status])
+  @@index([apartmentId])
+  @@index([createdByUserId])
+  @@index([assignedToUserId])
   @@index([createdAt])
 }

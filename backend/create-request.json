@@ -1,0 +1,6 @@
+﻿{
+  "title": "Test Bakım Talebi",
+  "description": "Asansör kontrol edilmelidir.",
+  "type": "MAINTENANCE",
+  "apartmentId": "1168a706-0248-4037-b2cc-c157d07738cd"
+}
