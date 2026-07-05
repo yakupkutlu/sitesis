@@ -2,16 +2,13 @@ import express, { type Request, type Response } from "express";
 import { z } from "zod";
 
 import prisma from "../db/prisma.js";
-import {
-  requireAuth,
-  requireRole,
-  type AuthenticatedRequest,
-} from "../middlewares/auth.middleware.js";
+import {requireAuth,requireRole,type AuthenticatedRequest,} from "../middlewares/auth.middleware.js";
 import { createAuditLog } from "../services/audit-log.service.js";
 import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
 import { type Prisma } from "../generated/prisma/client.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
+import { buildPaginationMeta, getPaginationParams } from "../utils/pagination.js";
 
 const router = express.Router();
 
@@ -75,13 +72,43 @@ router.get(
       throw new HttpError(401, "Oturum bulunamadı.");
     }
 
+    const paginationParams = getPaginationParams(request.query);
+
+    if (!paginationParams.success) {
+      throw new HttpError(400, "Sayfalama bilgileri geçersiz.", paginationParams.errors);
+    }
+
     const { blockId } = queryResult.data;
+
+    const searchCondition: Prisma.ApartmentWhereInput = paginationParams.search
+      ? {
+          OR: [
+            {
+              number: {
+                contains: paginationParams.search,
+                mode: "insensitive",
+              },
+            },
+            {
+              description: {
+                contains: paginationParams.search,
+                mode: "insensitive",
+              },
+            },
+          ],
+        }
+      : {};
 
     let whereCondition: Prisma.ApartmentWhereInput = blockId
       ? {
-          blockId,
+          AND: [
+            searchCondition,
+            {
+              blockId,
+            },
+          ],
         }
-      : {};
+      : searchCondition;
 
     if (authenticatedRequest.user.role === "MANAGER") {
       const managerScope = await getManagerScope(authenticatedRequest.user.id);
@@ -90,83 +117,79 @@ router.get(
         throw new HttpError(403, "Bu yöneticiye atanmış bir site veya blok bulunamadı.");
       }
 
-      if (blockId) {
-        const selectedBlock = await prisma.block.findUnique({
-          where: {
-            id: blockId,
-          },
-          select: {
-            id: true,
-            siteId: true,
+      const managerFilters: Prisma.ApartmentWhereInput[] = [];
+
+      if (managerScope.blockIds.length > 0) {
+        managerFilters.push({
+          blockId: {
+            in: managerScope.blockIds,
           },
         });
+      }
 
-        if (!selectedBlock) {
-          throw new HttpError(404, "Blok/Apartman bulunamadı.");
-        }
-
-        const canAccessBlock =
-          managerScope.blockIds.includes(selectedBlock.id) ||
-          managerScope.siteIds.includes(selectedBlock.siteId);
-
-        if (!canAccessBlock) {
-          throw new HttpError(403, "Bu blok/apartmana ait daireleri görüntüleme yetkiniz yok.");
-        }
-
-        whereCondition = {
-          blockId,
-        };
-      } else {
-        whereCondition = {
-          OR: [
-            {
-              blockId: {
-                in: managerScope.blockIds,
-              },
+      if (managerScope.siteIds.length > 0) {
+        managerFilters.push({
+          block: {
+            siteId: {
+              in: managerScope.siteIds,
             },
-            {
-              block: {
-                siteId: {
-                  in: managerScope.siteIds,
+          },
+        });
+      }
+
+      whereCondition = {
+        AND: [
+          whereCondition,
+          {
+            OR: managerFilters,
+          },
+        ],
+      };
+    }
+
+    const [apartments, totalCount] = await Promise.all([
+      prisma.apartment.findMany({
+        where: whereCondition,
+        include: {
+          block: {
+            select: {
+              id: true,
+              name: true,
+              site: {
+                select: {
+                  id: true,
+                  name: true,
+                  address: true,
                 },
               },
             },
-          ],
-        };
-      }
-    }
-
-    const apartments = await prisma.apartment.findMany({
-      where: whereCondition,
-      include: {
-        block: {
-          select: {
-            id: true,
-            name: true,
-            site: {
-              select: {
-                id: true,
-                name: true,
-                address: true,
-              },
+          },
+          _count: {
+            select: {
+              residents: true,
+              paymentAllocations: true,
             },
           },
         },
-        _count: {
-          select: {
-            residents: true,
-            paymentAllocations: true,
-          },
+        orderBy: {
+          createdAt: "desc",
         },
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
+        skip: paginationParams.skip,
+        take: paginationParams.limit,
+      }),
+      prisma.apartment.count({
+        where: whereCondition,
+      }),
+    ]);
 
     response.status(200).json({
       success: true,
       data: apartments,
+      pagination: buildPaginationMeta({
+        page: paginationParams.page,
+        limit: paginationParams.limit,
+        totalCount,
+      }),
     });
   })
 );
