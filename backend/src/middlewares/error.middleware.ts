@@ -1,4 +1,4 @@
-import { type ErrorRequestHandler } from "express";
+﻿import { type ErrorRequestHandler } from "express";
 import multer from "multer";
 
 import { HttpError } from "../utils/http-error.js";
@@ -8,12 +8,12 @@ export const errorHandler: ErrorRequestHandler = (error, _request, response, _ne
 
   if (error instanceof HttpError) {
     response.status(error.statusCode).json({
-    success: false,
-    message: error.message,
-    ...(error.details ? { errors: error.details } : {}),
-   });
-   return;
- }
+      success: false,
+      message: error.message,
+      ...(error.details ? { errors: error.details } : {}),
+    });
+    return;
+  }
 
   if (error instanceof multer.MulterError) {
     if (error.code === "LIMIT_FILE_SIZE") {

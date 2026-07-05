@@ -1,4 +1,4 @@
-import express, { type Response } from "express";
+﻿import express, { type Response } from "express";
 import bcrypt from "bcryptjs";
 import jwt, { type SignOptions } from "jsonwebtoken";
 import { z } from "zod";
@@ -12,7 +12,7 @@ import {
 import { env } from "../config/env.js";
 import prisma from "../db/prisma.js";
 import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth.middleware.js";
-import { loginLimiter } from "../middlewares/rate-limit.middleware.js";
+import { forgotPasswordLimiter, loginLimiter } from "../middlewares/rate-limit.middleware.js";
 import { queueEmailNotification } from "../services/notification.service.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
@@ -30,7 +30,7 @@ const forgotPasswordSchema = z.object({
 
 const resetPasswordSchema = z.object({
   token: z.string().trim().min(32),
-  password: z.string().min(8, "Şifre en az 8 karakter olmalıdır."),
+  password: z.string().min(8, "إ‍ifre en az 8 karakter olmalؤ±dؤ±r."),
 });
 
 function createPasswordResetToken() {
@@ -58,7 +58,7 @@ router.post(
     const validationResult = loginSchema.safeParse(request.body);
 
     if (!validationResult.success) {
-      throw new HttpError(400, "E-posta veya şifre hatalı.");
+      throw new HttpError(400, "E-posta veya إںifre hatalؤ±.");
     }
 
     const { email, password } = validationResult.data;
@@ -71,17 +71,17 @@ router.post(
     });
 
     if (!user) {
-      throw new HttpError(401, "E-posta veya şifre hatalı.");
+      throw new HttpError(401, "E-posta veya إںifre hatalؤ±.");
     }
 
     if (user.status !== "ACTIVE") {
-      throw new HttpError(403, "Bu kullanıcı hesabı aktif değildir.");
+      throw new HttpError(403, "Bu kullanؤ±cؤ± hesabؤ± aktif deؤںildir.");
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
 
     if (!isPasswordValid) {
-      throw new HttpError(401, "E-posta veya şifre hatalı.");
+      throw new HttpError(401, "E-posta veya إںifre hatalؤ±.");
     }
 
     const jwtExpiresIn = env.JWT_EXPIRES_IN as SignOptions["expiresIn"];
@@ -101,7 +101,7 @@ router.post(
 
     response.status(200).json({
       success: true,
-      message: "Giriş başarılı.",
+      message: "Giriإں baإںarؤ±lؤ±.",
       data: {
         user: {
           id: user.id,
@@ -126,7 +126,7 @@ router.post(
     if (!validationResult.success) {
       throw new HttpError(
         400,
-        "Gönderilen e-posta bilgisi geçersiz.",
+        "Gأ¶nderilen e-posta bilgisi geأ§ersiz.",
         validationResult.error.flatten().fieldErrors
       );
     }
@@ -135,7 +135,7 @@ router.post(
     const normalizedEmail = email.toLowerCase();
 
     const genericMessage =
-      "Şifre sıfırlama talebiniz alınmıştır. Eğer e-posta sistemde kayıtlıysa sıfırlama bağlantısı gönderilecektir.";
+      "إ‍ifre sؤ±fؤ±rlama talebiniz alؤ±nmؤ±إںtؤ±r. Eؤںer e-posta sistemde kayؤ±tlؤ±ysa sؤ±fؤ±rlama baؤںlantؤ±sؤ± gأ¶nderilecektir.";
 
     const user = await prisma.user.findFirst({
       where: {
@@ -180,8 +180,8 @@ router.post(
     await queueEmailNotification({
       recipientUserId: user.id,
       recipientEmail: user.email,
-      subject: "Şifre sıfırlama talebi",
-      message: `Şifre sıfırlama bağlantınız: ${resetUrl}`,
+      subject: "إ‍ifre sؤ±fؤ±rlama talebi",
+      message: `إ‍ifre sؤ±fؤ±rlama baؤںlantؤ±nؤ±z: ${resetUrl}`,
       sourceType: "SYSTEM",
       entityType: "PasswordResetToken",
       entityId: passwordResetToken.id,
@@ -214,7 +214,7 @@ router.post(
     if (!validationResult.success) {
       throw new HttpError(
         400,
-        "Gönderilen şifre sıfırlama bilgileri geçersiz.",
+        "Gأ¶nderilen إںifre sؤ±fؤ±rlama bilgileri geأ§ersiz.",
         validationResult.error.flatten().fieldErrors
       );
     }
@@ -244,7 +244,7 @@ router.post(
     if (!passwordResetToken || passwordResetToken.user.status !== "ACTIVE") {
       throw new HttpError(
         400,
-        "Şifre sıfırlama bağlantısı geçersiz veya süresi dolmuş."
+        "إ‍ifre sؤ±fؤ±rlama baؤںlantؤ±sؤ± geأ§ersiz veya sأ¼resi dolmuإں."
       );
     }
 
@@ -281,8 +281,8 @@ router.post(
     await queueEmailNotification({
       recipientUserId: passwordResetToken.user.id,
       recipientEmail: passwordResetToken.user.email,
-      subject: "Şifreniz güncellendi",
-      message: "Hesabınızın şifresi başarıyla güncellendi.",
+      subject: "إ‍ifreniz gأ¼ncellendi",
+      message: "Hesabؤ±nؤ±zؤ±n إںifresi baإںarؤ±yla gأ¼ncellendi.",
       sourceType: "SYSTEM",
       entityType: "User",
       entityId: passwordResetToken.user.id,
@@ -293,7 +293,7 @@ router.post(
 
     response.status(200).json({
       success: true,
-      message: "Şifreniz başarıyla güncellendi.",
+      message: "إ‍ifreniz baإںarؤ±yla gأ¼ncellendi.",
     });
   })
 );
@@ -312,7 +312,7 @@ router.post("/logout", (_request, response) => {
 
   response.status(200).json({
     success: true,
-    message: "Çıkış başarılı.",
+    message: "أ‡ؤ±kؤ±إں baإںarؤ±lؤ±.",
   });
 });
 

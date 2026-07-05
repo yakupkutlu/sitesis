@@ -1,4 +1,4 @@
-import rateLimit from "express-rate-limit";
+﻿import rateLimit from "express-rate-limit";
 
 import { env } from "../config/env.js";
 
@@ -11,5 +11,17 @@ export const loginLimiter = rateLimit({
   message: {
     success: false,
     message: "Çok fazla giriş denemesi yapıldı. Lütfen daha sonra tekrar deneyin.",
+  },
+});
+
+export const forgotPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: env.NODE_ENV === "production" ? 3 : 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: false,
+  message: {
+    success: false,
+    message: "Çok fazla şifre sıfırlama talebi gönderildi. Lütfen daha sonra tekrar deneyin.",
   },
 });
