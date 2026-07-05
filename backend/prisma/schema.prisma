@@ -18,7 +18,7 @@ enum UserStatus {
   PASSIVE
 }
 
-enum ApartmentResidentType {  
+enum ApartmentResidentType {
   OWNER
   TENANT
 }
@@ -34,31 +34,37 @@ enum PaymentAllocationStatus {
   PAID
   CANCELLED
 }
+
 enum ReceiptStatus {
   PENDING
   APPROVED
   REJECTED
 }
+
 enum ManagerScopeType {
   SITE
   BLOCK
 }
+
 enum AnnouncementTargetType {
   ALL
   SITE
   BLOCK
   APARTMENT
 }
+
 enum AnnouncementStatus {
   ACTIVE
   ARCHIVED
 }
+
 enum RequestType {
   MAINTENANCE
   COMPLAINT
   SUGGESTION
   GENERAL
 }
+
 enum RequestStatus {
   OPEN
   IN_PROGRESS
@@ -66,25 +72,45 @@ enum RequestStatus {
   REJECTED
 }
 
-model User {
-  id           String     @id @default(uuid())
-  fullName     String
-  email        String     @unique
-  phone        String?
-  passwordHash String
-  role         UserRole
-  status       UserStatus @default(ACTIVE)
-  apartmentResidents ApartmentResident[]
-  uploadedReceipts PaymentReceipt[] @relation("UploadedReceipts")
-  reviewedReceipts PaymentReceipt[] @relation("ReviewedReceipts")
-  managerAssignments ManagerAssignment[] @relation("ManagerAssignments")
-  auditLogs AuditLog[] @relation("UserAuditLogs")
-  announcements Announcement[] @relation("UserAnnouncements")
-  createdRequests  ResidentRequest[] @relation("UserCreatedRequests")
-assignedRequests ResidentRequest[] @relation("UserAssignedRequests")
+enum IntegrationStatus {
+  ACTIVE
+  PASSIVE
+}
 
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+enum SmsProvider {
+  ILETIMERKEZI
+  NETGSM
+  TWILIO
+}
+
+enum EmailProvider {
+  SMTP
+  SENDGRID
+}
+
+model User {
+  id                   String              @id @default(uuid())
+  fullName             String
+  email                String              @unique
+  phone                String?
+  passwordHash         String
+  role                 UserRole
+  status               UserStatus          @default(ACTIVE)
+  apartmentResidents   ApartmentResident[]
+  uploadedReceipts     PaymentReceipt[]    @relation("UploadedReceipts")
+  reviewedReceipts     PaymentReceipt[]    @relation("ReviewedReceipts")
+  managerAssignments   ManagerAssignment[] @relation("ManagerAssignments")
+  auditLogs            AuditLog[]          @relation("UserAuditLogs")
+  announcements        Announcement[]      @relation("UserAnnouncements")
+  createdRequests      ResidentRequest[]   @relation("UserCreatedRequests")
+  assignedRequests     ResidentRequest[]   @relation("UserAssignedRequests")
+  createdSmsSettings   SmsSetting[]        @relation("UserCreatedSmsSettings")
+  updatedSmsSettings   SmsSetting[]        @relation("UserUpdatedSmsSettings")
+  createdEmailSettings EmailSetting[]      @relation("UserCreatedEmailSettings")
+  updatedEmailSettings EmailSetting[]      @relation("UserUpdatedEmailSettings")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Site {
@@ -96,73 +122,74 @@ model Site {
   hasElevator Boolean  @default(false)
   systems     String[] @default([])
 
-  blocks      Block[]
-  paymentBatches PaymentBatch[]
+  blocks             Block[]
+  paymentBatches     PaymentBatch[]
   managerAssignments ManagerAssignment[]
-  announcements Announcement[] @relation("SiteAnnouncements")
+  announcements      Announcement[]      @relation("SiteAnnouncements")
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Block {
-  id          String   @id @default(uuid())
+  id          String  @id @default(uuid())
   name        String
   description String?
 
-  siteId      String
-  site        Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  siteId String
+  site   Site   @relation(fields: [siteId], references: [id], onDelete: Cascade)
 
-  apartments  Apartment[]
-  paymentBatches PaymentBatch[]
+  apartments         Apartment[]
+  paymentBatches     PaymentBatch[]
   managerAssignments ManagerAssignment[]
-  announcements Announcement[] @relation("BlockAnnouncements")
+  announcements      Announcement[]      @relation("BlockAnnouncements")
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([siteId])
 }
 
 model Apartment {
-  id          String   @id @default(uuid())
+  id          String  @id @default(uuid())
   number      String
   floor       Int?
   description String?
 
-  blockId     String
-  block       Block    @relation(fields: [blockId], references: [id], onDelete: Cascade)
+  blockId String
+  block   Block  @relation(fields: [blockId], references: [id], onDelete: Cascade)
 
-  residents ApartmentResident[]
+  residents          ApartmentResident[]
   paymentAllocations PaymentAllocation[]
   paymentExemptions  PaymentExemption[]
-  announcements Announcement[] @relation("ApartmentAnnouncements")
-  requests ResidentRequest[] @relation("ApartmentRequests")
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  announcements      Announcement[]      @relation("ApartmentAnnouncements")
+  requests           ResidentRequest[]   @relation("ApartmentRequests")
 
-  @@index([blockId])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@unique([blockId, number])
+  @@index([blockId])
 }
 
 model ApartmentResident {
-  id          String                @id @default(uuid())
-  type        ApartmentResidentType
+  id   String                @id @default(uuid())
+  type ApartmentResidentType
 
   apartmentId String
-  apartment   Apartment             @relation(fields: [apartmentId], references: [id], onDelete: Cascade)
+  apartment   Apartment @relation(fields: [apartmentId], references: [id], onDelete: Cascade)
 
-  userId      String
-  user        User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  createdAt   DateTime              @default(now())
-  updatedAt   DateTime              @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
+  @@unique([apartmentId, userId, type])
   @@index([apartmentId])
   @@index([userId])
-  @@unique([apartmentId, userId, type])
 }
+
 model PaymentBatch {
   id               String           @id @default(uuid())
   title            String
@@ -171,17 +198,17 @@ model PaymentBatch {
   scopeType        PaymentScopeType
   dueDate          DateTime
 
-  siteId           String?
-  site             Site?            @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  siteId String?
+  site   Site?   @relation(fields: [siteId], references: [id], onDelete: SetNull)
 
-  blockId          String?
-  block            Block?           @relation(fields: [blockId], references: [id], onDelete: SetNull)
+  blockId String?
+  block   Block?  @relation(fields: [blockId], references: [id], onDelete: SetNull)
 
-  allocations      PaymentAllocation[]
-  exemptions       PaymentExemption[]
+  allocations PaymentAllocation[]
+  exemptions  PaymentExemption[]
 
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([siteId])
   @@index([blockId])
@@ -189,107 +216,110 @@ model PaymentBatch {
 }
 
 model PaymentAllocation {
-  id               String                  @id @default(uuid())
-  amountKurus      Int
-  status           PaymentAllocationStatus @default(PENDING)
-  paidAt           DateTime?
+  id          String                  @id @default(uuid())
+  amountKurus Int
+  status      PaymentAllocationStatus @default(PENDING)
+  paidAt      DateTime?
 
-  paymentBatchId   String
-  paymentBatch     PaymentBatch            @relation(fields: [paymentBatchId], references: [id], onDelete: Cascade)
+  paymentBatchId String
+  paymentBatch   PaymentBatch @relation(fields: [paymentBatchId], references: [id], onDelete: Cascade)
 
-  apartmentId      String
-  apartment        Apartment               @relation(fields: [apartmentId], references: [id], onDelete: Cascade)
-  receipts PaymentReceipt[]
+  apartmentId String
+  apartment   Apartment        @relation(fields: [apartmentId], references: [id], onDelete: Cascade)
+  receipts    PaymentReceipt[]
 
-  createdAt        DateTime                @default(now())
-  updatedAt        DateTime                @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
+  @@unique([paymentBatchId, apartmentId])
   @@index([paymentBatchId])
   @@index([apartmentId])
-  @@unique([paymentBatchId, apartmentId])
 }
 
 model PaymentExemption {
-  id               String       @id @default(uuid())
+  id String @id @default(uuid())
 
-  paymentBatchId   String
-  paymentBatch     PaymentBatch @relation(fields: [paymentBatchId], references: [id], onDelete: Cascade)
+  paymentBatchId String
+  paymentBatch   PaymentBatch @relation(fields: [paymentBatchId], references: [id], onDelete: Cascade)
 
-  apartmentId      String
-  apartment        Apartment    @relation(fields: [apartmentId], references: [id], onDelete: Cascade)
+  apartmentId String
+  apartment   Apartment @relation(fields: [apartmentId], references: [id], onDelete: Cascade)
 
-  createdAt        DateTime     @default(now())
+  createdAt DateTime @default(now())
 
+  @@unique([paymentBatchId, apartmentId])
   @@index([paymentBatchId])
   @@index([apartmentId])
-  @@unique([paymentBatchId, apartmentId])
 }
+
 model PaymentReceipt {
-  id                  String        @id @default(uuid())
+  id String @id @default(uuid())
 
-  originalFileName    String
-  storedFileName      String
-  mimeType            String
-  sizeBytes           Int
-  status              ReceiptStatus @default(PENDING)
+  originalFileName String
+  storedFileName   String
+  mimeType         String
+  sizeBytes        Int
+  status           ReceiptStatus @default(PENDING)
 
-  note                String?
-  reviewNote          String?
-  reviewedAt          DateTime?
+  note       String?
+  reviewNote String?
+  reviewedAt DateTime?
 
   paymentAllocationId String
   paymentAllocation   PaymentAllocation @relation(fields: [paymentAllocationId], references: [id], onDelete: Cascade)
 
-  uploadedByUserId    String
-  uploadedByUser      User              @relation("UploadedReceipts", fields: [uploadedByUserId], references: [id], onDelete: Cascade)
+  uploadedByUserId String
+  uploadedByUser   User   @relation("UploadedReceipts", fields: [uploadedByUserId], references: [id], onDelete: Cascade)
 
-  reviewedByUserId    String?
-  reviewedByUser      User?             @relation("ReviewedReceipts", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  reviewedByUserId String?
+  reviewedByUser   User?   @relation("ReviewedReceipts", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
 
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([paymentAllocationId])
   @@index([uploadedByUserId])
   @@index([reviewedByUserId])
   @@index([status])
 }
+
 model ManagerAssignment {
   id        String           @id @default(uuid())
   scopeType ManagerScopeType
 
   managerId String
-  manager   User             @relation("ManagerAssignments", fields: [managerId], references: [id], onDelete: Cascade)
+  manager   User   @relation("ManagerAssignments", fields: [managerId], references: [id], onDelete: Cascade)
 
-  siteId    String?
-  site      Site?            @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  siteId String?
+  site   Site?   @relation(fields: [siteId], references: [id], onDelete: Cascade)
 
-  blockId   String?
-  block     Block?           @relation(fields: [blockId], references: [id], onDelete: Cascade)
+  blockId String?
+  block   Block?  @relation(fields: [blockId], references: [id], onDelete: Cascade)
 
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([managerId])
   @@index([siteId])
   @@index([blockId])
   @@index([scopeType])
 }
-model AuditLog {
-  id         String   @id @default(uuid())
 
-  userId     String?
-  user       User?    @relation("UserAuditLogs", fields: [userId], references: [id], onDelete: SetNull)
+model AuditLog {
+  id String @id @default(uuid())
+
+  userId String?
+  user   User?   @relation("UserAuditLogs", fields: [userId], references: [id], onDelete: SetNull)
 
   action     String
   entityType String
   entityId   String?
 
-  ipAddress  String?
-  userAgent  String?
-  metadata   Json?
+  ipAddress String?
+  userAgent String?
+  metadata  Json?
 
-  createdAt  DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([userId])
   @@index([action])
@@ -297,29 +327,30 @@ model AuditLog {
   @@index([entityId])
   @@index([createdAt])
 }
+
 model Announcement {
-  id          String                 @id @default(uuid())
+  id String @id @default(uuid())
 
-  title       String
-  content     String
+  title   String
+  content String
 
-  targetType  AnnouncementTargetType
-  status      AnnouncementStatus     @default(ACTIVE)
+  targetType AnnouncementTargetType
+  status     AnnouncementStatus     @default(ACTIVE)
 
-  siteId      String?
-  site        Site?                  @relation("SiteAnnouncements", fields: [siteId], references: [id], onDelete: Cascade)
+  siteId String?
+  site   Site?   @relation("SiteAnnouncements", fields: [siteId], references: [id], onDelete: Cascade)
 
-  blockId     String?
-  block       Block?                 @relation("BlockAnnouncements", fields: [blockId], references: [id], onDelete: Cascade)
+  blockId String?
+  block   Block?  @relation("BlockAnnouncements", fields: [blockId], references: [id], onDelete: Cascade)
 
   apartmentId String?
-  apartment   Apartment?             @relation("ApartmentAnnouncements", fields: [apartmentId], references: [id], onDelete: Cascade)
+  apartment   Apartment? @relation("ApartmentAnnouncements", fields: [apartmentId], references: [id], onDelete: Cascade)
 
   createdByUserId String?
-  createdByUser   User?              @relation("UserAnnouncements", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdByUser   User?   @relation("UserAnnouncements", fields: [createdByUserId], references: [id], onDelete: SetNull)
 
-  createdAt   DateTime               @default(now())
-  updatedAt   DateTime               @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([targetType])
   @@index([status])
@@ -329,26 +360,27 @@ model Announcement {
   @@index([createdByUserId])
   @@index([createdAt])
 }
+
 model ResidentRequest {
-  id          String        @id @default(uuid())
+  id String @id @default(uuid())
 
   title       String
   description String
 
-  type        RequestType
-  status      RequestStatus @default(OPEN)
+  type   RequestType
+  status RequestStatus @default(OPEN)
 
   apartmentId String
-  apartment   Apartment     @relation("ApartmentRequests", fields: [apartmentId], references: [id], onDelete: Cascade)
+  apartment   Apartment @relation("ApartmentRequests", fields: [apartmentId], references: [id], onDelete: Cascade)
 
   createdByUserId String?
-  createdByUser   User?     @relation("UserCreatedRequests", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdByUser   User?   @relation("UserCreatedRequests", fields: [createdByUserId], references: [id], onDelete: SetNull)
 
   assignedToUserId String?
-  assignedToUser   User?    @relation("UserAssignedRequests", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  assignedToUser   User?   @relation("UserAssignedRequests", fields: [assignedToUserId], references: [id], onDelete: SetNull)
 
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([type])
   @@index([status])
@@ -356,4 +388,66 @@ model ResidentRequest {
   @@index([createdByUserId])
   @@index([assignedToUserId])
   @@index([createdAt])
+}
+
+model SmsSetting {
+  id String @id @default(uuid())
+
+  provider SmsProvider
+  status   IntegrationStatus @default(PASSIVE)
+
+  senderName          String?
+  apiKeyEncrypted     String?
+  apiSecretEncrypted  String?
+  usernameEncrypted   String?
+  passwordEncrypted   String?
+  accountSidEncrypted String?
+  authTokenEncrypted  String?
+  fromPhone           String?
+
+  createdByUserId String?
+  createdByUser   User?   @relation("UserCreatedSmsSettings", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  updatedByUserId String?
+  updatedByUser   User?   @relation("UserUpdatedSmsSettings", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([provider])
+  @@index([status])
+  @@index([createdByUserId])
+  @@index([updatedByUserId])
+}
+
+model EmailSetting {
+  id String @id @default(uuid())
+
+  provider EmailProvider
+  status   IntegrationStatus @default(PASSIVE)
+
+  fromEmail String
+  fromName  String?
+
+  smtpHost              String?
+  smtpPort              Int?
+  smtpSecure            Boolean @default(false)
+  smtpUsernameEncrypted String?
+  smtpPasswordEncrypted String?
+
+  sendgridApiKeyEncrypted String?
+
+  createdByUserId String?
+  createdByUser   User?   @relation("UserCreatedEmailSettings", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  updatedByUserId String?
+  updatedByUser   User?   @relation("UserUpdatedEmailSettings", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([provider])
+  @@index([status])
+  @@index([createdByUserId])
+  @@index([updatedByUserId])
 }

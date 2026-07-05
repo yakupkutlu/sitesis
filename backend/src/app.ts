@@ -25,6 +25,7 @@ import { csrfProtection } from "./middlewares/csrf.middleware.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
 import announcementsRoutes from "./routes/announcements.routes.js";
 import requestsRoutes from "./routes/requests.routes.js";
+import smsSettingsRoutes from "./routes/sms-settings.routes.js";
 const app = express();
 
 app.use(helmet());
@@ -83,6 +84,8 @@ app.use("/api/super-admin", superAdminDashboardRoutes);
 app.use("/api/audit-logs", auditLogsRoutes);
 app.use("/api/announcements", announcementsRoutes);
 app.use("/api/requests", requestsRoutes);
+app.use("/api/sms-settings", smsSettingsRoutes);
+
 app.use((_request: Request, response: Response) => {
   response.status(404).json({
     success: false,

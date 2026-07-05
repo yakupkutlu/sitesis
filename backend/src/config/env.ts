@@ -9,6 +9,7 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(32, "JWT_SECRET en az 32 karakter olmalıdır."),
   JWT_EXPIRES_IN: z.string().min(1).default("1d"),
   CLIENT_URL: z.string().url().default("http://localhost:5173"),
+  CONFIG_ENCRYPTION_KEY: z.string().min(32, "CONFIG_ENCRYPTION_KEY en az 32 karakter olmalıdır."),
 });
 
 const envResult = envSchema.safeParse(process.env);

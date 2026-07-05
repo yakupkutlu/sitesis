@@ -1,0 +1,8 @@
+﻿{
+  "provider": "NETGSM",
+  "status": "ACTIVE",
+  "senderName": "SITESIS",
+  "username": "test-user",
+  "password": "test-password",
+  "fromPhone": "08500000000"
+}
