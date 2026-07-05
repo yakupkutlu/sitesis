@@ -12,7 +12,7 @@ import { createAuditLog } from "../services/audit-log.service.js";
 import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
-
+import { buildPaginationMeta, getPaginationParams } from "../utils/pagination.js";
 const router = express.Router();
 
 router.use(requireAuth);
@@ -187,23 +187,78 @@ router.get(
       throw new HttpError(401, "Oturum bulunamadı.");
     }
 
-    let whereCondition: Prisma.ApartmentResidentWhereInput | undefined;
+    const paginationParams = getPaginationParams(request.query);
 
-    if (authenticatedRequest.user.role === "MANAGER") {
-      whereCondition = await getManagerApartmentResidentFilter(authenticatedRequest.user.id);
+    if (!paginationParams.success) {
+      throw new HttpError(400, "Sayfalama bilgileri geçersiz.", paginationParams.errors);
     }
 
-    const apartmentResidents = await prisma.apartmentResident.findMany({
-      where: whereCondition,
-      include: apartmentResidentInclude,
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
+    const searchCondition: Prisma.ApartmentResidentWhereInput = paginationParams.search
+      ? {
+          OR: [
+            {
+              user: {
+                fullName: {
+                  contains: paginationParams.search,
+                  mode: "insensitive",
+                },
+              },
+            },
+            {
+              user: {
+                email: {
+                  contains: paginationParams.search,
+                  mode: "insensitive",
+                },
+              },
+            },
+            {
+              apartment: {
+                number: {
+                  contains: paginationParams.search,
+                  mode: "insensitive",
+                },
+              },
+            },
+          ],
+        }
+      : {};
+
+    let whereCondition: Prisma.ApartmentResidentWhereInput = searchCondition;
+
+    if (authenticatedRequest.user.role === "MANAGER") {
+      const managerFilter = await getManagerApartmentResidentFilter(
+        authenticatedRequest.user.id
+      );
+
+      whereCondition = {
+        AND: [searchCondition, managerFilter],
+      };
+    }
+
+    const [apartmentResidents, totalCount] = await Promise.all([
+      prisma.apartmentResident.findMany({
+        where: whereCondition,
+        include: apartmentResidentInclude,
+        orderBy: {
+          createdAt: "desc",
+        },
+        skip: paginationParams.skip,
+        take: paginationParams.limit,
+      }),
+      prisma.apartmentResident.count({
+        where: whereCondition,
+      }),
+    ]);
 
     response.status(200).json({
       success: true,
       data: apartmentResidents,
+      pagination: buildPaginationMeta({
+        page: paginationParams.page,
+        limit: paginationParams.limit,
+        totalCount,
+      }),
     });
   })
 );
