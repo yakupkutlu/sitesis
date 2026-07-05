@@ -1,4 +1,4 @@
-import express, { type Request, type Response } from "express";
+﻿import express, { type Request, type Response } from "express";
 import { z } from "zod";
 
 import prisma from "../db/prisma.js";
@@ -10,6 +10,10 @@ import {
   type AuthenticatedUser,
 } from "../middlewares/auth.middleware.js";
 import { createAuditLog } from "../services/audit-log.service.js";
+import {
+  queueEmailNotification,
+  queueSmsNotification,
+} from "../services/notification.service.js";
 import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
@@ -64,6 +68,8 @@ const createRequestSchema = z.object({
   description: z.string().trim().min(2),
   type: z.enum(["MAINTENANCE", "COMPLAINT", "SUGGESTION", "GENERAL"]),
   apartmentId: z.string().uuid(),
+  sendSms: z.boolean().optional().default(false),
+  sendEmail: z.boolean().optional().default(true),
 });
 
 const updateRequestSchema = z
@@ -75,7 +81,7 @@ const updateRequestSchema = z
   })
   .strict()
   .refine((data) => Object.values(data).some((value) => value !== undefined), {
-    message: "En az bir alan gönderilmelidir.",
+    message: "En az bir alan gأ¶nderilmelidir.",
   });
 
 const requestParamsSchema = z.object({
@@ -91,7 +97,7 @@ async function getRequestWhereForUser(user: AuthenticatedUser) {
     const managerScope = await getManagerScope(user.id);
 
     if (!hasManagerScope(managerScope)) {
-      throw new HttpError(403, "Bu yöneticiye atanmış bir site veya blok bulunamadı.");
+      throw new HttpError(403, "Bu yأ¶neticiye atanmؤ±إں bir site veya blok bulunamadؤ±.");
     }
 
     const whereCondition: Prisma.ResidentRequestWhereInput = {
@@ -166,7 +172,7 @@ async function ensureApartmentIsAccessible(params: {
   });
 
   if (!apartment) {
-    throw new HttpError(404, "Daire bulunamadı.");
+    throw new HttpError(404, "Daire bulunamadؤ±.");
   }
 
   if (params.user.role === "SUPER_ADMIN") {
@@ -181,14 +187,14 @@ async function ensureApartmentIsAccessible(params: {
       managerScope.siteIds.includes(apartment.block.siteId);
 
     if (!canAccessApartment) {
-      throw new HttpError(403, "Bu daire için işlem yapma yetkiniz yok.");
+      throw new HttpError(403, "Bu daire iأ§in iإںlem yapma yetkiniz yok.");
     }
 
     return apartment;
   }
 
   if (apartment.residents.length === 0) {
-    throw new HttpError(403, "Bu daire için talep oluşturma yetkiniz yok.");
+    throw new HttpError(403, "Bu daire iأ§in talep oluإںturma yetkiniz yok.");
   }
 
   return apartment;
@@ -233,7 +239,7 @@ async function ensureRequestIsAccessible(params: {
   });
 
   if (!residentRequest) {
-    throw new HttpError(404, "Talep bulunamadı.");
+    throw new HttpError(404, "Talep bulunamadؤ±.");
   }
 
   if (params.user.role === "SUPER_ADMIN") {
@@ -248,7 +254,7 @@ async function ensureRequestIsAccessible(params: {
       managerScope.siteIds.includes(residentRequest.apartment.block.siteId);
 
     if (!canAccessRequest) {
-      throw new HttpError(403, "Bu talep üzerinde işlem yapma yetkiniz yok.");
+      throw new HttpError(403, "Bu talep أ¼zerinde iإںlem yapma yetkiniz yok.");
     }
 
     return residentRequest;
@@ -258,7 +264,7 @@ async function ensureRequestIsAccessible(params: {
   const isApartmentResident = residentRequest.apartment.residents.length > 0;
 
   if (!isOwnerOfRequest && !isApartmentResident) {
-    throw new HttpError(403, "Bu talebi görüntüleme yetkiniz yok.");
+    throw new HttpError(403, "Bu talebi gأ¶rأ¼ntأ¼leme yetkiniz yok.");
   }
 
   return residentRequest;
@@ -281,17 +287,343 @@ async function ensureAssigneeIsValid(assignedToUserId: string | null | undefined
   });
 
   if (!assignee) {
-    throw new HttpError(404, "Atanacak kullanıcı bulunamadı.");
+    throw new HttpError(404, "Atanacak kullanؤ±cؤ± bulunamadؤ±.");
   }
 
   if (assignee.status !== "ACTIVE") {
-    throw new HttpError(400, "Pasif kullanıcıya talep atanamaz.");
+    throw new HttpError(400, "Pasif kullanؤ±cؤ±ya talep atanamaz.");
   }
 
   if (assignee.role !== "MANAGER" && assignee.role !== "SUPER_ADMIN") {
-    throw new HttpError(400, "Talep sadece yönetici veya süper admine atanabilir.");
+    throw new HttpError(400, "Talep sadece yأ¶netici veya sأ¼per admine atanabilir.");
   }
 }
+
+
+type RequestNotificationRecipient = {
+  id: string;
+  fullName: string;
+  email: string;
+  phone: string | null;
+};
+
+function buildResidentRequestMessage(params: {
+  actionText: string;
+  title: string;
+  type: string;
+  status: string;
+  apartmentNumber: string;
+  blockName: string;
+  siteName: string;
+}) {
+  return (
+    `${params.actionText}: ${params.title}. ` +
+    `Tip: ${params.type}. ` +
+    `Durum: ${params.status}. ` +
+    `Daire: ${params.apartmentNumber}. ` +
+    `Blok: ${params.blockName}. ` +
+    `Site: ${params.siteName}.`
+  );
+}
+
+function mergeNotificationSummaries(
+  first: {
+    recipientCount: number;
+    emailNotificationCount: number;
+    smsNotificationCount: number;
+  },
+  second: {
+    recipientCount: number;
+    emailNotificationCount: number;
+    smsNotificationCount: number;
+  }
+) {
+  return {
+    recipientCount: first.recipientCount + second.recipientCount,
+    emailNotificationCount: first.emailNotificationCount + second.emailNotificationCount,
+    smsNotificationCount: first.smsNotificationCount + second.smsNotificationCount,
+  };
+}
+
+async function getManagerRecipientsForApartment(apartmentId: string) {
+  const apartment = await prisma.apartment.findUnique({
+    where: {
+      id: apartmentId,
+    },
+    select: {
+      blockId: true,
+      block: {
+        select: {
+          siteId: true,
+        },
+      },
+    },
+  });
+
+  if (!apartment) {
+    return [];
+  }
+
+  const assignments = await prisma.managerAssignment.findMany({
+    where: {
+      OR: [
+        {
+          blockId: apartment.blockId,
+        },
+        {
+          siteId: apartment.block.siteId,
+        },
+      ],
+    },
+    select: {
+      manager: {
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          phone: true,
+          role: true,
+          status: true,
+        },
+      },
+    },
+  });
+
+  const recipientMap = new Map<string, RequestNotificationRecipient>();
+
+  for (const assignment of assignments) {
+    if (assignment.manager.status !== "ACTIVE") {
+      continue;
+    }
+
+    if (assignment.manager.role !== "MANAGER") {
+      continue;
+    }
+
+    recipientMap.set(assignment.manager.id, {
+      id: assignment.manager.id,
+      fullName: assignment.manager.fullName,
+      email: assignment.manager.email,
+      phone: assignment.manager.phone,
+    });
+  }
+
+  return Array.from(recipientMap.values());
+}
+
+async function queueRequestNotificationsToRecipients(params: {
+  recipients: RequestNotificationRecipient[];
+  sendSms: boolean;
+  sendEmail: boolean;
+  subject: string;
+  message: string;
+  entityId: string;
+  metadata: Prisma.InputJsonValue;
+  createdByUserId: string;
+}) {
+  const summary = {
+    recipientCount: params.recipients.length,
+    emailNotificationCount: 0,
+    smsNotificationCount: 0,
+  };
+
+  const notificationJobs: Promise<unknown>[] = [];
+
+  for (const recipient of params.recipients) {
+    if (params.sendEmail && recipient.email) {
+      summary.emailNotificationCount += 1;
+
+      notificationJobs.push(
+        queueEmailNotification({
+          recipientUserId: recipient.id,
+          recipientEmail: recipient.email,
+          subject: params.subject,
+          message: params.message,
+          sourceType: "RESIDENT_REQUEST",
+          entityType: "ResidentRequest",
+          entityId: params.entityId,
+          metadata: params.metadata,
+          createdByUserId: params.createdByUserId,
+        })
+      );
+    }
+
+    if (params.sendSms && recipient.phone) {
+      summary.smsNotificationCount += 1;
+
+      notificationJobs.push(
+        queueSmsNotification({
+          recipientUserId: recipient.id,
+          recipientPhone: recipient.phone,
+          message: params.message,
+          sourceType: "RESIDENT_REQUEST",
+          entityType: "ResidentRequest",
+          entityId: params.entityId,
+          metadata: params.metadata,
+          createdByUserId: params.createdByUserId,
+        })
+      );
+    }
+  }
+
+  await Promise.all(notificationJobs);
+
+  return summary;
+}
+
+async function queueResidentRequestCreatedNotifications(params: {
+  residentRequest: {
+    id: string;
+    title: string;
+    type: string;
+    status: string;
+    apartmentId: string;
+    apartment: {
+      number: string;
+      block: {
+        name: string;
+        site: {
+          name: string;
+        };
+      };
+    };
+  };
+  sendSms: boolean;
+  sendEmail: boolean;
+  createdByUserId: string;
+}) {
+  const managerRecipients = await getManagerRecipientsForApartment(
+    params.residentRequest.apartmentId
+  );
+
+  const recipients = managerRecipients.filter((recipient) => {
+    return recipient.id !== params.createdByUserId;
+  });
+
+  const message = buildResidentRequestMessage({
+    actionText: "Yeni sakin talebi oluإںturuldu",
+    title: params.residentRequest.title,
+    type: params.residentRequest.type,
+    status: params.residentRequest.status,
+    apartmentNumber: params.residentRequest.apartment.number,
+    blockName: params.residentRequest.apartment.block.name,
+    siteName: params.residentRequest.apartment.block.site.name,
+  });
+
+  return queueRequestNotificationsToRecipients({
+    recipients,
+    sendSms: params.sendSms,
+    sendEmail: params.sendEmail,
+    subject: "Yeni sakin talebi",
+    message,
+    entityId: params.residentRequest.id,
+    metadata: {
+      purpose: "RESIDENT_REQUEST_CREATED",
+      requestId: params.residentRequest.id,
+      apartmentId: params.residentRequest.apartmentId,
+      type: params.residentRequest.type,
+      status: params.residentRequest.status,
+    },
+    createdByUserId: params.createdByUserId,
+  });
+}
+
+async function queueResidentRequestUpdatedNotifications(params: {
+  previousRequest: {
+    status: string;
+    assignedToUserId: string | null;
+  };
+  updatedRequest: {
+    id: string;
+    title: string;
+    type: string;
+    status: string;
+    apartmentId: string;
+    createdByUserId: string;
+    assignedToUserId: string | null;
+    apartment: {
+      number: string;
+      block: {
+        name: string;
+        site: {
+          name: string;
+        };
+      };
+    };
+    createdByUser: RequestNotificationRecipient;
+    assignedToUser: RequestNotificationRecipient | null;
+  };
+  updatedByUserId: string;
+}) {
+  let summary = {
+    recipientCount: 0,
+    emailNotificationCount: 0,
+    smsNotificationCount: 0,
+  };
+
+  const message = buildResidentRequestMessage({
+    actionText: "Talep gأ¼ncellendi",
+    title: params.updatedRequest.title,
+    type: params.updatedRequest.type,
+    status: params.updatedRequest.status,
+    apartmentNumber: params.updatedRequest.apartment.number,
+    blockName: params.updatedRequest.apartment.block.name,
+    siteName: params.updatedRequest.apartment.block.site.name,
+  });
+
+  if (params.updatedByUserId !== params.updatedRequest.createdByUserId) {
+    const ownerSummary = await queueRequestNotificationsToRecipients({
+      recipients: [params.updatedRequest.createdByUser],
+      sendSms: false,
+      sendEmail: true,
+      subject: "Talebiniz gأ¼ncellendi",
+      message,
+      entityId: params.updatedRequest.id,
+      metadata: {
+        purpose: "RESIDENT_REQUEST_UPDATED_FOR_RESIDENT",
+        requestId: params.updatedRequest.id,
+        apartmentId: params.updatedRequest.apartmentId,
+        previousStatus: params.previousRequest.status,
+        currentStatus: params.updatedRequest.status,
+      },
+      createdByUserId: params.updatedByUserId,
+    });
+
+    summary = mergeNotificationSummaries(summary, ownerSummary);
+  }
+
+  const assignedUserChanged =
+    params.previousRequest.assignedToUserId !== params.updatedRequest.assignedToUserId;
+
+  if (
+    assignedUserChanged &&
+    params.updatedRequest.assignedToUser &&
+    params.updatedRequest.assignedToUser.id !== params.updatedByUserId &&
+    params.updatedRequest.assignedToUser.id !== params.updatedRequest.createdByUserId
+  ) {
+    const assigneeSummary = await queueRequestNotificationsToRecipients({
+      recipients: [params.updatedRequest.assignedToUser],
+      sendSms: false,
+      sendEmail: true,
+      subject: "Size yeni bir talep atandؤ±",
+      message,
+      entityId: params.updatedRequest.id,
+      metadata: {
+        purpose: "RESIDENT_REQUEST_ASSIGNED",
+        requestId: params.updatedRequest.id,
+        apartmentId: params.updatedRequest.apartmentId,
+        previousAssignedToUserId: params.previousRequest.assignedToUserId,
+        currentAssignedToUserId: params.updatedRequest.assignedToUserId,
+      },
+      createdByUserId: params.updatedByUserId,
+    });
+
+    summary = mergeNotificationSummaries(summary, assigneeSummary);
+  }
+
+  return summary;
+}
+
 
 router.get(
   "/",
@@ -300,13 +632,13 @@ router.get(
     const authenticatedRequest = request as AuthenticatedRequest;
 
     if (!authenticatedRequest.user) {
-      throw new HttpError(401, "Oturum bulunamadı.");
+      throw new HttpError(401, "Oturum bulunamadؤ±.");
     }
 
     const paginationParams = getPaginationParams(request.query);
 
     if (!paginationParams.success) {
-      throw new HttpError(400, "Sayfalama bilgileri geçersiz.", paginationParams.errors);
+      throw new HttpError(400, "Sayfalama bilgileri geأ§ersiz.", paginationParams.errors);
     }
 
     const userWhereCondition = await getRequestWhereForUser(authenticatedRequest.user);
@@ -384,7 +716,7 @@ router.post(
     const authenticatedRequest = request as AuthenticatedRequest;
 
     if (!authenticatedRequest.user) {
-      throw new HttpError(401, "Oturum bulunamadı.");
+      throw new HttpError(401, "Oturum bulunamadؤ±.");
     }
 
     const validationResult = createRequestSchema.safeParse(request.body);
@@ -392,12 +724,12 @@ router.post(
     if (!validationResult.success) {
       throw new HttpError(
         400,
-        "Gönderilen talep bilgileri geçersiz.",
+        "Gأ¶nderilen talep bilgileri geأ§ersiz.",
         validationResult.error.flatten().fieldErrors
       );
     }
 
-    const { title, description, type, apartmentId } = validationResult.data;
+    const { title, description, type, apartmentId, sendSms, sendEmail } = validationResult.data;
 
     await ensureApartmentIsAccessible({
       user: authenticatedRequest.user,
@@ -430,7 +762,7 @@ router.post(
 
     response.status(201).json({
       success: true,
-      message: "Talep başarıyla oluşturuldu.",
+      message: "Talep baإںarؤ±yla oluإںturuldu.",
       data: residentRequest,
     });
   })
@@ -443,13 +775,13 @@ router.patch(
     const authenticatedRequest = request as AuthenticatedRequest;
 
     if (!authenticatedRequest.user) {
-      throw new HttpError(401, "Oturum bulunamadı.");
+      throw new HttpError(401, "Oturum bulunamadؤ±.");
     }
 
     const paramsResult = requestParamsSchema.safeParse(request.params);
 
     if (!paramsResult.success) {
-      throw new HttpError(400, "Talep bilgisi geçersiz.");
+      throw new HttpError(400, "Talep bilgisi geأ§ersiz.");
     }
 
     const validationResult = updateRequestSchema.safeParse(request.body);
@@ -457,7 +789,7 @@ router.patch(
     if (!validationResult.success) {
       throw new HttpError(
         400,
-        "Gönderilen talep güncelleme bilgileri geçersiz.",
+        "Gأ¶nderilen talep gأ¼ncelleme bilgileri geأ§ersiz.",
         validationResult.error.flatten().fieldErrors
       );
     }
@@ -473,11 +805,11 @@ router.patch(
 
     if (authenticatedRequest.user.role === "RESIDENT") {
       if (status !== undefined || assignedToUserId !== undefined) {
-        throw new HttpError(403, "Talep durumu veya ataması sadece yönetim tarafından değiştirilebilir.");
+        throw new HttpError(403, "Talep durumu veya atamasؤ± sadece yأ¶netim tarafؤ±ndan deؤںiإںtirilebilir.");
       }
 
       if (targetRequest.status !== "OPEN") {
-        throw new HttpError(400, "Sadece açık durumdaki talepler güncellenebilir.");
+        throw new HttpError(400, "Sadece aأ§ؤ±k durumdaki talepler gأ¼ncellenebilir.");
       }
     }
 
@@ -520,7 +852,7 @@ router.patch(
 
     response.status(200).json({
       success: true,
-      message: "Talep başarıyla güncellendi.",
+      message: "Talep baإںarؤ±yla gأ¼ncellendi.",
       data: updatedRequest,
     });
   })
