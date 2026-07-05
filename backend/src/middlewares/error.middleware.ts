@@ -4,8 +4,6 @@ import multer from "multer";
 import { HttpError } from "../utils/http-error.js";
 
 export const errorHandler: ErrorRequestHandler = (error, _request, response, _next) => {
-  console.error("Beklenmeyen hata:", error);
-
   if (error instanceof HttpError) {
     response.status(error.statusCode).json({
       success: false,
@@ -38,6 +36,8 @@ export const errorHandler: ErrorRequestHandler = (error, _request, response, _ne
     });
     return;
   }
+
+  console.error("Beklenmeyen hata:", error);
 
   response.status(500).json({
     success: false,
