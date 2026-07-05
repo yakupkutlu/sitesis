@@ -13,6 +13,7 @@ import { env } from "../config/env.js";
 import prisma from "../db/prisma.js";
 import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth.middleware.js";
 import { loginLimiter } from "../middlewares/rate-limit.middleware.js";
+import { queueEmailNotification } from "../services/notification.service.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
 
@@ -176,21 +177,17 @@ router.post(
 
     const resetUrl = `${env.CLIENT_URL}/reset-password?token=${plainToken}`;
 
-    await prisma.notificationLog.create({
-      data: {
-        channel: "EMAIL",
-        status: "PENDING",
-        sourceType: "SYSTEM",
-        recipientUserId: user.id,
-        recipientEmail: user.email,
-        subject: "Şifre sıfırlama talebi",
-        message: `Şifre sıfırlama bağlantınız: ${resetUrl}`,
-        entityType: "PasswordResetToken",
-        entityId: passwordResetToken.id,
-        metadata: {
-          purpose: "PASSWORD_RESET",
-          expiresAt: expiresAt.toISOString(),
-        },
+    await queueEmailNotification({
+      recipientUserId: user.id,
+      recipientEmail: user.email,
+      subject: "Şifre sıfırlama talebi",
+      message: `Şifre sıfırlama bağlantınız: ${resetUrl}`,
+      sourceType: "SYSTEM",
+      entityType: "PasswordResetToken",
+      entityId: passwordResetToken.id,
+      metadata: {
+        purpose: "PASSWORD_RESET",
+        expiresAt: expiresAt.toISOString(),
       },
     });
 
@@ -223,7 +220,6 @@ router.post(
     }
 
     const { token, password } = validationResult.data;
-
     const tokenHash = hashPasswordResetToken(token);
 
     const passwordResetToken = await prisma.passwordResetToken.findFirst({
@@ -280,23 +276,20 @@ router.post(
           },
         },
       }),
-      prisma.notificationLog.create({
-        data: {
-          channel: "EMAIL",
-          status: "PENDING",
-          sourceType: "SYSTEM",
-          recipientUserId: passwordResetToken.user.id,
-          recipientEmail: passwordResetToken.user.email,
-          subject: "Şifreniz güncellendi",
-          message: "Hesabınızın şifresi başarıyla güncellendi.",
-          entityType: "User",
-          entityId: passwordResetToken.user.id,
-          metadata: {
-            purpose: "PASSWORD_CHANGED",
-          },
-        },
-      }),
     ]);
+
+    await queueEmailNotification({
+      recipientUserId: passwordResetToken.user.id,
+      recipientEmail: passwordResetToken.user.email,
+      subject: "Şifreniz güncellendi",
+      message: "Hesabınızın şifresi başarıyla güncellendi.",
+      sourceType: "SYSTEM",
+      entityType: "User",
+      entityId: passwordResetToken.user.id,
+      metadata: {
+        purpose: "PASSWORD_CHANGED",
+      },
+    });
 
     response.status(200).json({
       success: true,
