@@ -1,5 +1,6 @@
-import prisma from "../db/prisma.js";
+﻿import prisma from "../db/prisma.js";
 import { type Prisma } from "../generated/prisma/client.js";
+import { sendEmailWithActiveSmtp } from "./email-sender.service.js";
 
 type NotificationChannel = "SMS" | "EMAIL";
 type NotificationStatus = "PENDING" | "SENT" | "FAILED" | "SKIPPED";
@@ -33,6 +34,14 @@ type CreateNotificationLogInput = {
 
   createdByUserId?: string;
 };
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return "Bilinmeyen hata oluştu.";
+}
 
 export async function createNotificationLog(input: CreateNotificationLogInput) {
   if (!input.recipientUserId && !input.recipientEmail && !input.recipientPhone) {
@@ -108,20 +117,63 @@ export async function queueEmailNotification(input: {
     });
   }
 
-  return createNotificationLog({
-    channel: "EMAIL",
-    status: "PENDING",
-    sourceType: input.sourceType ?? "SYSTEM",
-    recipientUserId: input.recipientUserId,
-    recipientEmail: input.recipientEmail,
-    subject: input.subject,
-    message: input.message,
-    provider: activeEmailSetting.provider,
-    entityType: input.entityType,
-    entityId: input.entityId,
-    metadata: input.metadata,
-    createdByUserId: input.createdByUserId,
-  });
+  if (activeEmailSetting.provider !== "SMTP") {
+    return createNotificationLog({
+      channel: "EMAIL",
+      status: "SKIPPED",
+      sourceType: input.sourceType ?? "SYSTEM",
+      recipientUserId: input.recipientUserId,
+      recipientEmail: input.recipientEmail,
+      subject: input.subject,
+      message: input.message,
+      provider: activeEmailSetting.provider,
+      entityType: input.entityType,
+      entityId: input.entityId,
+      errorMessage: "Bu e-posta sağlayıcısı için gerçek gönderim henüz aktif değildir.",
+      metadata: input.metadata,
+      createdByUserId: input.createdByUserId,
+    });
+  }
+
+  try {
+    const result = await sendEmailWithActiveSmtp({
+      to: input.recipientEmail,
+      subject: input.subject,
+      message: input.message,
+    });
+
+    return createNotificationLog({
+      channel: "EMAIL",
+      status: "SENT",
+      sourceType: input.sourceType ?? "SYSTEM",
+      recipientUserId: input.recipientUserId,
+      recipientEmail: input.recipientEmail,
+      subject: input.subject,
+      message: input.message,
+      provider: result.provider,
+      providerMessageId: result.providerMessageId,
+      entityType: input.entityType,
+      entityId: input.entityId,
+      metadata: input.metadata,
+      createdByUserId: input.createdByUserId,
+    });
+  } catch (error) {
+    return createNotificationLog({
+      channel: "EMAIL",
+      status: "FAILED",
+      sourceType: input.sourceType ?? "SYSTEM",
+      recipientUserId: input.recipientUserId,
+      recipientEmail: input.recipientEmail,
+      subject: input.subject,
+      message: input.message,
+      provider: activeEmailSetting.provider,
+      entityType: input.entityType,
+      entityId: input.entityId,
+      errorMessage: getErrorMessage(error),
+      metadata: input.metadata,
+      createdByUserId: input.createdByUserId,
+    });
+  }
 }
 
 export async function queueSmsNotification(input: {
