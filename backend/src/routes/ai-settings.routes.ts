@@ -49,10 +49,10 @@ const createAiSettingSchema = z
   .object({
     provider: z.enum(["OPENAI", "GEMINI", "CUSTOM"]),
     status: z.enum(["ACTIVE", "PASSIVE"]).optional().default("PASSIVE"),
-    name: z.string().trim().optional(),
-    modelName: z.string().trim().optional(),
-    baseUrl: z.string().trim().url().optional(),
-    apiKey: z.string().trim().optional(),
+    name: z.string().trim().nullable().optional(),
+    modelName: z.string().trim().nullable().optional(),
+    baseUrl: z.string().trim().url().nullable().optional(),
+    apiKey: z.string().trim().nullable().optional(),
   })
   .superRefine((data, context) => {
     if (data.status === "ACTIVE" && !data.apiKey) {
@@ -74,6 +74,7 @@ const createAiSettingSchema = z
 
 const updateAiSettingSchema = z
   .object({
+    provider: z.enum(["OPENAI", "GEMINI", "CUSTOM"]).optional(),
     status: z.enum(["ACTIVE", "PASSIVE"]).optional(),
     name: z.string().trim().nullable().optional(),
     modelName: z.string().trim().nullable().optional(),
@@ -161,14 +162,14 @@ router.post(
 
     const setting = await prisma.aiSetting.create({
       data: {
-        provider,
-        status,
-        name,
-        modelName,
-        baseUrl,
-        apiKeyEncrypted: encryptOptionalSecret(apiKey),
-        createdByUserId: authenticatedRequest.user.id,
-        updatedByUserId: authenticatedRequest.user.id,
+          provider,
+          status,
+          name: name || null,
+          modelName: modelName || null,
+          baseUrl: baseUrl || null,
+          apiKeyEncrypted: encryptOptionalSecret(apiKey),
+          createdByUserId: authenticatedRequest.user.id,
+          updatedByUserId: authenticatedRequest.user.id,
       },
       select: aiSettingSelect,
     });
@@ -235,8 +236,7 @@ router.patch(
       throw new HttpError(404, "AI ayarı bulunamadı.");
     }
 
-    const { status, name, modelName, baseUrl, apiKey } = validationResult.data;
-
+const { provider, status, name, modelName, baseUrl, apiKey } =validationResult.data;
     if (
       status === "ACTIVE" &&
       !targetSetting.apiKeyEncrypted &&
@@ -245,11 +245,10 @@ router.patch(
       throw new HttpError(400, "Aktif AI ayarı için API key zorunludur.");
     }
 
-    if (
-      targetSetting.provider === "CUSTOM" &&
-      baseUrl !== undefined &&
-      (baseUrl === null || baseUrl.length === 0)
-    ) {
+    const nextProvider = provider ?? targetSetting.provider;
+    const nextBaseUrl = baseUrl === undefined ? targetSetting.baseUrl : baseUrl;
+
+    if (nextProvider === "CUSTOM" && (!nextBaseUrl || nextBaseUrl.length === 0)) {
       throw new HttpError(400, "CUSTOM sağlayıcı için baseUrl zorunludur.");
     }
 
@@ -258,6 +257,7 @@ router.patch(
         id: aiSettingId,
       },
       data: {
+        ...(provider !== undefined ? { provider } : {}),
         ...(status !== undefined ? { status } : {}),
         ...(name !== undefined ? { name: name || null } : {}),
         ...(modelName !== undefined ? { modelName: modelName || null } : {}),

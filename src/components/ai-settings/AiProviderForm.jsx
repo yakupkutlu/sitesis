@@ -1,7 +1,24 @@
-import { Bot, CheckCircle2, Eye, EyeOff, KeyRound } from "lucide-react";
+﻿import { Bot, CheckCircle2, Eye, EyeOff, KeyRound } from "lucide-react";
 import { useState } from "react";
 
-function AiProviderForm({ formData, onInputChange, onSubmit }) {
+const providerOptions = [
+  { value: "OPENAI", label: "OpenAI / ChatGPT" },
+  { value: "GEMINI", label: "Google Gemini" },
+  { value: "CUSTOM", label: "Custom API" },
+];
+
+const statusOptions = [
+  { value: "ACTIVE", label: "Aktif" },
+  { value: "PASSIVE", label: "Pasif" },
+];
+
+function AiProviderForm({
+  formData,
+  onInputChange,
+  onSubmit,
+  onTestConnection,
+  isSaving = false,
+}) {
   const [showApiKey, setShowApiKey] = useState(false);
 
   return (
@@ -20,16 +37,16 @@ function AiProviderForm({ formData, onInputChange, onSubmit }) {
 
         <span
           className={`ai-status-badge ${
-            formData.isActive ? "active" : "passive"
+            formData.status === "ACTIVE" ? "active" : "passive"
           }`}
         >
-          {formData.isActive ? "Aktif" : "Pasif"}
+          {formData.status === "ACTIVE" ? "Aktif" : "Pasif"}
         </span>
       </div>
 
       <p className="ai-card-description">
-       Banka dekontlarını okumak ve ödeme eşleştirme önerisi oluşturmak için
-       kullanılacak yapay zeka sağlayıcısı buradan seçilir.
+        Banka dekontlarını okumak ve ödeme eşleştirme önerisi oluşturmak için
+        kullanılacak yapay zeka sağlayıcısı buradan seçilir.
       </p>
 
       <form className="ai-provider-form" onSubmit={onSubmit}>
@@ -40,14 +57,42 @@ function AiProviderForm({ formData, onInputChange, onSubmit }) {
               name="provider"
               value={formData.provider}
               onChange={onInputChange}
+              disabled={isSaving}
             >
-              <option>ChatGPT / OpenAI</option>
-              <option>Google Gemini</option>
-              <option>Claude</option>
-              <option>Azure OpenAI</option>
-              <option>Grok</option>
-              <option>Custom API</option>
+              {providerOptions.map((option) => (
+                <option value={option.value} key={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
+          </label>
+
+          <label>
+            Durum
+            <select
+              name="status"
+              value={formData.status}
+              onChange={onInputChange}
+              disabled={isSaving}
+            >
+              {statusOptions.map((option) => (
+                <option value={option.value} key={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            Ayar Adı
+            <input
+              name="name"
+              type="text"
+              placeholder="Örn: Ana OpenAI Ayarı"
+              value={formData.name}
+              onChange={onInputChange}
+              disabled={isSaving}
+            />
           </label>
 
           <label>
@@ -58,17 +103,19 @@ function AiProviderForm({ formData, onInputChange, onSubmit }) {
               placeholder="Örn: gpt-4.1-mini, gemini-1.5-pro"
               value={formData.modelName}
               onChange={onInputChange}
+              disabled={isSaving}
             />
           </label>
 
           <label className="full-width">
-            Endpoint URL
+            Base URL
             <input
-              name="endpointUrl"
+              name="baseUrl"
               type="text"
-              placeholder="Örn: https://api.provider.com/v1/..."
-              value={formData.endpointUrl}
+              placeholder="Örn: https://api.provider.com/v1"
+              value={formData.baseUrl}
               onChange={onInputChange}
+              disabled={isSaving}
             />
           </label>
 
@@ -78,78 +125,50 @@ function AiProviderForm({ formData, onInputChange, onSubmit }) {
               <input
                 name="apiKey"
                 type={showApiKey ? "text" : "password"}
-                placeholder="API key girin"
+                placeholder={
+                  formData.hasApiKey
+                    ? "Yeni API key girmek isterseniz doldurun"
+                    : "API key girin"
+                }
                 value={formData.apiKey}
                 onChange={onInputChange}
+                disabled={isSaving}
               />
 
               <button
                 type="button"
                 onClick={() => setShowApiKey((current) => !current)}
                 aria-label="API key görünürlüğünü değiştir"
+                disabled={isSaving}
               >
                 {showApiKey ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
             </div>
-          </label>
 
-          <label>
-            Minimum Güven Oranı
-            <select
-              name="confidenceThreshold"
-              value={formData.confidenceThreshold}
-              onChange={onInputChange}
-            >
-              <option value="60">%60</option>
-              <option value="70">%70</option>
-              <option value="80">%80</option>
-              <option value="90">%90</option>
-            </select>
-          </label>
-
-          <label>
-            Kullanım Amacı
-            <select
-              name="usageMode"
-              value={formData.usageMode}
-              onChange={onInputChange}
-            >
-              <option>Dekont okuma ve eşleştirme</option>
-              <option>Sadece dekont okuma</option>
-              <option>Sadece öneri oluşturma</option>
-            </select>
-          </label>
-
-          <label className="ai-switch-label">
-            <input
-              name="isActive"
-              type="checkbox"
-              checked={formData.isActive}
-              onChange={onInputChange}
-            />
-            AI desteğini aktif et
-          </label>
-
-          <label className="ai-switch-label">
-            <input
-              name="requireAdminApproval"
-              type="checkbox"
-              checked={formData.requireAdminApproval}
-              onChange={onInputChange}
-            />
-            AI eşleşmesini yönetici onayına gönder
+            {formData.hasApiKey && (
+              <small>Mevcut API key güvenli şekilde kayıtlıdır.</small>
+            )}
           </label>
         </div>
 
         <div className="ai-form-actions">
-          <button type="button" className="secondary-form-button">
+          <button
+            type="button"
+            className="secondary-form-button"
+            onClick={onTestConnection}
+            disabled={isSaving}
+          >
             <KeyRound size={17} />
             Bağlantıyı Test Et
           </button>
 
-          <button type="submit" className="dashboard-action-button">
+          <button
+            type="submit"
+            className="dashboard-action-button"
+            disabled={isSaving}
+          >
             <CheckCircle2 size={18} />
-            AI Ayarlarını Kaydet
+            {isSaving ? "Kaydediliyor..." : "AI Ayarlarını Kaydet"}
           </button>
         </div>
       </form>

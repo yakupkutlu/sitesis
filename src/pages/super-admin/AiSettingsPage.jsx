@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useEffect, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   BarChart3,
@@ -17,7 +17,13 @@ import {
 
 import AiProviderForm from "../../components/ai-settings/AiProviderForm";
 import AiUsageInfoCard from "../../components/ai-settings/AiUsageInfoCard";
-import AiTestPanel from "../../components/ai-settings/AiTestPanel";
+
+import {
+  createAiSetting,
+  getAiSettings,
+  updateAiSetting,
+} from "../../api/aiSettingsApi";
+import { useAuth } from "../../context/AuthContext";
 
 const navItems = [
   { label: "Panel", path: "/super-admin/dashboard", icon: BarChart3 },
@@ -31,57 +37,172 @@ const navItems = [
 ];
 
 const initialAiSettings = {
-  provider: "ChatGPT / OpenAI",
+  id: null,
+  provider: "OPENAI",
+  status: "PASSIVE",
+  name: "",
   modelName: "",
-  endpointUrl: "",
+  baseUrl: "",
   apiKey: "",
-  confidenceThreshold: "80",
-  usageMode: "Dekont okuma ve eşleştirme",
-  isActive: false,
-  requireAdminApproval: true,
+  hasApiKey: false,
 };
 
+function getFirstAiSetting(result) {
+  const data = result?.data ?? result;
+
+  if (Array.isArray(data)) {
+    return data[0] ?? null;
+  }
+
+  if (Array.isArray(data?.items)) {
+    return data.items[0] ?? null;
+  }
+
+  if (Array.isArray(data?.aiSettings)) {
+    return data.aiSettings[0] ?? null;
+  }
+
+  return data ?? null;
+}
+
+function mapAiSettingToFormData(setting) {
+  if (!setting) {
+    return initialAiSettings;
+  }
+
+  return {
+    id: setting.id ?? null,
+    provider: setting.provider ?? "OPENAI",
+    status: setting.status ?? "PASSIVE",
+    name: setting.name ?? "",
+    modelName: setting.modelName ?? "",
+    baseUrl: setting.baseUrl ?? "",
+    apiKey: "",
+    hasApiKey: Boolean(setting?.secrets?.hasApiKey ?? setting?.hasApiKey),
+  };
+}
+
+function buildAiSettingPayload(formData) {
+  const payload = {
+    provider: formData.provider,
+    status: formData.status,
+    name: formData.name.trim() || null,
+    modelName: formData.modelName.trim() || null,
+    baseUrl: formData.baseUrl.trim() || null,
+  };
+
+  if (formData.apiKey.trim()) {
+    payload.apiKey = formData.apiKey.trim();
+  }
+
+  return payload;
+}
+
 function AiSettingsPage() {
+  const { user } = useAuth();
+
   const [aiSettings, setAiSettings] = useState(initialAiSettings);
-  const [testText, setTestText] = useState("");
-  const [testResult, setTestResult] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadAiSettings() {
+      try {
+        setIsLoading(true);
+        setErrorMessage("");
+
+        const result = await getAiSettings();
+        const firstSetting = getFirstAiSetting(result);
+
+        if (isMounted) {
+          setAiSettings(mapAiSettingToFormData(firstSetting));
+        }
+      } catch (error) {
+        if (isMounted) {
+          setErrorMessage(error?.message ?? "AI ayarları alınamadı.");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadAiSettings();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   function handleAiChange(event) {
-    const { name, value, type, checked } = event.target;
+    const { name, value } = event.target;
 
     setAiSettings((current) => ({
       ...current,
-      [name]: type === "checkbox" ? checked : value,
+      [name]: value,
     }));
   }
 
-  function handleAiSubmit(event) {
-  event.preventDefault();
+  async function handleAiSubmit(event) {
+    event.preventDefault();
 
-  alert("AI ayarları kaydedildi.");
- }
+    if (aiSettings.baseUrl.trim()) {
+      try {
+        new URL(aiSettings.baseUrl.trim());
+      } catch {
+        setErrorMessage("Base URL geçerli bir URL olmalıdır.");
+        setMessage("");
+        return;
+      }
+    }
 
-  function handleRunTest() {
-    if (!testText.trim()) {
-      alert("Lütfen test etmek için örnek dekont metni girin.");
+    try {
+      setIsSaving(true);
+      setMessage("");
+      setErrorMessage("");
+
+      const payload = buildAiSettingPayload(aiSettings);
+
+      const result = aiSettings.id
+        ? await updateAiSetting(aiSettings.id, payload)
+        : await createAiSetting(payload);
+
+      const savedSetting = result?.data ?? result;
+
+      setAiSettings(mapAiSettingToFormData(savedSetting));
+      setMessage("AI ayarları başarıyla kaydedildi.");
+    } catch (error) {
+      setErrorMessage(error?.message ?? "AI ayarları kaydedilemedi.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  function handleTestConnection() {
+    if (!aiSettings.hasApiKey && !aiSettings.apiKey.trim()) {
+      setErrorMessage("Bağlantı testi için önce API key girilmelidir.");
+      setMessage("");
       return;
     }
 
-    setTestResult({
-      fullName: "Ahmet Yılmaz",
-      apartment: "A Blok / Daire 5",
-      amount: "1.250 TL",
-      description: "Haziran aidatı",
-      paymentOwnerType: "Kiracı ödemesi",
-      matchStatus: "Yönetici onayı bekliyor",
-    });
+    setMessage(
+      "API key güvenli şekilde backend tarafında saklanır. Gerçek bağlantı testi için ayrıca backend test endpointi eklenmelidir."
+    );
+    setErrorMessage("");
   }
+
 
   return (
     <DashboardLayout
       roleTitle="AI API Ayarları"
       roleBadge="Süper Admin"
-      userName="Alaa"
+      userName={user?.fullName ?? "Süper Admin"}
       navItems={navItems}
       theme="super-admin"
     >
@@ -95,6 +216,18 @@ function AiSettingsPage() {
           </p>
         </div>
       </div>
+
+      {errorMessage && (
+        <div className="login-error-message">
+          <p>{errorMessage}</p>
+        </div>
+      )}
+
+      {message && (
+        <div className="login-success-message">
+          <p>{message}</p>
+        </div>
+      )}
 
       <section className="ai-info-grid">
         <AiUsageInfoCard
@@ -135,29 +268,31 @@ function AiSettingsPage() {
           title="API Güvenliği"
           description="AI servis anahtarları yalnızca yetkili kişiler tarafından yönetilmelidir."
           items={[
-            "Servis anahtarları gizli tutulmalıdır",
-            "Yetkisiz kişilerle paylaşılmamalıdır",
-            "Ayar değişiklikleri sistem kayıtlarında takip edilmelidir",
-         ]}
+            "Servis anahtarları backend tarafında şifreli saklanır",
+            "Frontend'e gerçek API key geri gönderilmez",
+            "Ayar değişiklikleri audit log ile takip edilir",
+          ]}
         />
       </section>
 
-      <div className="ai-settings-layout">
-        <AiProviderForm
-          formData={aiSettings}
-          onInputChange={handleAiChange}
-          onSubmit={handleAiSubmit}
-        />
-
-        <AiTestPanel
-          testText={testText}
-          testResult={testResult}
-          onTestTextChange={setTestText}
-          onRunTest={handleRunTest}
-        />
-      </div>
+      {isLoading ? (
+        <div className="dashboard-panel">
+          <p>AI ayarları yükleniyor...</p>
+        </div>
+      ) : (
+        <div className="ai-settings-layout">
+          <AiProviderForm
+            formData={aiSettings}
+            onInputChange={handleAiChange}
+            onSubmit={handleAiSubmit}
+            onTestConnection={handleTestConnection}
+            isSaving={isSaving}
+          />
+        </div>
+      )}
     </DashboardLayout>
   );
 }
 
 export default AiSettingsPage;
+
