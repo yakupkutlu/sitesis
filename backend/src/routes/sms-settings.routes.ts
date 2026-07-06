@@ -64,6 +64,7 @@ const createSmsSettingSchema = z.object({
 
 const updateSmsSettingSchema = z
   .object({
+    provider: z.enum(["ILETIMERKEZI", "NETGSM", "TWILIO"]).optional(),
     status: z.enum(["ACTIVE", "PASSIVE"]).optional(),
     senderName: z.string().trim().nullable().optional(),
     apiKey: z.string().trim().nullable().optional(),
@@ -271,6 +272,7 @@ router.patch(
     }
 
     const {
+      provider,
       status,
       senderName,
       apiKey,
@@ -287,6 +289,7 @@ router.patch(
         id: smsSettingId,
       },
       data: {
+        ...(provider !== undefined ? { provider } : {}),
         ...(status !== undefined ? { status } : {}),
         ...(senderName !== undefined ? { senderName: senderName || null } : {}),
         ...(fromPhone !== undefined ? { fromPhone: fromPhone || null } : {}),

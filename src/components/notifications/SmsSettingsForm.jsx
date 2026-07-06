@@ -1,8 +1,26 @@
-import { CheckCircle2, Eye, EyeOff, MessageSquare, Send } from "lucide-react";
+﻿import { CheckCircle2, Eye, EyeOff, MessageSquare, Send } from "lucide-react";
 import { useState } from "react";
 
-function SmsSettingsForm({ formData, onInputChange, onSubmit }) {
+const providerOptions = [
+  { value: "NETGSM", label: "Netgsm" },
+  { value: "ILETIMERKEZI", label: "İleti Merkezi" },
+  { value: "TWILIO", label: "Twilio" },
+];
+
+const statusOptions = [
+  { value: "ACTIVE", label: "Aktif" },
+  { value: "PASSIVE", label: "Pasif" },
+];
+
+function SmsSettingsForm({
+  formData,
+  onInputChange,
+  onSubmit,
+  onTestSms,
+  isSaving = false,
+}) {
   const [showApiKey, setShowApiKey] = useState(false);
+  const [showApiSecret, setShowApiSecret] = useState(false);
 
   return (
     <section className="notification-settings-card">
@@ -20,15 +38,15 @@ function SmsSettingsForm({ formData, onInputChange, onSubmit }) {
 
         <span
           className={`notification-status-badge ${
-            formData.isActive ? "active" : "passive"
+            formData.status === "ACTIVE" ? "active" : "passive"
           }`}
         >
-          {formData.isActive ? "Aktif" : "Pasif"}
+          {formData.status === "ACTIVE" ? "Aktif" : "Pasif"}
         </span>
       </div>
 
       <p className="notification-card-description">
-        SMS sağlayıcısı, gönderici başlığı ve gönderim ayarları buradan tanımlanır.
+        SMS sağlayıcısı, gönderici başlığı ve API bilgileri buradan tanımlanır.
       </p>
 
       <form className="notification-form" onSubmit={onSubmit}>
@@ -39,76 +57,157 @@ function SmsSettingsForm({ formData, onInputChange, onSubmit }) {
               name="provider"
               value={formData.provider}
               onChange={onInputChange}
+              disabled={isSaving}
             >
-              <option>Netgsm</option>
-              <option>İleti Merkezi</option>
-              <option>Twilio</option>
+              {providerOptions.map((option) => (
+                <option value={option.value} key={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            Durum
+            <select
+              name="status"
+              value={formData.status}
+              onChange={onInputChange}
+              disabled={isSaving}
+            >
+              {statusOptions.map((option) => (
+                <option value={option.value} key={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
           </label>
 
           <label>
             Gönderici Başlığı
             <input
-              name="senderTitle"
+              name="senderName"
               type="text"
-              placeholder="Örn: APARTMANIM"
-              value={formData.senderTitle}
+              placeholder="Örn: SITESIS"
+              value={formData.senderName}
               onChange={onInputChange}
+              disabled={isSaving}
             />
           </label>
 
           <label>
-            API Kullanıcı Adı
+            From Phone
+            <input
+              name="fromPhone"
+              type="text"
+              placeholder="+90 5xx xxx xx xx"
+              value={formData.fromPhone}
+              onChange={onInputChange}
+              disabled={isSaving}
+            />
+          </label>
+
+          <label>
+            Kullanıcı Adı
             <input
               name="username"
               type="text"
-              placeholder="API kullanıcı adını girin"
+              placeholder={
+                formData.hasUsername
+                  ? "Mevcut kullanıcı adı kayıtlı"
+                  : "API kullanıcı adı"
+              }
               value={formData.username}
               onChange={onInputChange}
+              disabled={isSaving}
             />
           </label>
 
           <label>
-            API Key / Secret
+            Şifre
+            <input
+              name="password"
+              type="password"
+              placeholder={
+                formData.hasPassword ? "Mevcut şifre kayıtlı" : "API şifresi"
+              }
+              value={formData.password}
+              onChange={onInputChange}
+              disabled={isSaving}
+            />
+          </label>
+
+          <label>
+            API Key
             <div className="secret-input-wrapper">
               <input
                 name="apiKey"
                 type={showApiKey ? "text" : "password"}
-                placeholder="API key veya secret girin"
+                placeholder={
+                  formData.hasApiKey ? "Mevcut API key kayıtlı" : "API key"
+                }
                 value={formData.apiKey}
                 onChange={onInputChange}
+                disabled={isSaving}
               />
 
               <button
                 type="button"
                 onClick={() => setShowApiKey((current) => !current)}
                 aria-label="API key görünürlüğünü değiştir"
+                disabled={isSaving}
               >
                 {showApiKey ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
             </div>
           </label>
 
-          <label className="notification-switch-label">
-            <input
-              name="isActive"
-              type="checkbox"
-              checked={formData.isActive}
-              onChange={onInputChange}
-            />
-            SMS gönderimini aktif et
+          <label>
+            API Secret / Auth Token
+            <div className="secret-input-wrapper">
+              <input
+                name="apiSecret"
+                type={showApiSecret ? "text" : "password"}
+                placeholder={
+                  formData.hasApiSecret
+                    ? "Mevcut secret kayıtlı"
+                    : "API secret veya auth token"
+                }
+                value={formData.apiSecret}
+                onChange={onInputChange}
+                disabled={isSaving}
+              />
+
+              <button
+                type="button"
+                onClick={() => setShowApiSecret((current) => !current)}
+                aria-label="API secret görünürlüğünü değiştir"
+                disabled={isSaving}
+              >
+                {showApiSecret ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
           </label>
         </div>
 
         <div className="notification-form-actions">
-          <button type="button" className="secondary-form-button">
+          <button
+            type="button"
+            className="secondary-form-button"
+            onClick={onTestSms}
+            disabled={isSaving}
+          >
             <Send size={17} />
             Test SMS Gönder
           </button>
 
-          <button type="submit" className="dashboard-action-button">
+          <button
+            type="submit"
+            className="dashboard-action-button"
+            disabled={isSaving}
+          >
             <CheckCircle2 size={18} />
-            SMS Ayarlarını Kaydet
+            {isSaving ? "Kaydediliyor..." : "SMS Ayarlarını Kaydet"}
           </button>
         </div>
       </form>

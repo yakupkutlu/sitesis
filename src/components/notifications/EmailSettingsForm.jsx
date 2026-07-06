@@ -1,8 +1,28 @@
-import { CheckCircle2, Eye, EyeOff, Mail, Send } from "lucide-react";
+﻿import { CheckCircle2, Eye, EyeOff, Mail, Send } from "lucide-react";
 import { useState } from "react";
 
-function EmailSettingsForm({ formData, onInputChange, onSubmit }) {
+const providerOptions = [
+  { value: "SMTP", label: "SMTP" },
+  { value: "SENDGRID", label: "SendGrid" },
+];
+
+const statusOptions = [
+  { value: "ACTIVE", label: "Aktif" },
+  { value: "PASSIVE", label: "Pasif" },
+];
+
+function EmailSettingsForm({
+  formData,
+  onInputChange,
+  onSubmit,
+  onTestEmail,
+  isSaving = false,
+}) {
   const [showPassword, setShowPassword] = useState(false);
+  const [showSendgridKey, setShowSendgridKey] = useState(false);
+
+  const isSmtp = formData.provider === "SMTP";
+  const isSendgrid = formData.provider === "SENDGRID";
 
   return (
     <section className="notification-settings-card">
@@ -20,17 +40,17 @@ function EmailSettingsForm({ formData, onInputChange, onSubmit }) {
 
         <span
           className={`notification-status-badge ${
-            formData.isActive ? "active" : "passive"
+            formData.status === "ACTIVE" ? "active" : "passive"
           }`}
         >
-          {formData.isActive ? "Aktif" : "Pasif"}
+          {formData.status === "ACTIVE" ? "Aktif" : "Pasif"}
         </span>
       </div>
 
       <p className="notification-card-description">
-        SMTP veya SendGrid gibi sağlayıcılar üzerinden e-posta gönderim ayarları yapılır.
+        SMTP veya SendGrid üzerinden e-posta gönderim ayarları yapılır.
       </p>
-      
+
       <form className="notification-form" onSubmit={onSubmit}>
         <div className="form-grid">
           <label>
@@ -39,107 +59,186 @@ function EmailSettingsForm({ formData, onInputChange, onSubmit }) {
               name="provider"
               value={formData.provider}
               onChange={onInputChange}
+              disabled={isSaving}
             >
-              <option>SMTP</option>
-              <option>SendGrid</option>
+              {providerOptions.map((option) => (
+                <option value={option.value} key={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
+          </label>
+
+          <label>
+            Durum
+            <select
+              name="status"
+              value={formData.status}
+              onChange={onInputChange}
+              disabled={isSaving}
+            >
+              {statusOptions.map((option) => (
+                <option value={option.value} key={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            Gönderen E-posta
+            <input
+              name="fromEmail"
+              type="email"
+              placeholder="ornek@mail.com"
+              value={formData.fromEmail}
+              onChange={onInputChange}
+              disabled={isSaving}
+            />
           </label>
 
           <label>
             Gönderen Adı
             <input
-              name="senderName"
+              name="fromName"
               type="text"
-              placeholder="Örn: Apartman Yönetimi"
-              value={formData.senderName}
+              placeholder="Örn: Sitesis Yönetimi"
+              value={formData.fromName}
               onChange={onInputChange}
+              disabled={isSaving}
             />
           </label>
 
-          <label>
-            SMTP Host
-            <input
-              name="host"
-              type="text"
-              placeholder="Örn: smtp.gmail.com"
-              value={formData.host}
-              onChange={onInputChange}
-            />
-          </label>
+          {isSmtp && (
+            <>
+              <label>
+                SMTP Host
+                <input
+                  name="smtpHost"
+                  type="text"
+                  placeholder="Örn: smtp.gmail.com"
+                  value={formData.smtpHost}
+                  onChange={onInputChange}
+                  disabled={isSaving}
+                />
+              </label>
 
-          <label>
-            SMTP Port
-            <input
-              name="port"
-              type="number"
-              placeholder="Örn: 587"
-              value={formData.port}
-              onChange={onInputChange}
-            />
-          </label>
+              <label>
+                SMTP Port
+                <input
+                  name="smtpPort"
+                  type="number"
+                  placeholder="Örn: 587"
+                  value={formData.smtpPort}
+                  onChange={onInputChange}
+                  disabled={isSaving}
+                />
+              </label>
 
-          <label>
-            Kullanıcı E-posta
-            <input
-              name="email"
-              type="email"
-              placeholder="ornek@mail.com"
-              value={formData.email}
-              onChange={onInputChange}
-            />
-          </label>
+              <label>
+                SMTP Kullanıcı Adı
+                <input
+                  name="smtpUsername"
+                  type="text"
+                  placeholder={
+                    formData.hasSmtpUsername
+                      ? "Mevcut kullanıcı adı kayıtlı"
+                      : "SMTP kullanıcı adı"
+                  }
+                  value={formData.smtpUsername}
+                  onChange={onInputChange}
+                  disabled={isSaving}
+                />
+              </label>
 
-          <label>
-            Şifre / API Key
-            <div className="secret-input-wrapper">
-              <input
-                name="password"
-                type={showPassword ? "text" : "password"}
-                placeholder="Şifre veya API key girin"
-                value={formData.password}
-                onChange={onInputChange}
-              />
+              <label>
+                SMTP Şifre
+                <div className="secret-input-wrapper">
+                  <input
+                    name="smtpPassword"
+                    type={showPassword ? "text" : "password"}
+                    placeholder={
+                      formData.hasSmtpPassword
+                        ? "Mevcut şifre kayıtlı"
+                        : "SMTP şifre"
+                    }
+                    value={formData.smtpPassword}
+                    onChange={onInputChange}
+                    disabled={isSaving}
+                  />
 
-              <button
-                type="button"
-                onClick={() => setShowPassword((current) => !current)}
-                aria-label="Şifre görünürlüğünü değiştir"
-              >
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
-            </div>
-          </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((current) => !current)}
+                    aria-label="Şifre görünürlüğünü değiştir"
+                    disabled={isSaving}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </label>
 
-          <label className="notification-switch-label">
-            <input
-              name="useTls"
-              type="checkbox"
-              checked={formData.useTls}
-              onChange={onInputChange}
-            />
-            TLS / güvenli bağlantı kullan
-          </label>
+              <label className="notification-switch-label">
+                <input
+                  name="smtpSecure"
+                  type="checkbox"
+                  checked={Boolean(formData.smtpSecure)}
+                  onChange={onInputChange}
+                  disabled={isSaving}
+                />
+                TLS / güvenli bağlantı kullan
+              </label>
+            </>
+          )}
 
-          <label className="notification-switch-label">
-            <input
-              name="isActive"
-              type="checkbox"
-              checked={formData.isActive}
-              onChange={onInputChange}
-            />
-            E-posta gönderimini aktif et
-          </label>
+          {isSendgrid && (
+            <label className="full-width">
+              SendGrid API Key
+              <div className="secret-input-wrapper">
+                <input
+                  name="sendgridApiKey"
+                  type={showSendgridKey ? "text" : "password"}
+                  placeholder={
+                    formData.hasSendgridApiKey
+                      ? "Mevcut SendGrid API key kayıtlı"
+                      : "SendGrid API key"
+                  }
+                  value={formData.sendgridApiKey}
+                  onChange={onInputChange}
+                  disabled={isSaving}
+                />
+
+                <button
+                  type="button"
+                  onClick={() => setShowSendgridKey((current) => !current)}
+                  aria-label="SendGrid API key görünürlüğünü değiştir"
+                  disabled={isSaving}
+                >
+                  {showSendgridKey ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </label>
+          )}
         </div>
 
         <div className="notification-form-actions">
-          <button type="button" className="secondary-form-button">
+          <button
+            type="button"
+            className="secondary-form-button"
+            onClick={onTestEmail}
+            disabled={isSaving}
+          >
             <Send size={17} />
             Test E-posta Gönder
           </button>
 
-          <button type="submit" className="dashboard-action-button">
+          <button
+            type="submit"
+            className="dashboard-action-button"
+            disabled={isSaving}
+          >
             <CheckCircle2 size={18} />
-            E-posta Ayarlarını Kaydet
+            {isSaving ? "Kaydediliyor..." : "E-posta Ayarlarını Kaydet"}
           </button>
         </div>
       </form>

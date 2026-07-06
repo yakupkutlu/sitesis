@@ -110,6 +110,7 @@ const createEmailSettingSchema = z
 
 const updateEmailSettingSchema = z
   .object({
+    provider: z.enum(["SMTP", "SENDGRID"]).optional(),
     status: z.enum(["ACTIVE", "PASSIVE"]).optional(),
     fromEmail: z.string().trim().email().optional(),
     fromName: z.string().trim().nullable().optional(),
@@ -305,6 +306,7 @@ router.patch(
     }
 
     const {
+      provider,
       status,
       fromEmail,
       fromName,
@@ -321,6 +323,7 @@ router.patch(
         id: emailSettingId,
       },
       data: {
+        ...(provider !== undefined ? { provider } : {}),
         ...(status !== undefined ? { status } : {}),
         ...(fromEmail !== undefined ? { fromEmail } : {}),
         ...(fromName !== undefined ? { fromName: fromName || null } : {}),
