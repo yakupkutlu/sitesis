@@ -1,15 +1,10 @@
-import { Eye, Megaphone, Pencil, Power } from "lucide-react";
-
-function getPriorityClass(priority) {
-  return priority ? priority.toLowerCase() : "normal";
-}
+﻿import { Eye, Megaphone, Pencil, Power } from "lucide-react";
 
 function getAnnouncementStatusClass(status) {
   return status === "Yayında" ? "active" : "passive";
 }
 
 function AnnouncementCard({ announcement, onView, onEdit, onToggleStatus }) {
-  const priorityClass = getPriorityClass(announcement.priority);
   const statusClass = getAnnouncementStatusClass(announcement.status);
   const isPublished = announcement.status === "Yayında";
 
@@ -21,12 +16,8 @@ function AnnouncementCard({ announcement, onView, onEdit, onToggleStatus }) {
         </div>
 
         <div className="announcement-badges">
-          <span className={`announcement-priority priority-${priorityClass}`}>
-            {announcement.priority || "Normal"}
-          </span>
-
           <span className={`announcement-status ${statusClass}`}>
-            {announcement.status || "Taslak"}
+            {announcement.status || "Arşiv"}
           </span>
         </div>
       </div>
@@ -45,13 +36,13 @@ function AnnouncementCard({ announcement, onView, onEdit, onToggleStatus }) {
           </div>
 
           <div>
-            <span>SMS</span>
-            <strong>{announcement.sendSms ? "Evet" : "Hayır"}</strong>
+            <span>Oluşturan</span>
+            <strong>{announcement.createdBy || "-"}</strong>
           </div>
 
           <div>
-            <span>E-posta</span>
-            <strong>{announcement.sendEmail ? "Evet" : "Hayır"}</strong>
+            <span>Hedef</span>
+            <strong>{announcement.targetTypeLabel || "-"}</strong>
           </div>
         </div>
 
@@ -81,7 +72,7 @@ function AnnouncementCard({ announcement, onView, onEdit, onToggleStatus }) {
             aria-label={`${announcement.title || "Duyuru"} durumunu değiştir`}
           >
             <Power size={16} />
-            {isPublished ? "Pasifleştir" : "Yayına Al"}
+            {isPublished ? "Arşivle" : "Yayına Al"}
           </button>
         </div>
       </div>

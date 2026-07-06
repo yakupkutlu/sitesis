@@ -1,75 +1,64 @@
-import { CheckCircle2, X } from "lucide-react";
+﻿import { CheckCircle2, X } from "lucide-react";
 
 const targetTypeOptions = [
-  "Tüm Sistem",
-  "Yöneticiler",
-  "Sakinler",
-  "Belirli Site / Apartman",
-  "Belirli Blok",
-  "Belirli Daire",
-  "Seçili Kişiler",
+  { value: "ALL", label: "Tüm Sistem" },
+  { value: "SITE", label: "Belirli Site" },
+  { value: "BLOCK", label: "Belirli Blok" },
+  { value: "APARTMENT", label: "Belirli Daire" },
 ];
 
-const targetTypesWithSite = [
-  "Belirli Site / Apartman",
-  "Belirli Blok",
-  "Belirli Daire",
-];
+function getBlockSiteId(block) {
+  return block.siteId ?? block.site?.id ?? "";
+}
 
-const targetTypesWithBlock = ["Belirli Blok", "Belirli Daire"];
-
-const priorityOptions = ["Normal", "Önemli", "Acil"];
-const statusOptions = ["Yayında", "Taslak", "Pasif"];
-
-const notificationOptions = [
-  { name: "sendSms", label: "SMS ile bilgilendir" },
-  { name: "sendEmail", label: "E-posta ile bilgilendir" },
-];
+function getApartmentBlockId(apartment) {
+  return apartment.blockId ?? apartment.block?.id ?? "";
+}
 
 function AnnouncementForm({
   formData,
+  sites,
+  blocks,
+  apartments,
   editingAnnouncement,
-  siteOptions,
-  blockOptions,
-  apartmentOptions,
-  userOptions,
   onInputChange,
-  onUserSelectionChange,
   onSubmit,
   onCancel,
+  isSaving = false,
 }) {
-  const safeSiteOptions = siteOptions || [];
-  const safeBlockOptions = blockOptions || [];
-  const safeApartmentOptions = apartmentOptions || [];
-  const safeUserOptions = userOptions || [];
+  const safeSites = sites || [];
+  const safeBlocks = blocks || [];
+  const safeApartments = apartments || [];
+  const isEditMode = Boolean(editingAnnouncement);
 
-  const selectedUserIds = Array.isArray(formData.selectedUserIds)
-    ? formData.selectedUserIds
+  const shouldShowSiteSelect = formData.targetType !== "ALL";
+  const shouldShowBlockSelect =
+    formData.targetType === "BLOCK" || formData.targetType === "APARTMENT";
+  const shouldShowApartmentSelect = formData.targetType === "APARTMENT";
+
+  const filteredBlocks = formData.siteId
+    ? safeBlocks.filter((block) => getBlockSiteId(block) === formData.siteId)
     : [];
 
-  const selectedTargetType = formData.targetType || "Tüm Sistem";
-  const shouldShowSiteSelect = targetTypesWithSite.includes(selectedTargetType);
-  const shouldShowBlockSelect = targetTypesWithBlock.includes(selectedTargetType);
-  const shouldShowApartmentSelect = selectedTargetType === "Belirli Daire";
-  const shouldShowUserSelect = selectedTargetType === "Seçili Kişiler";
+  const filteredApartments = formData.blockId
+    ? safeApartments.filter(
+        (apartment) => getApartmentBlockId(apartment) === formData.blockId
+      )
+    : [];
 
   return (
     <section className="announcement-form-card">
       <div className="announcement-form-header">
         <div>
           <span className="section-kicker">
-            {editingAnnouncement ? "Duyuru Düzenleme" : "Yeni Duyuru"}
+            {isEditMode ? "Duyuru Düzenleme" : "Yeni Duyuru"}
           </span>
 
-          <h3>
-            {editingAnnouncement
-              ? "Duyuru Bilgilerini Düzenle"
-              : "Yeni Duyuru Oluştur"}
-          </h3>
+          <h3>{isEditMode ? "Duyuruyu Düzenle" : "Yeni Duyuru Oluştur"}</h3>
 
           <p>
-            Duyuru başlığı, hedef kitlesi ve bilgilendirme seçeneklerini
-            belirleyin.
+            Duyuru hedefi oluşturma sırasında belirlenir. Yayındaki duyurularda
+            hedef değiştirmek yerine yeni duyuru oluşturmak daha güvenlidir.
           </p>
         </div>
 
@@ -78,6 +67,7 @@ function AnnouncementForm({
           className="modal-close-button"
           onClick={onCancel}
           aria-label="Duyuru formunu kapat"
+          disabled={isSaving}
         >
           <X size={20} />
         </button>
@@ -88,11 +78,13 @@ function AnnouncementForm({
           <label className="full-width">
             Duyuru Başlığı
             <input
-              name="title"
               type="text"
-              placeholder="Örn: Asansör bakım duyurusu"
-              value={formData.title || ""}
+              name="title"
+              placeholder="Örn: Aidat ödeme hatırlatması"
+              value={formData.title}
               onChange={onInputChange}
+              disabled={isSaving}
+              maxLength={120}
               required
             />
           </label>
@@ -101,28 +93,34 @@ function AnnouncementForm({
             Hedef Türü
             <select
               name="targetType"
-              value={selectedTargetType}
+              value={formData.targetType}
               onChange={onInputChange}
+              disabled={isSaving || isEditMode}
             >
               {targetTypeOptions.map((option) => (
-                <option key={option}>{option}</option>
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
               ))}
             </select>
           </label>
 
           {shouldShowSiteSelect && (
             <label>
-              Site / Apartman Seç
+              Site Seç
               <select
-                name="targetSite"
-                value={formData.targetSite || ""}
+                name="siteId"
+                value={formData.siteId}
                 onChange={onInputChange}
+                disabled={isSaving || isEditMode}
                 required
               >
-                <option value="">Site / Apartman seçin</option>
+                <option value="">Site seçin</option>
 
-                {safeSiteOptions.map((site) => (
-                  <option key={site}>{site}</option>
+                {safeSites.map((site) => (
+                  <option key={site.id} value={site.id}>
+                    {site.name}
+                  </option>
                 ))}
               </select>
             </label>
@@ -130,17 +128,22 @@ function AnnouncementForm({
 
           {shouldShowBlockSelect && (
             <label>
-              Blok Seç
+              Blok / Apartman Seç
               <select
-                name="targetBlock"
-                value={formData.targetBlock || ""}
+                name="blockId"
+                value={formData.blockId}
                 onChange={onInputChange}
+                disabled={isSaving || isEditMode || !formData.siteId}
                 required
               >
-                <option value="">Blok seçin</option>
+                <option value="">
+                  {formData.siteId ? "Blok seçin" : "Önce site seçin"}
+                </option>
 
-                {safeBlockOptions.map((block) => (
-                  <option key={block}>{block}</option>
+                {filteredBlocks.map((block) => (
+                  <option key={block.id} value={block.id}>
+                    {block.name}
+                  </option>
                 ))}
               </select>
             </label>
@@ -150,83 +153,62 @@ function AnnouncementForm({
             <label>
               Daire Seç
               <select
-                name="targetApartment"
-                value={formData.targetApartment || ""}
+                name="apartmentId"
+                value={formData.apartmentId}
                 onChange={onInputChange}
+                disabled={isSaving || isEditMode || !formData.blockId}
                 required
               >
-                <option value="">Daire seçin</option>
+                <option value="">
+                  {formData.blockId ? "Daire seçin" : "Önce blok seçin"}
+                </option>
 
-                {safeApartmentOptions.map((apartment) => (
-                  <option key={apartment}>{apartment}</option>
+                {filteredApartments.map((apartment) => (
+                  <option key={apartment.id} value={apartment.id}>
+                    Daire {apartment.number}
+                  </option>
                 ))}
               </select>
             </label>
           )}
 
-          {shouldShowUserSelect && (
-            <div className="full-width announcement-send-options">
-              <span>Kişi Seçimi</span>
+          {!isEditMode && (
+            <div className="announcement-send-options">
+              <span>Bilgilendirme Seçenekleri</span>
 
-              {safeUserOptions.length > 0 ? (
-                safeUserOptions.map((user) => (
-                  <label key={user.id}>
-                    <input
-                      type="checkbox"
-                      checked={selectedUserIds.includes(user.id)}
-                      onChange={() => onUserSelectionChange(user.id)}
-                    />
-                    {user.name || "İsimsiz kullanıcı"} -{" "}
-                    {user.apartment || "Daire bilgisi yok"}
-                  </label>
-                ))
-              ) : (
-                <p>Seçilebilir kullanıcı bulunamadı.</p>
-              )}
+              <label>
+                <input
+                  name="sendSms"
+                  type="checkbox"
+                  checked={Boolean(formData.sendSms)}
+                  onChange={onInputChange}
+                  disabled={isSaving}
+                />
+                SMS gönder
+              </label>
+
+              <label>
+                <input
+                  name="sendEmail"
+                  type="checkbox"
+                  checked={Boolean(formData.sendEmail)}
+                  onChange={onInputChange}
+                  disabled={isSaving}
+                />
+                E-posta gönder
+              </label>
             </div>
           )}
 
-          <label>
-            Öncelik
-            <select
-              name="priority"
-              value={formData.priority || "Normal"}
-              onChange={onInputChange}
-            >
-              {priorityOptions.map((option) => (
-                <option key={option}>{option}</option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            Durum
-            <select
-              name="status"
-              value={formData.status || "Yayında"}
-              onChange={onInputChange}
-            >
-              {statusOptions.map((option) => (
-                <option key={option}>{option}</option>
-              ))}
-            </select>
-          </label>
-
-          <div className="announcement-send-options">
-            <span>Bilgilendirme Seçenekleri</span>
-
-            {notificationOptions.map((option) => (
-              <label key={option.name}>
-                <input
-                  name={option.name}
-                  type="checkbox"
-                  checked={Boolean(formData[option.name])}
-                  onChange={onInputChange}
-                />
-                {option.label}
-              </label>
-            ))}
-          </div>
+          {isEditMode && (
+            <div className="announcement-send-options">
+              <span>Not</span>
+              <p>
+                Düzenleme sırasında sadece başlık ve içerik güncellenir. Hedef
+                ve bildirim seçenekleri değiştirilmez.
+              </p>
+            </div>
+          )}
 
           <label className="full-width">
             Duyuru İçeriği
@@ -234,10 +216,12 @@ function AnnouncementForm({
               name="content"
               rows="5"
               placeholder="Duyuru metnini buraya yazın..."
-              value={formData.content || ""}
+              value={formData.content}
               onChange={onInputChange}
+              disabled={isSaving}
+              maxLength={2000}
               required
-            ></textarea>
+            />
           </label>
         </div>
 
@@ -246,13 +230,22 @@ function AnnouncementForm({
             type="button"
             className="secondary-form-button"
             onClick={onCancel}
+            disabled={isSaving}
           >
             Vazgeç
           </button>
 
-          <button type="submit" className="dashboard-action-button">
+          <button
+            type="submit"
+            className="dashboard-action-button"
+            disabled={isSaving}
+          >
             <CheckCircle2 size={18} />
-            {editingAnnouncement ? "Değişiklikleri Kaydet" : "Duyuru Oluştur"}
+            {isSaving
+              ? "Kaydediliyor..."
+              : isEditMode
+                ? "Değişiklikleri Kaydet"
+                : "Duyuru Oluştur"}
           </button>
         </div>
       </form>

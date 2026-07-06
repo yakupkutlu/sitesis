@@ -83,7 +83,10 @@ const updateAnnouncementSchema = z
 const announcementParamsSchema = z.object({
   announcementId: z.string().uuid(),
 });
-
+const listAnnouncementFiltersSchema = z.object({
+  status: z.enum(["ACTIVE", "ARCHIVED"]).optional(),
+  targetType: z.enum(["ALL", "SITE", "BLOCK", "APARTMENT"]).optional(),
+});
 async function getAnnouncementWhereForUser(user: AuthenticatedUser) {
   if (user.role === "SUPER_ADMIN") {
     return {};
@@ -464,6 +467,21 @@ router.get(
       throw new HttpError(400, "Sayfalama bilgileri geأ§ersiz.", paginationParams.errors);
     }
 
+    const filtersResult = listAnnouncementFiltersSchema.safeParse({
+      status: typeof request.query.status === "string" ? request.query.status : undefined,
+      targetType:
+        typeof request.query.targetType === "string"
+          ? request.query.targetType
+          : undefined,
+    });
+    
+    if (!filtersResult.success) {
+      throw new HttpError(
+        400,
+        "Duyuru filtre bilgileri geçersiz.",
+        filtersResult.error.flatten().fieldErrors
+      );
+    }
     const userWhereCondition = await getAnnouncementWhereForUser(authenticatedRequest.user);
 
     const searchCondition: Prisma.AnnouncementWhereInput = paginationParams.search
@@ -484,9 +502,18 @@ router.get(
           ],
         }
       : {};
+    
+    const filterCondition: Prisma.AnnouncementWhereInput = {};
 
+      if (filtersResult.data.status) {
+        filterCondition.status = filtersResult.data.status;
+      }
+      
+      if (filtersResult.data.targetType) {
+        filterCondition.targetType = filtersResult.data.targetType;
+      }
     const whereCondition: Prisma.AnnouncementWhereInput = {
-      AND: [userWhereCondition, searchCondition],
+      AND: [userWhereCondition, searchCondition, filterCondition],
     };
 
     const [announcements, totalCount] = await Promise.all([

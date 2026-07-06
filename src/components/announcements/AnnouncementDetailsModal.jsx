@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+﻿import { X } from "lucide-react";
 
 function AnnouncementDetailsModal({ announcement, onClose }) {
   if (!announcement) {
@@ -11,7 +11,6 @@ function AnnouncementDetailsModal({ announcement, onClose }) {
         <div className="modal-header">
           <div>
             <span className="section-kicker">Duyuru Detayı</span>
-
             <h3>{announcement.title || "Duyuru Detayı"}</h3>
           </div>
 
@@ -25,41 +24,35 @@ function AnnouncementDetailsModal({ announcement, onClose }) {
           </button>
         </div>
 
-        <div className="details-list announcement-details-list">
-          <div>
-            <span>Hedef Kitle</span>
-            <strong>{announcement.target || "-"}</strong>
-          </div>
-
-          <div>
-            <span>Öncelik</span>
-            <strong>{announcement.priority || "-"}</strong>
-          </div>
-
+        <div className="details-list">
           <div>
             <span>Durum</span>
             <strong>{announcement.status || "-"}</strong>
           </div>
 
           <div>
-            <span>Oluşturma Tarihi</span>
+            <span>Hedef Türü</span>
+            <strong>{announcement.targetTypeLabel || "-"}</strong>
+          </div>
+
+          <div>
+            <span>Hedef</span>
+            <strong>{announcement.target || "-"}</strong>
+          </div>
+
+          <div>
+            <span>Oluşturan</span>
+            <strong>{announcement.createdBy || "-"}</strong>
+          </div>
+
+          <div>
+            <span>Tarih</span>
             <strong>{announcement.createdAt || "-"}</strong>
-          </div>
-
-          <div>
-            <span>SMS ile Bilgilendirme</span>
-            <strong>{announcement.sendSms ? "Açık" : "Kapalı"}</strong>
-          </div>
-
-          <div>
-            <span>E-posta ile Bilgilendirme</span>
-            <strong>{announcement.sendEmail ? "Açık" : "Kapalı"}</strong>
           </div>
         </div>
 
         <div className="details-description">
           <span>Duyuru İçeriği</span>
-
           <p>{announcement.content || "Duyuru içeriği bulunmuyor."}</p>
         </div>
       </section>
