@@ -1,11 +1,13 @@
-import { CheckCircle2, Settings } from "lucide-react";
+﻿import { CheckCircle2, Settings } from "lucide-react";
 
-const languageOptions = ["Türkçe", "Arapça", "İngilizce"];
-const currencyOptions = ["TRY", "USD", "EUR"];
 const themeOptions = ["Açık", "Koyu"];
-const timezoneOptions = ["Europe/Istanbul", "UTC", "Europe/London"];
 
-function GeneralSettingsForm({ formData, onInputChange, onSubmit }) {
+function GeneralSettingsForm({
+  formData,
+  onInputChange,
+  onSubmit,
+  isSaving = false,
+}) {
   return (
     <section className="settings-card">
       <div className="settings-card-header">
@@ -16,91 +18,76 @@ function GeneralSettingsForm({ formData, onInputChange, onSubmit }) {
 
           <div>
             <span className="section-kicker">Genel Ayarlar</span>
-
             <h3>Sistem Genel Bilgileri</h3>
           </div>
         </div>
       </div>
 
       <p className="settings-card-description">
-        Sistemin genel adı, varsayılan dil, para birimi ve destek bilgileri
-        buradan yönetilir.
+        Sistemin adı, logo adresi, iletişim ve destek bilgileri buradan
+        yönetilir.
       </p>
 
       <form className="settings-form" onSubmit={onSubmit}>
         <div className="form-grid">
           <label>
-            Sistem Adı
+            Uygulama Adı
             <input
               type="text"
-              name="systemName"
-              placeholder="Örn: Apartman Yönetim Sistemi"
-              value={formData.systemName}
+              name="appName"
+              placeholder="Örn: Konut Yönetim"
+              value={formData.appName}
               onChange={onInputChange}
+              disabled={isSaving}
             />
           </label>
 
           <label>
-            Marka / Uygulama Adı
+            Logo URL
             <input
               type="text"
-              name="brandName"
-              placeholder="Örn: Apartmanım"
-              value={formData.brandName}
+              name="logoUrl"
+              placeholder="https://example.com/logo.png"
+              value={formData.logoUrl}
               onChange={onInputChange}
+              disabled={isSaving}
             />
           </label>
 
           <label>
-            Varsayılan Dil
-            <select
-              name="defaultLanguage"
-              value={formData.defaultLanguage}
+            İletişim E-posta
+            <input
+              type="email"
+              name="contactEmail"
+              placeholder="iletisim@example.com"
+              value={formData.contactEmail}
               onChange={onInputChange}
-            >
-              {languageOptions.map((option) => (
-                <option key={option}>{option}</option>
-              ))}
-            </select>
+              disabled={isSaving}
+            />
           </label>
 
           <label>
-            Para Birimi
-            <select
-              name="currency"
-              value={formData.currency}
+            İletişim Telefon
+            <input
+              type="text"
+              name="contactPhone"
+              placeholder="+90 5xx xxx xx xx"
+              value={formData.contactPhone}
               onChange={onInputChange}
-            >
-              {currencyOptions.map((option) => (
-                <option key={option}>{option}</option>
-              ))}
-            </select>
+              disabled={isSaving}
+            />
           </label>
 
           <label>
-            Görünüm
-            <select
-              name="themeMode"
-              value={formData.themeMode}
+            Web Sitesi
+            <input
+              type="text"
+              name="websiteUrl"
+              placeholder="https://example.com"
+              value={formData.websiteUrl}
               onChange={onInputChange}
-            >
-              {themeOptions.map((option) => (
-                <option key={option}>{option}</option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            Saat Dilimi
-            <select
-              name="timezone"
-              value={formData.timezone}
-              onChange={onInputChange}
-            >
-              {timezoneOptions.map((option) => (
-                <option key={option}>{option}</option>
-              ))}
-            </select>
+              disabled={isSaving}
+            />
           </label>
 
           <label>
@@ -111,36 +98,57 @@ function GeneralSettingsForm({ formData, onInputChange, onSubmit }) {
               placeholder="destek@example.com"
               value={formData.supportEmail}
               onChange={onInputChange}
+              disabled={isSaving}
             />
+          </label>
+
+          <label>
+            Destek Telefon
+            <input
+              type="text"
+              name="supportPhone"
+              placeholder="+90 5xx xxx xx xx"
+              value={formData.supportPhone}
+              onChange={onInputChange}
+              disabled={isSaving}
+            />
+          </label>
+
+          <label>
+            Görünüm
+            <select
+              name="themeMode"
+              value={formData.themeMode}
+              onChange={onInputChange}
+              disabled={isSaving}
+            >
+              {themeOptions.map((option) => (
+                <option key={option}>{option}</option>
+              ))}
+            </select>
           </label>
 
           <label className="full-width">
-            Sistem Açıklaması
+            Adres
             <textarea
-              name="systemDescription"
+              name="address"
               rows="4"
-              placeholder="Sistem hakkında kısa açıklama yazın..."
-              value={formData.systemDescription}
+              placeholder="Şirket / yönetim adresi..."
+              value={formData.address}
               onChange={onInputChange}
+              disabled={isSaving}
             />
-          </label>
-
-          <label className="settings-switch-label">
-            <input
-              type="checkbox"
-              name="maintenanceMode"
-              checked={Boolean(formData.maintenanceMode)}
-              onChange={onInputChange}
-            />
-
-            <span>Bakım modunu aktif et</span>
           </label>
         </div>
 
         <div className="settings-form-actions">
-          <button type="submit" className="dashboard-action-button">
+          <button
+            type="submit"
+            className="dashboard-action-button"
+            disabled={isSaving}
+          >
             <CheckCircle2 size={18} />
-            Genel Ayarları Kaydet
+            {isSaving ? "Kaydediliyor..." : "Genel Ayarları Kaydet"}
           </button>
         </div>
       </form>

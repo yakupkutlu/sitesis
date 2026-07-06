@@ -31,6 +31,7 @@ import notificationLogsRoutes from "./routes/notification-logs.routes.js";
 import aiSettingsRoutes from "./routes/ai-settings.routes.js";
 import systemSettingsRoutes from "./routes/system-settings.routes.js";
 import dashboardSummaryRoutes from "./routes/dashboard-summary.routes.js";
+import systemSecuritySettingsRoutes from "./routes/system-security-settings.routes.js";
 const app = express();
 
 app.disable("x-powered-by");
@@ -101,6 +102,7 @@ app.use("/api/notification-logs", notificationLogsRoutes);
 app.use("/api/ai-settings", aiSettingsRoutes);
 app.use("/api/system-settings", systemSettingsRoutes);
 app.use("/api/dashboard-summary", dashboardSummaryRoutes);
+app.use("/api/system-security-settings", systemSecuritySettingsRoutes);
 
 app.use((_request: Request, response: Response) => {
   response.status(404).json({

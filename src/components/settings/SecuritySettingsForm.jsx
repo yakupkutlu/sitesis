@@ -1,4 +1,4 @@
-import { CheckCircle2, ShieldCheck } from "lucide-react";
+﻿import { CheckCircle2, ShieldCheck } from "lucide-react";
 
 const sessionDurationOptions = [
   { value: "30", label: "30 dakika" },
@@ -45,7 +45,12 @@ const switchOptions = [
   },
 ];
 
-function SecuritySettingsForm({ formData, onInputChange, onSubmit }) {
+function SecuritySettingsForm({
+  formData,
+  onInputChange,
+  onSubmit,
+  isSaving = false,
+}) {
   return (
     <section className="settings-card">
       <div className="settings-card-header">
@@ -56,7 +61,6 @@ function SecuritySettingsForm({ formData, onInputChange, onSubmit }) {
 
           <div>
             <span className="section-kicker">Güvenlik Ayarları</span>
-
             <h3>Sistem Güvenlik Kuralları</h3>
           </div>
         </div>
@@ -75,6 +79,7 @@ function SecuritySettingsForm({ formData, onInputChange, onSubmit }) {
               name="sessionDuration"
               value={formData.sessionDuration}
               onChange={onInputChange}
+              disabled={isSaving}
             >
               {sessionDurationOptions.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -90,6 +95,7 @@ function SecuritySettingsForm({ formData, onInputChange, onSubmit }) {
               name="minPasswordLength"
               value={formData.minPasswordLength}
               onChange={onInputChange}
+              disabled={isSaving}
             >
               {minPasswordLengthOptions.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -105,6 +111,7 @@ function SecuritySettingsForm({ formData, onInputChange, onSubmit }) {
               name="loginAttemptLimit"
               value={formData.loginAttemptLimit}
               onChange={onInputChange}
+              disabled={isSaving}
             >
               {loginAttemptLimitOptions.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -120,6 +127,7 @@ function SecuritySettingsForm({ formData, onInputChange, onSubmit }) {
               name="lockDuration"
               value={formData.lockDuration}
               onChange={onInputChange}
+              disabled={isSaving}
             >
               {lockDurationOptions.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -136,6 +144,7 @@ function SecuritySettingsForm({ formData, onInputChange, onSubmit }) {
                 name={option.name}
                 checked={Boolean(formData[option.name])}
                 onChange={onInputChange}
+                disabled={isSaving}
               />
 
               <span>{option.label}</span>
@@ -144,9 +153,13 @@ function SecuritySettingsForm({ formData, onInputChange, onSubmit }) {
         </div>
 
         <div className="settings-form-actions">
-          <button type="submit" className="dashboard-action-button">
+          <button
+            type="submit"
+            className="dashboard-action-button"
+            disabled={isSaving}
+          >
             <CheckCircle2 size={18} />
-            Güvenlik Ayarlarını Kaydet
+            {isSaving ? "Kaydediliyor..." : "Güvenlik Ayarlarını Kaydet"}
           </button>
         </div>
       </form>

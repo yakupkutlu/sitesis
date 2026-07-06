@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useEffect, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   BarChart3,
@@ -18,6 +18,16 @@ import GeneralSettingsForm from "../../components/settings/GeneralSettingsForm";
 import SecuritySettingsForm from "../../components/settings/SecuritySettingsForm";
 import SystemInfoCard from "../../components/settings/SystemInfoCard";
 
+import {
+  getSystemSettings,
+  updateSystemSettings,
+} from "../../api/systemSettingsApi";
+import {
+  getSystemSecuritySettings,
+  updateSystemSecuritySettings,
+} from "../../api/systemSecuritySettingsApi";
+import { useAuth } from "../../context/AuthContext";
+
 const navItems = [
   { label: "Panel", path: "/super-admin/dashboard", icon: BarChart3 },
   { label: "Site / Apartmanlar", path: "/super-admin/buildings", icon: Building2 },
@@ -33,33 +43,33 @@ const systemInfoCards = [
   {
     icon: SlidersHorizontal,
     title: "Sistem Yapılandırması",
-    description: "Uygulamanın temel çalışma ayarları bu bölümde düzenlenir.",
+    description: "Uygulamanın temel marka ve iletişim ayarları bu bölümde düzenlenir.",
     items: [
-      "Sistem ve marka adı belirlenir",
-      "Varsayılan dil ve para birimi seçilir",
-      "Bakım modu kontrol edilir",
+      "Uygulama adı belirlenir",
+      "Logo ve web sitesi bilgisi girilir",
+      "İletişim bilgileri güncellenir",
     ],
   },
   {
     icon: ShieldCheck,
     title: "Güvenlik Kuralları",
     description:
-      "Kullanıcı girişleri ve hesap güvenliği için temel kurallar tanımlanır.",
+      "Kullanıcı girişleri ve hesap güvenliği için temel kurallar takip edilir.",
     items: [
-      "Oturum süresi belirlenir",
-      "Şifre kuralları ayarlanır",
+      "Oturum süresi kontrol edilir",
+      "Şifre kuralları kaydedilir",
       "Hatalı giriş limiti uygulanır",
     ],
   },
   {
     icon: Globe2,
-    title: "Yerel Ayarlar",
+    title: "Kurumsal Bilgiler",
     description:
-      "Sistemin kullanılacağı bölgeye göre dil, saat dilimi ve para birimi ayarlanır.",
+      "Sistemin dış dünyaya göstereceği iletişim ve destek bilgileri tanımlanır.",
     items: [
-      "Türkiye için Europe/Istanbul seçilebilir",
-      "TRY varsayılan para birimi yapılabilir",
-      "Çoklu dil desteği planlanabilir",
+      "Web sitesi adresi girilebilir",
+      "Yönetim adresi saklanabilir",
+      "Destek kanalları gösterilebilir",
     ],
   },
   {
@@ -69,22 +79,21 @@ const systemInfoCards = [
       "Kullanıcıların sorun yaşadığında ulaşacağı destek bilgileri tanımlanır.",
     items: [
       "Destek e-posta adresi girilebilir",
-      "Sistem açıklaması güncellenebilir",
-      "Kullanıcı yönlendirmeleri yapılabilir",
+      "Destek telefonu kaydedilebilir",
+      "İletişim bilgileri merkezi tutulur",
     ],
   },
 ];
 
 const initialGeneralSettings = {
-  systemName: "Apartman Yönetim Sistemi",
-  brandName: "Apartmanım",
-  defaultLanguage: "Türkçe",
-  currency: "TRY",
-  timezone: "Europe/Istanbul",
+  appName: "Konut Yönetim",
+  logoUrl: "",
+  contactEmail: "",
+  contactPhone: "",
+  address: "",
+  websiteUrl: "",
   supportEmail: "",
-  systemDescription:
-    "Site, apartman, daire, aidat, ödeme, duyuru ve talep süreçlerini yönetmek için geliştirilen yönetim sistemi.",
-  maintenanceMode: false,
+  supportPhone: "",
   themeMode: "Açık",
 };
 
@@ -108,16 +117,134 @@ function getInitialGeneralSettings() {
   };
 }
 
+function mapSystemSettingsToFormData(settings) {
+  return {
+    appName: settings?.appName ?? initialGeneralSettings.appName,
+    logoUrl: settings?.logoUrl ?? "",
+    contactEmail: settings?.contactEmail ?? "",
+    contactPhone: settings?.contactPhone ?? "",
+    address: settings?.address ?? "",
+    websiteUrl: settings?.websiteUrl ?? "",
+    supportEmail: settings?.supportEmail ?? "",
+    supportPhone: settings?.supportPhone ?? "",
+    themeMode:
+      localStorage.getItem("superAdminThemeMode") ||
+      initialGeneralSettings.themeMode,
+  };
+}
+
+function mapSecuritySettingsToFormData(settings) {
+  return {
+    sessionDuration: String(
+      settings?.sessionDurationMinutes ??
+        initialSecuritySettings.sessionDuration
+    ),
+    minPasswordLength: String(
+      settings?.minPasswordLength ?? initialSecuritySettings.minPasswordLength
+    ),
+    loginAttemptLimit: String(
+      settings?.loginAttemptLimit ?? initialSecuritySettings.loginAttemptLimit
+    ),
+    lockDuration: String(
+      settings?.lockDurationMinutes ?? initialSecuritySettings.lockDuration
+    ),
+    requireStrongPassword:
+      settings?.requireStrongPassword ??
+      initialSecuritySettings.requireStrongPassword,
+    enableTwoFactor:
+      settings?.enableTwoFactor ?? initialSecuritySettings.enableTwoFactor,
+    allowPublicRegister:
+      settings?.allowPublicRegister ??
+      initialSecuritySettings.allowPublicRegister,
+    logSecurityEvents:
+      settings?.logSecurityEvents ?? initialSecuritySettings.logSecurityEvents,
+  };
+}
+
+function buildSystemSettingsPayload(formData) {
+  return {
+    appName: formData.appName.trim(),
+    logoUrl: formData.logoUrl.trim() || null,
+    contactEmail: formData.contactEmail.trim() || null,
+    contactPhone: formData.contactPhone.trim() || null,
+    address: formData.address.trim() || null,
+    websiteUrl: formData.websiteUrl.trim() || null,
+    supportEmail: formData.supportEmail.trim() || null,
+    supportPhone: formData.supportPhone.trim() || null,
+  };
+}
+
+function buildSecuritySettingsPayload(formData) {
+  return {
+    sessionDurationMinutes: Number(formData.sessionDuration),
+    minPasswordLength: Number(formData.minPasswordLength),
+    loginAttemptLimit: Number(formData.loginAttemptLimit),
+    lockDurationMinutes: Number(formData.lockDuration),
+    requireStrongPassword: Boolean(formData.requireStrongPassword),
+    enableTwoFactor: Boolean(formData.enableTwoFactor),
+    allowPublicRegister: Boolean(formData.allowPublicRegister),
+    logSecurityEvents: Boolean(formData.logSecurityEvents),
+  };
+}
+
 function SettingsPage() {
+  const { user } = useAuth();
+
   const [generalSettings, setGeneralSettings] = useState(
     getInitialGeneralSettings
   );
-
   const [securitySettings, setSecuritySettings] = useState(
     initialSecuritySettings
   );
 
+  const [isLoadingSettings, setIsLoadingSettings] = useState(true);
+  const [isSavingGeneralSettings, setIsSavingGeneralSettings] = useState(false);
+  const [isSavingSecuritySettings, setIsSavingSecuritySettings] =
+    useState(false);
+  const [settingsMessage, setSettingsMessage] = useState("");
+  const [settingsError, setSettingsError] = useState("");
+
   const isDarkMode = generalSettings.themeMode.toLowerCase().includes("koyu");
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadSettings() {
+      try {
+        setIsLoadingSettings(true);
+        setSettingsError("");
+
+        const [systemResult, securityResult] = await Promise.all([
+          getSystemSettings(),
+          getSystemSecuritySettings(),
+        ]);
+
+        const systemSettings = systemResult?.data ?? systemResult;
+        const securitySettingsData = securityResult?.data ?? securityResult;
+
+        if (isMounted) {
+          setGeneralSettings(mapSystemSettingsToFormData(systemSettings));
+          setSecuritySettings(
+            mapSecuritySettingsToFormData(securitySettingsData)
+          );
+        }
+      } catch (error) {
+        if (isMounted) {
+          setSettingsError(error?.message ?? "Sistem ayarları alınamadı.");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingSettings(false);
+        }
+      }
+    }
+
+    loadSettings();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   function handleGeneralChange(event) {
     const { name, value, type, checked } = event.target;
@@ -143,40 +270,75 @@ function SettingsPage() {
     }));
   }
 
-  function handleGeneralSubmit(event) {
+  async function handleGeneralSubmit(event) {
     event.preventDefault();
 
-    localStorage.setItem("superAdminThemeMode", generalSettings.themeMode);
-
-    alert("Genel ayarlar kaydedildi.");
-  }
-
-  function handleSecuritySubmit(event) {
-    event.preventDefault();
-
-    const sessionDuration = Number(securitySettings.sessionDuration);
-    const minPasswordLength = Number(securitySettings.minPasswordLength);
-    const loginAttemptLimit = Number(securitySettings.loginAttemptLimit);
-    const lockDuration = Number(securitySettings.lockDuration);
-
-    if (
-      sessionDuration <= 0 ||
-      minPasswordLength < 6 ||
-      loginAttemptLimit <= 0 ||
-      lockDuration <= 0
-    ) {
-      alert("Lütfen güvenlik ayarlarını geçerli değerlerle doldurunuz.");
+    if (!generalSettings.appName.trim()) {
+      setSettingsError("Uygulama adı boş bırakılamaz.");
+      setSettingsMessage("");
       return;
     }
 
-    alert("Güvenlik ayarları kaydedildi.");
+    try {
+      setIsSavingGeneralSettings(true);
+      setSettingsError("");
+      setSettingsMessage("");
+
+      localStorage.setItem("superAdminThemeMode", generalSettings.themeMode);
+
+      const result = await updateSystemSettings(
+        buildSystemSettingsPayload(generalSettings)
+      );
+
+      const updatedSettings = result?.data ?? result;
+
+      setGeneralSettings(mapSystemSettingsToFormData(updatedSettings));
+      setSettingsMessage("Genel ayarlar başarıyla kaydedildi.");
+    } catch (error) {
+      setSettingsError(error?.message ?? "Genel ayarlar kaydedilemedi.");
+    } finally {
+      setIsSavingGeneralSettings(false);
+    }
+  }
+
+  async function handleSecuritySubmit(event) {
+    event.preventDefault();
+
+    const payload = buildSecuritySettingsPayload(securitySettings);
+
+    if (
+      payload.sessionDurationMinutes <= 0 ||
+      payload.minPasswordLength < 6 ||
+      payload.loginAttemptLimit <= 0 ||
+      payload.lockDurationMinutes <= 0
+    ) {
+      setSettingsError("Lütfen güvenlik ayarlarını geçerli değerlerle doldurunuz.");
+      setSettingsMessage("");
+      return;
+    }
+
+    try {
+      setIsSavingSecuritySettings(true);
+      setSettingsError("");
+      setSettingsMessage("");
+
+      const result = await updateSystemSecuritySettings(payload);
+      const updatedSettings = result?.data ?? result;
+
+      setSecuritySettings(mapSecuritySettingsToFormData(updatedSettings));
+      setSettingsMessage("Güvenlik ayarları başarıyla kaydedildi.");
+    } catch (error) {
+      setSettingsError(error?.message ?? "Güvenlik ayarları kaydedilemedi.");
+    } finally {
+      setIsSavingSecuritySettings(false);
+    }
   }
 
   return (
     <DashboardLayout
       roleTitle="Genel Ayarlar"
       roleBadge="Süper Admin"
-      userName="Alaa"
+      userName={user?.fullName ?? "Süper Admin"}
       navItems={navItems}
       theme="super-admin"
       isDarkMode={isDarkMode}
@@ -186,11 +348,23 @@ function SettingsPage() {
           <h2>Genel Ayarlar</h2>
 
           <p>
-            Sistem adı, marka bilgileri, dil, para birimi, bakım modu ve temel
-            güvenlik kurallarını buradan yönetebilirsiniz.
+            Sistem adı, logo, iletişim, destek bilgileri ve temel güvenlik
+            kurallarını buradan yönetebilirsiniz.
           </p>
         </div>
       </div>
+
+      {settingsError && (
+        <div className="login-error-message">
+          <p>{settingsError}</p>
+        </div>
+      )}
+
+      {settingsMessage && (
+        <div className="login-success-message">
+          <p>{settingsMessage}</p>
+        </div>
+      )}
 
       <section className="system-info-grid">
         {systemInfoCards.map((card) => (
@@ -204,19 +378,27 @@ function SettingsPage() {
         ))}
       </section>
 
-      <div className="settings-layout">
-        <GeneralSettingsForm
-          formData={generalSettings}
-          onInputChange={handleGeneralChange}
-          onSubmit={handleGeneralSubmit}
-        />
+      {isLoadingSettings ? (
+        <div className="dashboard-panel">
+          <p>Sistem ayarları yükleniyor...</p>
+        </div>
+      ) : (
+        <div className="settings-layout">
+          <GeneralSettingsForm
+            formData={generalSettings}
+            onInputChange={handleGeneralChange}
+            onSubmit={handleGeneralSubmit}
+            isSaving={isSavingGeneralSettings}
+          />
 
-        <SecuritySettingsForm
-          formData={securitySettings}
-          onInputChange={handleSecurityChange}
-          onSubmit={handleSecuritySubmit}
-        />
-      </div>
+          <SecuritySettingsForm
+            formData={securitySettings}
+            onInputChange={handleSecurityChange}
+            onSubmit={handleSecuritySubmit}
+            isSaving={isSavingSecuritySettings}
+          />
+        </div>
+      )}
     </DashboardLayout>
   );
 }
