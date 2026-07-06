@@ -8,7 +8,13 @@
                     "build":  "tsc",
                     "start":  "node dist/server.js",
                     "test":  "vitest run --fileParallelism=false",
-                    "seed:super-admin":  "tsx scripts/seed-super-admin.ts"
+                    "seed:super-admin":  "tsx scripts/seed-super-admin.ts",
+                    "check":  "npm run build \u0026\u0026 npm test",
+                    "prisma:generate":  "prisma generate",
+                    "prisma:migrate:dev":  "prisma migrate dev",
+                    "prisma:migrate:deploy":  "prisma migrate deploy",
+                    "prisma:studio":  "prisma studio",
+                    "db:seed:super-admin":  "npm run seed:super-admin"
                 },
     "keywords":  [
 
