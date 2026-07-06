@@ -1,7 +1,7 @@
-import { Filter, Search } from "lucide-react";
+﻿import { Filter, Search } from "lucide-react";
 
 const roleOptions = ["Tümü", "Kiracı", "Ev Sahibi"];
-const statusOptions = ["Tümü", "Aktif", "Pasif", "Onay Bekliyor"];
+const statusOptions = ["Tümü", "Aktif", "Pasif"];
 
 function UserToolbar({
   searchTerm,

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   BarChart3,
@@ -6,6 +6,7 @@ import {
   BrainCircuit,
   Building2,
   Mail,
+  Plus,
   Settings,
   UserRound,
   Users,
@@ -14,6 +15,16 @@ import {
 import UserToolbar from "../../components/users/UserToolbar";
 import UserTable from "../../components/users/UserTable";
 import UserDetailsModal from "../../components/users/UserDetailsModal";
+import UserForm from "../../components/users/UserForm";
+
+import { getApartments } from "../../api/apartmentsApi";
+import {
+  createApartmentResident,
+  getApartmentResidents,
+  updateApartmentResident,
+} from "../../api/apartmentResidentsApi";
+import { createUser, updateUser } from "../../api/usersApi";
+import { useAuth } from "../../context/AuthContext";
 
 const navItems = [
   { label: "Panel", path: "/super-admin/dashboard", icon: BarChart3 },
@@ -26,125 +37,333 @@ const navItems = [
   { label: "Genel Ayarlar", path: "/super-admin/settings", icon: Settings },
 ];
 
-const initialUsers = [
-  {
-    id: 1,
-    name: "Ali Can",
-    role: "Kiracı",
-    email: "ali.can@example.com",
-    phone: "0555 444 55 66",
-    site: "Mavi Site",
-    block: "A Blok",
-    apartment: "Daire 5",
-    createdByManager: "Ahmet Yılmaz",
-    status: "Aktif",
-    createdAt: "30.06.2026",
-    totalDebt: "2.500 TL",
-    paidAmount: "1.250 TL",
-    remainingDebt: "1.250 TL",
-    lastPaymentDate: "10.06.2026",
-    paymentStatus: "Gecikmiş ödeme var",
-  },
-  {
-    id: 2,
-    name: "Ayşe Demir",
-    role: "Ev Sahibi",
-    email: "ayse.demir@example.com",
-    phone: "0555 777 88 99",
-    site: "Mavi Site",
-    block: "A Blok",
-    apartment: "Daire 2",
-    createdByManager: "Ahmet Yılmaz",
-    status: "Aktif",
-    createdAt: "29.06.2026",
-    totalDebt: "1.250 TL",
-    paidAmount: "1.250 TL",
-    remainingDebt: "0 TL",
-    lastPaymentDate: "05.06.2026",
-    paymentStatus: "Ödeme tamamlandı",
-  },
-  {
-    id: 3,
-    name: "Mehmet Kaya",
-    role: "Kiracı",
-    email: "mehmet.kaya@example.com",
-    phone: "0555 222 11 00",
-    site: "Güneş Apartmanı",
-    block: "Tek Apartman",
-    apartment: "Daire 8",
-    createdByManager: "Elif Demir",
-    status: "Onay Bekliyor",
-    createdAt: "30.06.2026",
-    totalDebt: "1.800 TL",
+const emptyFormData = {
+  fullName: "",
+  email: "",
+  phone: "",
+  password: "",
+  residentType: "TENANT",
+  apartmentId: "",
+};
+
+function getDataArray(result) {
+  const data = result?.data ?? result;
+
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.apartments)) return data.apartments;
+  if (Array.isArray(data?.apartmentResidents)) return data.apartmentResidents;
+
+  return [];
+}
+
+function formatDate(value) {
+  if (!value) return "-";
+
+  try {
+    return new Date(value).toLocaleDateString("tr-TR");
+  } catch {
+    return "-";
+  }
+}
+
+function getResidentTypeLabel(type) {
+  return type === "OWNER" ? "Ev Sahibi" : "Kiracı";
+}
+
+function mapApartmentResidentToUser(record) {
+  const residentUser = record.user ?? {};
+  const apartment = record.apartment ?? {};
+  const block = apartment.block ?? {};
+  const site = block.site ?? {};
+
+  return {
+    id: record.id,
+    userId: residentUser.id,
+    name: residentUser.fullName,
+    role: getResidentTypeLabel(record.type),
+    email: residentUser.email,
+    phone: residentUser.phone ?? "-",
+    site: site.name ?? "-",
+    block: block.name ?? "-",
+    apartment: apartment.number ? `Daire ${apartment.number}` : "-",
+    createdByManager: "Süper Admin / Yönetici",
+    status: residentUser.status === "ACTIVE" ? "Aktif" : "Pasif",
+    createdAt: formatDate(record.createdAt),
+    totalDebt: "0 TL",
     paidAmount: "0 TL",
-    remainingDebt: "1.800 TL",
+    remainingDebt: "0 TL",
     lastPaymentDate: "-",
-    paymentStatus: "Ödeme bekleniyor",
-  },
-  {
-    id: 4,
-    name: "Zeynep Aydın",
-    role: "Ev Sahibi",
-    email: "zeynep.aydin@example.com",
-    phone: "0555 333 44 55",
-    site: "Deniz Rezidans",
-    block: "Kule A",
-    apartment: "Daire 3",
-    createdByManager: "Mehmet Kaya",
-    status: "Pasif",
-    createdAt: "28.06.2026",
-    totalDebt: "3.000 TL",
-    paidAmount: "2.000 TL",
-    remainingDebt: "1.000 TL",
-    lastPaymentDate: "02.06.2026",
-    paymentStatus: "Kısmi ödeme yapıldı",
-  },
-];
+    paymentStatus: "Ödeme özeti sonra bağlanacak",
+    rawRecord: record,
+  };
+}
 
 function UsersPage() {
-  const [userList] = useState(initialUsers);
+  const { user } = useAuth();
+
+  const [userList, setUserList] = useState([]);
+  const [apartments, setApartments] = useState([]);
+
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState(null);
   const [selectedUser, setSelectedUser] = useState(null);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [roleFilter, setRoleFilter] = useState("Tümü");
   const [statusFilter, setStatusFilter] = useState("Tümü");
 
+  const [formData, setFormData] = useState(emptyFormData);
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  async function loadUsersPageData() {
+    const [residentsResult, apartmentsResult] = await Promise.all([
+      getApartmentResidents({ limit: 100 }),
+      getApartments({ limit: 100 }),
+    ]);
+
+    const residents = getDataArray(residentsResult);
+    const apartmentList = getDataArray(apartmentsResult);
+
+    setUserList(residents.map(mapApartmentResidentToUser));
+    setApartments(apartmentList);
+  }
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadInitialData() {
+      try {
+        setIsLoading(true);
+        setErrorMessage("");
+
+        const [residentsResult, apartmentsResult] = await Promise.all([
+          getApartmentResidents({ limit: 100 }),
+          getApartments({ limit: 100 }),
+        ]);
+
+        if (isMounted) {
+          const residents = getDataArray(residentsResult);
+          const apartmentList = getDataArray(apartmentsResult);
+
+          setUserList(residents.map(mapApartmentResidentToUser));
+          setApartments(apartmentList);
+        }
+      } catch (error) {
+        if (isMounted) {
+          setErrorMessage(error?.message ?? "Kullanıcı kayıtları alınamadı.");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadInitialData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const filteredUsers = useMemo(() => {
     const searchValue = searchTerm.trim().toLowerCase();
 
-    return userList.filter((user) => {
+    return userList.filter((item) => {
       const searchableText = [
-        user.name,
-        user.email,
-        user.phone,
-        user.site,
-        user.block,
-        user.apartment,
-        user.createdByManager,
-        user.role,
-        user.status,
-        user.paymentStatus,
+        item.name,
+        item.email,
+        item.phone,
+        item.site,
+        item.block,
+        item.apartment,
+        item.createdByManager,
+        item.role,
+        item.status,
+        item.paymentStatus,
       ]
         .join(" ")
         .toLowerCase();
 
       const matchesSearch = searchableText.includes(searchValue);
-
-      const matchesRole =
-        roleFilter === "Tümü" ? true : user.role === roleFilter;
-
+      const matchesRole = roleFilter === "Tümü" ? true : item.role === roleFilter;
       const matchesStatus =
-        statusFilter === "Tümü" ? true : user.status === statusFilter;
+        statusFilter === "Tümü" ? true : item.status === statusFilter;
 
       return matchesSearch && matchesRole && matchesStatus;
     });
   }, [userList, searchTerm, roleFilter, statusFilter]);
 
+  function resetForm() {
+    setEditingUser(null);
+    setFormData(emptyFormData);
+  }
+
+  function openCreateForm() {
+    resetForm();
+    setIsFormOpen(true);
+  }
+
+  function closeForm() {
+    resetForm();
+    setIsFormOpen(false);
+  }
+
+  function handleInputChange(event) {
+    const { name, value } = event.target;
+
+    setFormData((currentData) => ({
+      ...currentData,
+      [name]: value,
+    }));
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+
+    if (!formData.fullName.trim()) {
+      setErrorMessage("Ad soyad zorunludur.");
+      setMessage("");
+      return;
+    }
+
+    if (!formData.email.trim()) {
+      setErrorMessage("E-posta zorunludur.");
+      setMessage("");
+      return;
+    }
+
+    if (!formData.apartmentId) {
+      setErrorMessage("Daire seçimi zorunludur.");
+      setMessage("");
+      return;
+    }
+
+    if (!editingUser && formData.password.length < 8) {
+      setErrorMessage("Yeni sakin için şifre en az 8 karakter olmalıdır.");
+      setMessage("");
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      setMessage("");
+      setErrorMessage("");
+
+      if (editingUser) {
+        const userPayload = {
+          fullName: formData.fullName.trim(),
+          email: formData.email.trim(),
+          phone: formData.phone.trim() || null,
+          role: "RESIDENT",
+        };
+
+        if (formData.password.trim()) {
+          userPayload.password = formData.password.trim();
+        }
+
+        await updateUser(editingUser.userId, userPayload);
+
+        await updateApartmentResident(editingUser.id, {
+          apartmentId: formData.apartmentId,
+          type: formData.residentType,
+        });
+      } else {
+        const userResult = await createUser({
+          fullName: formData.fullName.trim(),
+          email: formData.email.trim(),
+          phone: formData.phone.trim() || undefined,
+          password: formData.password.trim(),
+          role: "RESIDENT",
+        });
+
+        const createdUser = userResult?.data ?? userResult;
+
+        await createApartmentResident({
+          apartmentId: formData.apartmentId,
+          userId: createdUser.id,
+          type: formData.residentType,
+        });
+      }
+
+      await loadUsersPageData();
+
+      setMessage(
+        editingUser
+          ? "Sakin bilgileri başarıyla güncellendi."
+          : "Sakin başarıyla oluşturuldu ve daireye bağlandı."
+      );
+
+      closeForm();
+    } catch (error) {
+      setErrorMessage(error?.message ?? "Sakin kaydı kaydedilemedi.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  function handleEdit(userRow) {
+    const rawRecord = userRow.rawRecord;
+
+    setEditingUser(userRow);
+
+    setFormData({
+      fullName: userRow.name || "",
+      email: userRow.email || "",
+      phone: userRow.phone === "-" ? "" : userRow.phone || "",
+      password: "",
+      residentType: rawRecord?.type ?? "TENANT",
+      apartmentId: rawRecord?.apartmentId ?? "",
+    });
+
+    setIsFormOpen(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function handleToggleStatus(userRow) {
+    const nextStatus = userRow.status === "Aktif" ? "PASSIVE" : "ACTIVE";
+
+    const confirmMessage =
+      userRow.status === "Aktif"
+        ? `${userRow.name} adlı sakini pasifleştirmek istiyor musunuz?`
+        : `${userRow.name} adlı sakini tekrar aktifleştirmek istiyor musunuz?`;
+
+    const isConfirmed = window.confirm(confirmMessage);
+
+    if (!isConfirmed) {
+      return;
+    }
+
+    try {
+      setMessage("");
+      setErrorMessage("");
+
+      await updateUser(userRow.userId, {
+        status: nextStatus,
+      });
+
+      await loadUsersPageData();
+
+      setMessage(
+        nextStatus === "ACTIVE"
+          ? "Sakin tekrar aktifleştirildi."
+          : "Sakin pasifleştirildi."
+      );
+    } catch (error) {
+      setErrorMessage(error?.message ?? "Sakin durumu güncellenemedi.");
+    }
+  }
+
   return (
     <DashboardLayout
       roleTitle="Kullanıcılar / Sakinler"
       roleBadge="Süper Admin"
-      userName="Alaa"
+      userName={user?.fullName ?? "Süper Admin"}
       navItems={navItems}
       theme="super-admin"
     >
@@ -159,7 +378,41 @@ function UsersPage() {
             daire bağlantılarını ve ödeme özetlerini buradan takip edebilirsiniz.
           </p>
         </div>
+
+        <button
+          type="button"
+          className="dashboard-action-button"
+          onClick={openCreateForm}
+          disabled={isSaving}
+        >
+          <Plus size={18} />
+          Yeni Sakin
+        </button>
       </div>
+
+      {errorMessage && (
+        <div className="login-error-message">
+          <p>{errorMessage}</p>
+        </div>
+      )}
+
+      {message && (
+        <div className="login-success-message">
+          <p>{message}</p>
+        </div>
+      )}
+
+      {isFormOpen && (
+        <UserForm
+          formData={formData}
+          apartments={apartments}
+          editingUser={editingUser}
+          onInputChange={handleInputChange}
+          onSubmit={handleSubmit}
+          onCancel={closeForm}
+          isSaving={isSaving}
+        />
+      )}
 
       <UserToolbar
         searchTerm={searchTerm}
@@ -170,7 +423,18 @@ function UsersPage() {
         setStatusFilter={setStatusFilter}
       />
 
-      <UserTable users={filteredUsers} onView={setSelectedUser} />
+      {isLoading ? (
+        <div className="dashboard-panel">
+          <p>Kullanıcı kayıtları yükleniyor...</p>
+        </div>
+      ) : (
+        <UserTable
+          users={filteredUsers}
+          onView={setSelectedUser}
+          onEdit={handleEdit}
+          onToggleStatus={handleToggleStatus}
+        />
+      )}
 
       <UserDetailsModal
         user={selectedUser}
