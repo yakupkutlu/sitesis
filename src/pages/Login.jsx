@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { loginUser } from "../api/authApi";
+import { useAuth } from "../context/AuthContext";
 
 const roleOptions = [
   {
@@ -93,6 +94,7 @@ function saveFrontendUserData({ user, role, rememberMe }) {
 
 function Login() {
   const navigate = useNavigate();
+  const { setUser, refreshUser } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -143,8 +145,9 @@ function Login() {
         password,
       });
 
-      const user = getUserFromLoginResult(result);
-      const backendRole = getRoleFromLoginResult(result);
+      const refreshedUser = await refreshUser();
+      const user = refreshedUser ?? getUserFromLoginResult(result);
+      const backendRole = user?.role ?? getRoleFromLoginResult(result);
 
       if (!backendRole || !backendRolePaths[backendRole]) {
         setErrorMessage("Kullanıcı rolü doğrulanamadı.");
@@ -345,3 +348,5 @@ function Login() {
 }
 
 export default Login;
+
+
