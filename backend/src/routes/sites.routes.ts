@@ -1,3 +1,7 @@
+﻿import fs from "node:fs/promises";
+import path from "node:path";
+import process from "node:process";
+
 import express, { type Request, type Response } from "express";
 import { z } from "zod";
 
@@ -9,9 +13,43 @@ import { type Prisma } from "../generated/prisma/client.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
 import { buildPaginationMeta, getPaginationParams } from "../utils/pagination.js";
+import { siteBlockImageUpload } from "../uploads/site-block-image-upload.js";
+import { isAllowedImageFile } from "../utils/image-signature.js";
 const router = express.Router();
 
 router.use(requireAuth);
+
+async function deleteUploadedImage(file?: Express.Multer.File) {
+  if (!file) {
+    return;
+  }
+
+  try {
+    await fs.unlink(file.path);
+  } catch (error) {
+    console.error("Yüklenen görsel dosyası silinemedi:", error);
+  }
+}
+
+function buildSiteBlockImageUrl(fileName: string) {
+  return "/uploads/site-block-images/" + fileName;
+}
+
+async function deleteStoredSiteBlockImage(imageUrl?: string | null) {
+  if (!imageUrl || !imageUrl.startsWith("/uploads/site-block-images/")) {
+    return;
+  }
+
+  const storedFileName = path.basename(imageUrl);
+
+  try {
+    await fs.unlink(
+      path.join(process.cwd(), "uploads", "site-block-images", storedFileName)
+    );
+  } catch {
+    // Eski görsel dosyası bulunamazsa işlemi durdurmayalım.
+  }
+}
 
 const createSiteSchema = z.object({
   name: z.string().trim().min(2),
@@ -37,7 +75,7 @@ const updateSiteSchema = z
       return Object.values(data).some((value) => value !== undefined);
     },
     {
-      message: "En az bir alan gönderilmelidir.",
+      message: "En az bir alan gأ¶nderilmelidir.",
     }
   );
 
@@ -58,13 +96,13 @@ router.get(
     const authenticatedRequest = request as AuthenticatedRequest;
 
     if (!authenticatedRequest.user) {
-      throw new HttpError(401, "Oturum bulunamadı.");
+      throw new HttpError(401, "Oturum bulunamadؤ±.");
     }
 
     const paginationParams = getPaginationParams(request.query);
 
     if (!paginationParams.success) {
-      throw new HttpError(400, "Sayfalama bilgileri geçersiz.", paginationParams.errors);
+      throw new HttpError(400, "Sayfalama bilgileri geأ§ersiz.", paginationParams.errors);
     }
 
     let whereCondition: Prisma.SiteWhereInput = paginationParams.search
@@ -96,7 +134,7 @@ router.get(
       const managerScope = await getManagerScope(authenticatedRequest.user.id);
 
       if (!hasManagerScope(managerScope)) {
-        throw new HttpError(403, "Bu yöneticiye atanmış bir site veya blok bulunamadı.");
+        throw new HttpError(403, "Bu yأ¶neticiye atanmؤ±إں bir site veya blok bulunamadؤ±.");
       }
 
       const managerFilters: Prisma.SiteWhereInput[] = [];
@@ -183,7 +221,7 @@ router.post(
     const authenticatedRequest = request as AuthenticatedRequest;
 
     if (!authenticatedRequest.user) {
-      throw new HttpError(401, "Oturum bulunamadı.");
+      throw new HttpError(401, "Oturum bulunamadؤ±.");
     }
 
     const validationResult = createSiteSchema.safeParse(request.body);
@@ -191,7 +229,7 @@ router.post(
     if (!validationResult.success) {
       throw new HttpError(
         400,
-        "Gönderilen site bilgileri geçersiz.",
+        "Gأ¶nderilen site bilgileri geأ§ersiz.",
         validationResult.error.flatten().fieldErrors
       );
     }
@@ -226,12 +264,93 @@ router.post(
 
     response.status(201).json({
       success: true,
-      message: "Site başarıyla oluşturuldu.",
+      message: "Site baإںarؤ±yla oluإںturuldu.",
       data: site,
     });
   })
 );
 
+router.patch(
+  "/:siteId/image",
+  requireRole("SUPER_ADMIN"),
+  siteBlockImageUpload.single("image"),
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      await deleteUploadedImage(request.file);
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    const siteId = getRequiredParam(request, "siteId");
+
+    const targetSite = await prisma.site.findUnique({
+      where: {
+        id: siteId,
+      },
+      select: {
+        id: true,
+        imageUrl: true,
+      },
+    });
+
+    if (!targetSite) {
+      await deleteUploadedImage(request.file);
+      throw new HttpError(404, "Site bulunamadı.");
+    }
+
+    if (!request.file) {
+      throw new HttpError(400, "Site görseli zorunludur.");
+    }
+
+    const isAllowedFile = await isAllowedImageFile(
+      request.file.path,
+      request.file.mimetype
+    );
+
+    if (!isAllowedFile) {
+      await deleteUploadedImage(request.file);
+      throw new HttpError(
+        400,
+        "Site görseli gerçek PNG, JPG veya WEBP formatında olmalıdır."
+      );
+    }
+
+    const imageUrl = buildSiteBlockImageUrl(request.file.filename);
+
+    const updatedSite = await prisma.site.update({
+      where: {
+        id: siteId,
+      },
+      data: {
+        imageUrl,
+      },
+    });
+
+    await deleteStoredSiteBlockImage(targetSite.imageUrl);
+
+    await createAuditLog({
+      request,
+      userId: authenticatedRequest.user.id,
+      action: "UPDATE_SITE_IMAGE",
+      entityType: "Site",
+      entityId: updatedSite.id,
+      metadata: {
+        previousImageUrl: targetSite.imageUrl,
+        currentImageUrl: updatedSite.imageUrl,
+        originalFileName: request.file.originalname,
+        mimeType: request.file.mimetype,
+        sizeBytes: request.file.size,
+      },
+    });
+
+    response.status(200).json({
+      success: true,
+      message: "Site görseli başarıyla güncellendi.",
+      data: updatedSite,
+    });
+  })
+);
 router.patch(
   "/:siteId",
   requireRole("SUPER_ADMIN"),
@@ -239,7 +358,7 @@ router.patch(
     const authenticatedRequest = request as AuthenticatedRequest;
 
     if (!authenticatedRequest.user) {
-      throw new HttpError(401, "Oturum bulunamadı.");
+      throw new HttpError(401, "Oturum bulunamadؤ±.");
     }
 
     const siteId = getRequiredParam(request, "siteId");
@@ -249,7 +368,7 @@ router.patch(
     if (!validationResult.success) {
       throw new HttpError(
         400,
-        "Gönderilen site güncelleme bilgileri geçersiz.",
+        "Gأ¶nderilen site gأ¼ncelleme bilgileri geأ§ersiz.",
         validationResult.error.flatten().fieldErrors
       );
     }
@@ -261,7 +380,7 @@ router.patch(
     });
 
     if (!targetSite) {
-      throw new HttpError(404, "Site bulunamadı.");
+      throw new HttpError(404, "Site bulunamadؤ±.");
     }
 
     const { name, address, description, imageUrl, hasElevator, systems } =
@@ -328,7 +447,7 @@ router.patch(
 
     response.status(200).json({
       success: true,
-      message: "Site başarıyla güncellendi.",
+      message: "Site baإںarؤ±yla gأ¼ncellendi.",
       data: updatedSite,
     });
   })

@@ -158,6 +158,7 @@ model Block {
   id          String  @id @default(uuid())
   name        String
   description String?
+  imageUrl    String?
 
   siteId String
   site   Site   @relation(fields: [siteId], references: [id], onDelete: Cascade)
@@ -533,3 +534,4 @@ model PasswordResetToken {
   @@index([userId])
   @@index([expiresAt])
 }
+
