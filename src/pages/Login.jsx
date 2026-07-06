@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   AlertCircle,
@@ -14,50 +14,79 @@ import {
   Users,
 } from "lucide-react";
 
+import { loginUser } from "../api/authApi";
+
 const roleOptions = [
   {
     label: "Süper Admin",
     value: "super-admin",
+    backendRole: "SUPER_ADMIN",
     path: "/super-admin/dashboard",
     icon: Crown,
   },
   {
     label: "Yönetici",
     value: "manager",
+    backendRole: "MANAGER",
     path: "/manager/dashboard",
     icon: UserCog,
   },
   {
     label: "Sakin",
     value: "resident",
+    backendRole: "RESIDENT",
     path: "/resident/dashboard",
     icon: Users,
   },
 ];
 
+const backendRolePaths = {
+  SUPER_ADMIN: "/super-admin/dashboard",
+  MANAGER: "/manager/dashboard",
+  RESIDENT: "/resident/dashboard",
+};
+
 function isValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-}
-
-function isValidPhone(value) {
-  const cleanedValue = value.replace(/\s/g, "");
-  return /^(05\d{9}|\+905\d{9})$/.test(cleanedValue);
 }
 
 function getSelectedRoleData(selectedRole) {
   return roleOptions.find((role) => role.value === selectedRole);
 }
 
-function saveTemporaryLoginData({ identifier, selectedRole, rememberMe }) {
+function getUserFromLoginResult(result) {
+  return result?.data?.user ?? result?.data ?? result?.user ?? null;
+}
+
+function getRoleFromLoginResult(result) {
+  return (
+    result?.data?.user?.role ??
+    result?.data?.role ??
+    result?.user?.role ??
+    null
+  );
+}
+
+function saveFrontendUserData({ user, role, rememberMe }) {
+  localStorage.removeItem("authToken");
+  sessionStorage.removeItem("authToken");
+
+  localStorage.removeItem("userRole");
+  sessionStorage.removeItem("userRole");
+
+  localStorage.removeItem("userInfo");
+  sessionStorage.removeItem("userInfo");
+
   const storage = rememberMe ? localStorage : sessionStorage;
 
-  storage.setItem("authToken", "temporary-demo-token");
-  storage.setItem("userRole", selectedRole);
+  storage.setItem("userRole", role);
   storage.setItem(
     "userInfo",
     JSON.stringify({
-      identifier,
-      role: selectedRole,
+      id: user?.id,
+      fullName: user?.fullName,
+      email: user?.email,
+      role,
     })
   );
 }
@@ -65,12 +94,13 @@ function saveTemporaryLoginData({ identifier, selectedRole, rememberMe }) {
 function Login() {
   const navigate = useNavigate();
 
-  const [identifier, setIdentifier] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [selectedRole, setSelectedRole] = useState("manager");
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   function clearErrorMessage() {
     if (errorMessage) {
@@ -78,21 +108,19 @@ function Login() {
     }
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
 
-    const trimmedIdentifier = identifier.trim();
+    const trimmedEmail = email.trim().toLowerCase();
     const selectedRoleData = getSelectedRoleData(selectedRole);
 
-    if (!trimmedIdentifier || !password) {
-      setErrorMessage("Lütfen e-posta/telefon ve şifre alanlarını doldurun.");
+    if (!trimmedEmail || !password) {
+      setErrorMessage("Lütfen e-posta ve şifre alanlarını doldurun.");
       return;
     }
 
-    if (!isValidEmail(trimmedIdentifier) && !isValidPhone(trimmedIdentifier)) {
-      setErrorMessage(
-        "Lütfen geçerli bir e-posta adresi veya telefon numarası girin."
-      );
+    if (!isValidEmail(trimmedEmail)) {
+      setErrorMessage("Lütfen geçerli bir e-posta adresi girin.");
       return;
     }
 
@@ -107,14 +135,38 @@ function Login() {
     }
 
     setErrorMessage("");
+    setIsSubmitting(true);
 
-    saveTemporaryLoginData({
-      identifier: trimmedIdentifier,
-      selectedRole,
-      rememberMe,
-    });
+    try {
+      const result = await loginUser({
+        email: trimmedEmail,
+        password,
+      });
 
-    navigate(selectedRoleData.path);
+      const user = getUserFromLoginResult(result);
+      const backendRole = getRoleFromLoginResult(result);
+
+      if (!backendRole || !backendRolePaths[backendRole]) {
+        setErrorMessage("Kullanıcı rolü doğrulanamadı.");
+        return;
+      }
+
+      saveFrontendUserData({
+        user,
+        role: backendRole,
+        rememberMe,
+      });
+
+      navigate(backendRolePaths[backendRole], {
+        replace: true,
+      });
+    } catch (error) {
+      setErrorMessage(
+        error?.message ?? "Giriş başarısız oldu. Lütfen bilgilerinizi kontrol edin."
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -164,7 +216,7 @@ function Login() {
 
             <h2>Hesabınıza giriş yapın</h2>
 
-            <p>E-posta adresiniz veya telefon numaranız ile sisteme erişin.</p>
+            <p>E-posta adresiniz ve şifreniz ile sisteme erişin.</p>
           </div>
 
           {errorMessage && (
@@ -193,6 +245,7 @@ function Login() {
                       setSelectedRole(role.value);
                       clearErrorMessage();
                     }}
+                    disabled={isSubmitting}
                   >
                     <Icon size={18} />
                     <span>{role.label}</span>
@@ -203,18 +256,19 @@ function Login() {
           </div>
 
           <label className="input-group">
-            <span>E-posta veya Telefon</span>
+            <span>E-posta</span>
 
             <div className="input-with-icon">
               <Mail size={19} />
 
               <input
-                type="text"
-                placeholder="ornek@mail.com veya 05xx xxx xx xx"
+                type="email"
+                placeholder="ornek@mail.com"
                 autoComplete="username"
-                value={identifier}
+                value={email}
+                disabled={isSubmitting}
                 onChange={(event) => {
-                  setIdentifier(event.target.value);
+                  setEmail(event.target.value);
                   clearErrorMessage();
                 }}
               />
@@ -232,6 +286,7 @@ function Login() {
                 placeholder="Şifrenizi girin"
                 autoComplete="current-password"
                 value={password}
+                disabled={isSubmitting}
                 onChange={(event) => {
                   setPassword(event.target.value);
                   clearErrorMessage();
@@ -243,6 +298,7 @@ function Login() {
                 className="password-toggle"
                 onClick={() => setShowPassword((current) => !current)}
                 aria-label={showPassword ? "Şifreyi gizle" : "Şifreyi göster"}
+                disabled={isSubmitting}
               >
                 {showPassword ? <EyeOff size={19} /> : <Eye size={19} />}
               </button>
@@ -254,6 +310,7 @@ function Login() {
               <input
                 type="checkbox"
                 checked={rememberMe}
+                disabled={isSubmitting}
                 onChange={(event) => setRememberMe(event.target.checked)}
               />
 
@@ -265,8 +322,12 @@ function Login() {
             </Link>
           </div>
 
-          <button type="submit" className="login-submit-button">
-            Giriş Yap
+          <button
+            type="submit"
+            className="login-submit-button"
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? "Giriş yapılıyor..." : "Giriş Yap"}
           </button>
 
           <div className="login-security-note">

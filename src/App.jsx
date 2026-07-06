@@ -1,6 +1,7 @@
-import { Routes, Route, useLocation } from "react-router-dom";
+﻿import { Routes, Route, useLocation } from "react-router-dom";
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
+import ProtectedRoute from "./components/auth/ProtectedRoute";
 
 import Home from "./pages/Home";
 import Features from "./pages/Features";
@@ -36,6 +37,14 @@ import ResidentAnnouncementsPage from "./pages/resident/ResidentAnnouncementsPag
 import ResidentRequestsPage from "./pages/resident/ResidentRequestsPage";
 import ResidentSettingsPage from "./pages/resident/ResidentSettingsPage";
 
+function protect(allowedRoles, element) {
+  return (
+    <ProtectedRoute allowedRoles={allowedRoles}>
+      {element}
+    </ProtectedRoute>
+  );
+}
+
 function App() {
   const location = useLocation();
 
@@ -56,31 +65,31 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
 
-        <Route path="/super-admin/dashboard" element={<SuperAdminDashboard />} />
-        <Route path="/super-admin/buildings" element={<BuildingsPage />} />
-        <Route path="/super-admin/managers" element={<ManagersPage />} />
-        <Route path="/super-admin/announcements" element={<AnnouncementsPage />}/>
-        <Route path="/super-admin/notifications"element={<NotificationsPage />}/>
-        <Route path="/super-admin/ai-settings" element={<AiSettingsPage />} />
-        <Route path="/super-admin/settings" element={<SettingsPage />} />
-        <Route path="/super-admin/users" element={<UsersPage />} />
+        <Route path="/super-admin/dashboard" element={protect(["SUPER_ADMIN"], <SuperAdminDashboard />)} />
+        <Route path="/super-admin/buildings" element={protect(["SUPER_ADMIN"], <BuildingsPage />)} />
+        <Route path="/super-admin/managers" element={protect(["SUPER_ADMIN"], <ManagersPage />)} />
+        <Route path="/super-admin/announcements" element={protect(["SUPER_ADMIN"], <AnnouncementsPage />)} />
+        <Route path="/super-admin/notifications" element={protect(["SUPER_ADMIN"], <NotificationsPage />)} />
+        <Route path="/super-admin/ai-settings" element={protect(["SUPER_ADMIN"], <AiSettingsPage />)} />
+        <Route path="/super-admin/settings" element={protect(["SUPER_ADMIN"], <SettingsPage />)} />
+        <Route path="/super-admin/users" element={protect(["SUPER_ADMIN"], <UsersPage />)} />
 
-        <Route path="/manager/dashboard" element={<ManagerDashboard />} />
-        <Route path="/manager/apartments" element={<ApartmentsPage />} />
-        <Route path="/manager/residents" element={<ResidentsPage />} />
-        <Route path="/manager/payments" element={<PaymentsPage />} />
-        <Route path="/manager/receipts" element={<ReceiptsPage />} />
-        <Route path="/manager/announcements" element={<ManagerAnnouncementsPage />} />
-        <Route path="/manager/requests" element={<ManagerRequestsPage />} />
-        <Route path="/manager/settings" element={<ManagerSettingsPage />} />
+        <Route path="/manager/dashboard" element={protect(["MANAGER"], <ManagerDashboard />)} />
+        <Route path="/manager/apartments" element={protect(["MANAGER"], <ApartmentsPage />)} />
+        <Route path="/manager/residents" element={protect(["MANAGER"], <ResidentsPage />)} />
+        <Route path="/manager/payments" element={protect(["MANAGER"], <PaymentsPage />)} />
+        <Route path="/manager/receipts" element={protect(["MANAGER"], <ReceiptsPage />)} />
+        <Route path="/manager/announcements" element={protect(["MANAGER"], <ManagerAnnouncementsPage />)} />
+        <Route path="/manager/requests" element={protect(["MANAGER"], <ManagerRequestsPage />)} />
+        <Route path="/manager/settings" element={protect(["MANAGER"], <ManagerSettingsPage />)} />
 
-        <Route path="/resident/dashboard" element={<ResidentDashboard />} />
-        <Route path="/resident/payments" element={<ResidentPaymentsPage />} />
-        <Route path="/resident/receipts" element={<ResidentReceiptsPage />} />
-        <Route path="/resident/announcements" element={<ResidentAnnouncementsPage />} />
-        <Route path="/resident/requests" element={<ResidentRequestsPage />} />
-        <Route path="/resident/settings" element={<ResidentSettingsPage />} />
-        
+        <Route path="/resident/dashboard" element={protect(["RESIDENT"], <ResidentDashboard />)} />
+        <Route path="/resident/payments" element={protect(["RESIDENT"], <ResidentPaymentsPage />)} />
+        <Route path="/resident/receipts" element={protect(["RESIDENT"], <ResidentReceiptsPage />)} />
+        <Route path="/resident/announcements" element={protect(["RESIDENT"], <ResidentAnnouncementsPage />)} />
+        <Route path="/resident/requests" element={protect(["RESIDENT"], <ResidentRequestsPage />)} />
+        <Route path="/resident/settings" element={protect(["RESIDENT"], <ResidentSettingsPage />)} />
+
         <Route path="*" element={<NotFound />} />
       </Routes>
 
