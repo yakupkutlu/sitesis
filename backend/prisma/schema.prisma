@@ -156,7 +156,7 @@ model Site {
   imageUrl    String?
   hasElevator Boolean  @default(false)
   systems     String[] @default([])
-
+  isActive Boolean @default(true)
   blocks             Block[]
   paymentBatches     PaymentBatch[]
   managerAssignments ManagerAssignment[]

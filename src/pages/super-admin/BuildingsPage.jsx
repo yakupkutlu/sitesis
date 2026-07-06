@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   BarChart3,
@@ -17,6 +17,17 @@ import BuildingCard from "../../components/buildings/BuildingCard";
 import BuildingDetailsModal from "../../components/buildings/BuildingDetailsModal";
 import BuildingForm from "../../components/buildings/BuildingForm";
 
+import {
+  createSite,
+  getSiteImageUrl,
+  getSites,
+  updateSite,
+  uploadSiteImage,
+} from "../../api/sitesApi";
+import { createBlock, updateBlock } from "../../api/blocksApi";
+import { createApartment } from "../../api/apartmentsApi";
+import { useAuth } from "../../context/AuthContext";
+
 const navItems = [
   { label: "Panel", path: "/super-admin/dashboard", icon: BarChart3 },
   { label: "Site / Apartmanlar", path: "/super-admin/buildings", icon: Building2 },
@@ -28,7 +39,7 @@ const navItems = [
   { label: "Genel Ayarlar", path: "/super-admin/settings", icon: Settings },
 ];
 
-const managers = ["Ahmet Yılmaz", "Elif Demir", "Mehmet Kaya", "Zeynep Aydın"];
+const managers = [];
 
 const systemOptions = [
   "Merkezi uydu",
@@ -46,59 +57,6 @@ const allowedImageTypes = [
 
 const maxImageSize = 5 * 1024 * 1024;
 
-const defaultImage =
-  "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=900&q=80";
-
-const initialBuildings = [
-  {
-    id: 1,
-    name: "Mavi Site",
-    type: "Site",
-    address: "İstanbul / Bahçelievler",
-    blocks: 3,
-    blockInfo: "A Blok, B Blok, C Blok",
-    apartments: 128,
-    manager: "Ahmet Yılmaz",
-    elevator: "Bloklara göre değişir",
-    systems: ["Merkezi uydu", "Güvenlik kamera sistemi"],
-    description: "Birden fazla bloktan oluşan site yönetimi.",
-    status: "Aktif",
-    image: defaultImage,
-  },
-  {
-    id: 2,
-    name: "Güneş Apartmanı",
-    type: "Tek Apartman",
-    address: "Ankara / Çankaya",
-    blocks: 1,
-    blockInfo: "",
-    apartments: 32,
-    manager: "Elif Demir",
-    elevator: "Var",
-    systems: ["Merkezi zil sistemi"],
-    description: "Tek apartman yönetimi için kayıt.",
-    status: "Aktif",
-    image:
-      "https://images.unsplash.com/photo-1494526585095-c41746248156?auto=format&fit=crop&w=900&q=80",
-  },
-  {
-    id: 3,
-    name: "Deniz Rezidans",
-    type: "Rezidans",
-    address: "İzmir / Karşıyaka",
-    blocks: 2,
-    blockInfo: "Kule A, Kule B",
-    apartments: 84,
-    manager: "Mehmet Kaya",
-    elevator: "Var",
-    systems: ["Merkezi uydu", "Güvenlik kamera sistemi"],
-    description: "Rezidans yapısı için örnek kayıt.",
-    status: "Pasif",
-    image:
-      "https://images.unsplash.com/photo-1460317442991-0ec209397118?auto=format&fit=crop&w=900&q=80",
-  },
-];
-
 const emptyFormData = {
   type: "Site",
   name: "",
@@ -111,21 +69,219 @@ const emptyFormData = {
   systems: [],
 };
 
-function calculateBlockCount(type, blockInfo) {
-  if (type !== "Site" && type !== "Rezidans") {
-    return 1;
+function getFirstDataArray(result) {
+  const data = result?.data ?? result;
+
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.sites)) return data.sites;
+
+  return [];
+}
+
+function getBlocksFromSite(site) {
+  return Array.isArray(site?.blocks) ? site.blocks : [];
+}
+
+function calculateApartmentCount(site) {
+  return getBlocksFromSite(site).reduce((total, block) => {
+    return total + Number(block?._count?.apartments ?? 0);
+  }, 0);
+}
+
+function getBuildingType(site) {
+  const blockCount = getBlocksFromSite(site).length;
+  return blockCount > 1 ? "Site" : "Tek Apartman";
+}
+
+function mapSiteToBuilding(site) {
+  const blocks = getBlocksFromSite(site);
+  const blockInfo = blocks.map((block) => block.name).join(", ");
+
+  return {
+    id: site.id,
+    name: site.name,
+    type: getBuildingType(site),
+    address: site.address,
+    blocks: blocks.length || 1,
+    blockInfo,
+    apartments: calculateApartmentCount(site),
+    manager: "Yönetici ataması ayrı modülden yapılır",
+    elevator: site.hasElevator ? "Var" : "Yok",
+    systems: Array.isArray(site.systems) ? site.systems : [],
+    description: site.description ?? "",
+    status: site.isActive === false ? "Pasif" : "Aktif",
+    image: site.imageUrl ? getSiteImageUrl(site.id) : "",
+    rawSite: site,
+  };
+}
+
+function getBlockNamesFromForm(formData) {
+  if (formData.type === "Site" || formData.type === "Rezidans") {
+    return formData.blockInfo
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
   }
 
-  const blocks = blockInfo
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
+  const singleBlockName = formData.name.trim();
+  return singleBlockName ? [singleBlockName] : [];
+}
 
-  return blocks.length > 0 ? blocks.length : 1;
+function getSafeBlockNames(formData) {
+  const blockNames = getBlockNamesFromForm(formData);
+
+  if (blockNames.length > 0) {
+    return blockNames;
+  }
+
+  return [`${formData.name.trim()} Blok`];
+}
+
+function buildSitePayload(formData, isUpdate = false) {
+  const payload = {
+    name: formData.name.trim(),
+    address: formData.address.trim(),
+    hasElevator: formData.elevator !== "Yok",
+    systems: Array.isArray(formData.systems) ? formData.systems : [],
+  };
+
+  const description = formData.description.trim();
+
+  if (description) {
+    payload.description = description;
+  } else if (isUpdate) {
+    payload.description = null;
+  }
+
+  return payload;
+}
+
+function getApartmentTargetCount(formData) {
+  const count = Number(formData.apartments);
+
+  if (!Number.isFinite(count) || count < 0) {
+    return 0;
+  }
+
+  return Math.floor(count);
+}
+
+function getCurrentApartmentCountFromBlocks(blocks) {
+  if (!Array.isArray(blocks)) {
+    return 0;
+  }
+
+  return blocks.reduce((total, block) => {
+    return total + Number(block?._count?.apartments ?? 0);
+  }, 0);
+}
+
+function getTargetCountForBlock(totalApartments, blockIndex, blockCount) {
+  const baseCount = Math.floor(totalApartments / blockCount);
+  const remainder = totalApartments % blockCount;
+
+  return blockIndex < remainder ? baseCount + 1 : baseCount;
+}
+
+async function createMissingApartmentsForBlocks(blocks, totalApartments) {
+  if (!Array.isArray(blocks) || blocks.length === 0 || totalApartments <= 0) {
+    return;
+  }
+
+  for (let blockIndex = 0; blockIndex < blocks.length; blockIndex += 1) {
+    const block = blocks[blockIndex];
+    const currentCount = Number(block?._count?.apartments ?? 0);
+    const targetCount = getTargetCountForBlock(
+      totalApartments,
+      blockIndex,
+      blocks.length
+    );
+
+    if (targetCount <= currentCount) {
+      continue;
+    }
+
+    for (
+      let apartmentNumber = currentCount + 1;
+      apartmentNumber <= targetCount;
+      apartmentNumber += 1
+    ) {
+      await createApartment({
+        blockId: block.id,
+        number: String(apartmentNumber),
+        floor: Math.ceil(apartmentNumber / 4),
+        description: "",
+      });
+    }
+  }
+}
+
+async function createBlocksForSite(siteId, formData) {
+  const createdBlocks = [];
+
+  for (const blockName of getSafeBlockNames(formData)) {
+    const result = await createBlock({
+      siteId,
+      name: blockName,
+      description: "",
+    });
+
+    createdBlocks.push({
+      ...(result?.data ?? result),
+      _count: {
+        apartments: 0,
+      },
+    });
+  }
+
+  return createdBlocks;
+}
+
+async function syncBlocksForSite(site, formData) {
+  const currentBlocks = getBlocksFromSite(site);
+  const nextBlockNames = getSafeBlockNames(formData);
+  const syncedBlocks = [];
+
+  for (let index = 0; index < nextBlockNames.length; index += 1) {
+    const blockName = nextBlockNames[index];
+    const existingBlock = currentBlocks[index];
+
+    if (existingBlock) {
+      const result = await updateBlock(existingBlock.id, {
+        name: blockName,
+        description: existingBlock.description ?? "",
+      });
+
+      syncedBlocks.push({
+        ...existingBlock,
+        ...(result?.data ?? result),
+      });
+
+      continue;
+    }
+
+    const result = await createBlock({
+      siteId: site.id,
+      name: blockName,
+      description: "",
+    });
+
+    syncedBlocks.push({
+      ...(result?.data ?? result),
+      _count: {
+        apartments: 0,
+      },
+    });
+  }
+
+  return syncedBlocks;
 }
 
 function BuildingsPage() {
-  const [buildingList, setBuildingList] = useState(initialBuildings);
+  const { user } = useAuth();
+
+  const [buildingList, setBuildingList] = useState([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingBuilding, setEditingBuilding] = useState(null);
   const [selectedBuilding, setSelectedBuilding] = useState(null);
@@ -135,6 +291,52 @@ function BuildingsPage() {
 
   const [formData, setFormData] = useState(emptyFormData);
   const [previewImage, setPreviewImage] = useState("");
+  const [selectedImageFile, setSelectedImageFile] = useState(null);
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  async function loadSites() {
+    const result = await getSites({ limit: 100 });
+    const sites = getFirstDataArray(result);
+    setBuildingList(sites.map(mapSiteToBuilding));
+  }
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadInitialData() {
+      try {
+        setIsLoading(true);
+        setErrorMessage("");
+
+        const result = await getSites({ limit: 100 });
+        const sites = getFirstDataArray(result);
+
+        if (isMounted) {
+          setBuildingList(sites.map(mapSiteToBuilding));
+        }
+      } catch (error) {
+        if (isMounted) {
+          setErrorMessage(
+            error?.message ?? "Site / apartman kayıtları alınamadı."
+          );
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadInitialData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const filteredBuildings = useMemo(() => {
     const searchValue = searchTerm.trim().toLowerCase();
@@ -150,7 +352,6 @@ function BuildingsPage() {
         .toLowerCase();
 
       const matchesSearch = searchableText.includes(searchValue);
-
       const matchesType =
         typeFilter === "Tümü" ? true : building.type === typeFilter;
 
@@ -162,6 +363,7 @@ function BuildingsPage() {
     setEditingBuilding(null);
     setFormData(emptyFormData);
     setPreviewImage("");
+    setSelectedImageFile(null);
   }
 
   function openCreateForm() {
@@ -206,51 +408,101 @@ function BuildingsPage() {
 
     if (!allowedImageTypes.includes(file.type)) {
       event.target.value = "";
-      alert("Lütfen PNG, JPG, JPEG veya WEBP formatında görsel seçiniz.");
+      setErrorMessage("Lütfen PNG, JPG, JPEG veya WEBP formatında görsel seçiniz.");
+      setMessage("");
       return;
     }
 
     if (file.size > maxImageSize) {
       event.target.value = "";
-      alert("Site / apartman görseli en fazla 5 MB olabilir.");
+      setErrorMessage("Site / apartman görseli en fazla 5 MB olabilir.");
+      setMessage("");
       return;
     }
 
     const imageUrl = URL.createObjectURL(file);
 
+    setSelectedImageFile(file);
     setPreviewImage(imageUrl);
+    setErrorMessage("");
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
 
-    const newBuilding = {
-      id: editingBuilding ? editingBuilding.id : Date.now(),
-      name: formData.name.trim(),
-      type: formData.type,
-      address: formData.address.trim(),
-      blocks: calculateBlockCount(formData.type, formData.blockInfo),
-      blockInfo: formData.blockInfo.trim(),
-      apartments: Number(formData.apartments),
-      manager: formData.manager || "Yönetici atanmadı",
-      elevator: formData.elevator,
-      systems: formData.systems || [],
-      description: formData.description.trim(),
-      status: editingBuilding ? editingBuilding.status : "Aktif",
-      image: previewImage || editingBuilding?.image || defaultImage,
-    };
-
-    if (editingBuilding) {
-      setBuildingList((currentBuildings) =>
-        currentBuildings.map((building) =>
-          building.id === editingBuilding.id ? newBuilding : building
-        )
-      );
-    } else {
-      setBuildingList((currentBuildings) => [newBuilding, ...currentBuildings]);
+    if (!formData.name.trim()) {
+      setErrorMessage("Site / apartman ismi zorunludur.");
+      setMessage("");
+      return;
     }
 
-    closeForm();
+    if (!formData.address.trim()) {
+      setErrorMessage("Adres bilgisi zorunludur.");
+      setMessage("");
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      setMessage("");
+      setErrorMessage("");
+
+      const isUpdate = Boolean(editingBuilding);
+      const payload = buildSitePayload(formData, isUpdate);
+
+      const result = isUpdate
+        ? await updateSite(editingBuilding.id, payload)
+        : await createSite(payload);
+
+      let savedSite = result?.data ?? result;
+      const targetApartmentCount = getApartmentTargetCount(formData);
+      const warningMessages = [];
+
+      if (!isUpdate) {
+        const createdBlocks = await createBlocksForSite(savedSite.id, formData);
+        await createMissingApartmentsForBlocks(createdBlocks, targetApartmentCount);
+      } else {
+        const syncedBlocks = await syncBlocksForSite(
+          editingBuilding.rawSite,
+          formData
+        );
+
+        const currentApartmentCount = getCurrentApartmentCountFromBlocks(
+          editingBuilding.rawSite?.blocks ?? []
+        );
+
+        if (targetApartmentCount > currentApartmentCount) {
+          await createMissingApartmentsForBlocks(
+            syncedBlocks,
+            targetApartmentCount
+          );
+        }
+
+        if (targetApartmentCount < currentApartmentCount) {
+          warningMessages.push(
+            "Daire sayısı mevcut sayıdan düşük girildi. Güvenlik için mevcut daireler otomatik silinmedi."
+          );
+        }
+      }
+
+      if (selectedImageFile) {
+        const imageResult = await uploadSiteImage(savedSite.id, selectedImageFile);
+        savedSite = imageResult?.data ?? savedSite;
+      }
+
+      await loadSites();
+
+      const successMessage = isUpdate
+        ? "Site / apartman bilgileri başarıyla güncellendi."
+        : "Site / apartman başarıyla oluşturuldu.";
+
+      setMessage([successMessage, ...warningMessages].join(" "));
+      closeForm();
+    } catch (error) {
+      setErrorMessage(error?.message ?? "Site / apartman kaydı kaydedilemedi.");
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   function handleEdit(building) {
@@ -260,7 +512,7 @@ function BuildingsPage() {
       type: building.type,
       name: building.name,
       apartments: String(building.apartments),
-      manager: building.manager === "Yönetici atanmadı" ? "" : building.manager,
+      manager: "",
       blockInfo: building.blockInfo,
       elevator: building.elevator,
       address: building.address,
@@ -269,13 +521,13 @@ function BuildingsPage() {
     });
 
     setPreviewImage(building.image);
+    setSelectedImageFile(null);
     setIsFormOpen(true);
-
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function handleToggleStatus(building) {
-    const nextStatus = building.status === "Aktif" ? "Pasif" : "Aktif";
+  async function handleToggleStatus(building) {
+    const nextIsActive = building.status !== "Aktif";
 
     const confirmMessage =
       building.status === "Aktif"
@@ -288,18 +540,34 @@ function BuildingsPage() {
       return;
     }
 
-    setBuildingList((currentBuildings) =>
-      currentBuildings.map((item) =>
-        item.id === building.id ? { ...item, status: nextStatus } : item
-      )
-    );
+    try {
+      setMessage("");
+      setErrorMessage("");
+
+      await updateSite(building.id, {
+        isActive: nextIsActive,
+      });
+
+      await loadSites();
+
+      setMessage(
+        nextIsActive
+          ? "Site / apartman tekrar aktifleştirildi."
+          : "Site / apartman pasifleştirildi."
+      );
+    } catch (error) {
+      setErrorMessage(
+        error?.message ??
+          "Site durumu güncellenemedi. Backend tarafında isActive alanı eklenmiş olmalıdır."
+      );
+    }
   }
 
   return (
     <DashboardLayout
       roleTitle="Site / Apartmanlar"
       roleBadge="Süper Admin"
-      userName="Alaa"
+      userName={user?.fullName ?? "Süper Admin"}
       navItems={navItems}
       theme="super-admin"
     >
@@ -317,11 +585,24 @@ function BuildingsPage() {
           type="button"
           className="dashboard-action-button"
           onClick={openCreateForm}
+          disabled={isSaving}
         >
           <Plus size={18} />
           Yeni Site / Apartman
         </button>
       </div>
+
+      {errorMessage && (
+        <div className="login-error-message">
+          <p>{errorMessage}</p>
+        </div>
+      )}
+
+      {message && (
+        <div className="login-success-message">
+          <p>{message}</p>
+        </div>
+      )}
 
       {isFormOpen && (
         <BuildingForm
@@ -335,6 +616,7 @@ function BuildingsPage() {
           onImageChange={handleImageChange}
           onSubmit={handleSubmit}
           onCancel={closeForm}
+          isSaving={isSaving}
         />
       )}
 
@@ -345,17 +627,27 @@ function BuildingsPage() {
         setTypeFilter={setTypeFilter}
       />
 
-      <section className="buildings-grid">
-        {filteredBuildings.map((building) => (
-          <BuildingCard
-            key={building.id}
-            building={building}
-            onView={setSelectedBuilding}
-            onEdit={handleEdit}
-            onToggleStatus={handleToggleStatus}
-          />
-        ))}
-      </section>
+      {isLoading ? (
+        <div className="dashboard-panel">
+          <p>Site / apartman kayıtları yükleniyor...</p>
+        </div>
+      ) : filteredBuildings.length > 0 ? (
+        <section className="buildings-grid">
+          {filteredBuildings.map((building) => (
+            <BuildingCard
+              key={building.id}
+              building={building}
+              onView={setSelectedBuilding}
+              onEdit={handleEdit}
+              onToggleStatus={handleToggleStatus}
+            />
+          ))}
+        </section>
+      ) : (
+        <div className="dashboard-panel">
+          <p>Kayıt bulunamadı.</p>
+        </div>
+      )}
 
       <BuildingDetailsModal
         building={selectedBuilding}

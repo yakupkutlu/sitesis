@@ -1,4 +1,5 @@
-import { X } from "lucide-react";
+﻿import { X } from "lucide-react";
+import SecureImage from "../common/SecureImage";
 
 function BuildingDetailsModal({ building, onClose }) {
   if (!building) {
@@ -15,7 +16,6 @@ function BuildingDetailsModal({ building, onClose }) {
         <div className="modal-header">
           <div>
             <span className="section-kicker">Kayıt Detayı</span>
-
             <h3>{building.name || "Site / Apartman Detayı"}</h3>
           </div>
 
@@ -29,7 +29,7 @@ function BuildingDetailsModal({ building, onClose }) {
           </button>
         </div>
 
-        <img
+        <SecureImage
           className="details-modal-image"
           src={building.image}
           alt={building.name || "Site / Apartman görseli"}
@@ -67,13 +67,7 @@ function BuildingDetailsModal({ building, onClose }) {
           </div>
 
           <div>
-            <span>Durum</span>
-            <strong>{building.status || "-"}</strong>
-          </div>
-
-          <div>
             <span>Kullanılan Sistemler</span>
-
             <strong>
               {buildingSystems.length > 0
                 ? buildingSystems.join(", ")
@@ -84,7 +78,6 @@ function BuildingDetailsModal({ building, onClose }) {
 
         <div className="details-description">
           <span>Açıklama</span>
-
           <p>{building.description || "Açıklama girilmedi."}</p>
         </div>
       </section>

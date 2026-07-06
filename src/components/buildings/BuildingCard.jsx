@@ -1,4 +1,5 @@
-import { Eye, MapPin, Pencil, Power } from "lucide-react";
+﻿import { Eye, MapPin, Pencil, Power } from "lucide-react";
+import SecureImage from "../common/SecureImage";
 
 function getBuildingStatusClass(status) {
   return status === "Aktif" ? "active" : "passive";
@@ -11,7 +12,7 @@ function BuildingCard({ building, onView, onEdit, onToggleStatus }) {
   return (
     <article className="building-card">
       <div className="building-image">
-        <img
+        <SecureImage
           src={building.image}
           alt={building.name || "Site / Apartman görseli"}
         />
@@ -25,14 +26,12 @@ function BuildingCard({ building, onView, onEdit, onToggleStatus }) {
         <div className="building-title-row">
           <div>
             <span>{building.type || "Site / Apartman"}</span>
-
             <h3>{building.name || "İsimsiz Kayıt"}</h3>
           </div>
         </div>
 
         <div className="building-location">
           <MapPin size={17} />
-
           <span>{building.address || "Adres bilgisi girilmemiş"}</span>
         </div>
 
@@ -54,20 +53,12 @@ function BuildingCard({ building, onView, onEdit, onToggleStatus }) {
         </div>
 
         <div className="building-card-actions">
-          <button
-            type="button"
-            onClick={() => onView(building)}
-            aria-label={`${building.name || "Kayıt"} detayını görüntüle`}
-          >
+          <button type="button" onClick={() => onView(building)}>
             <Eye size={16} />
             Görüntüle
           </button>
 
-          <button
-            type="button"
-            onClick={() => onEdit(building)}
-            aria-label={`${building.name || "Kayıt"} düzenle`}
-          >
+          <button type="button" onClick={() => onEdit(building)}>
             <Pencil size={16} />
             Düzenle
           </button>
@@ -76,7 +67,6 @@ function BuildingCard({ building, onView, onEdit, onToggleStatus }) {
             type="button"
             className="danger-button"
             onClick={() => onToggleStatus(building)}
-            aria-label={`${building.name || "Kayıt"} durumunu değiştir`}
           >
             <Power size={16} />
             {isActive ? "Pasifleştir" : "Aktifleştir"}
