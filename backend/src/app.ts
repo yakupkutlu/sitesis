@@ -1,4 +1,4 @@
-import express, { type Request, type Response } from "express";
+﻿import express, { type Request, type Response } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
@@ -28,6 +28,7 @@ import requestsRoutes from "./routes/requests.routes.js";
 import smsSettingsRoutes from "./routes/sms-settings.routes.js";
 import emailSettingsRoutes from "./routes/email-settings.routes.js";
 import notificationLogsRoutes from "./routes/notification-logs.routes.js";
+import aiSettingsRoutes from "./routes/ai-settings.routes.js";
 const app = express();
 
 app.use(helmet());
@@ -61,7 +62,7 @@ const generalLimiter = rateLimit({
   legacyHeaders: false,
   message: {
     success: false,
-    message: "Çok fazla istek gönderildi. Lütfen daha sonra tekrar deneyin.",
+    message: "أ‡ok fazla istek gأ¶nderildi. Lأ¼tfen daha sonra tekrar deneyin.",
   },
 });
 
@@ -89,11 +90,12 @@ app.use("/api/requests", requestsRoutes);
 app.use("/api/sms-settings", smsSettingsRoutes);
 app.use("/api/email-settings", emailSettingsRoutes);
 app.use("/api/notification-logs", notificationLogsRoutes);
+app.use("/api/ai-settings", aiSettingsRoutes);
 
 app.use((_request: Request, response: Response) => {
   response.status(404).json({
     success: false,
-    message: "API adresi bulunamadı.",
+    message: "API adresi bulunamadؤ±.",
   });
 });
 

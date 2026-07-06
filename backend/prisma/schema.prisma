@@ -88,6 +88,12 @@ enum EmailProvider {
   SENDGRID
 }
 
+enum AiProvider {
+  OPENAI
+  GEMINI
+  CUSTOM
+}
+
 enum NotificationChannel {
   SMS
   EMAIL
@@ -128,6 +134,8 @@ model User {
   updatedSmsSettings       SmsSetting[]         @relation("UserUpdatedSmsSettings")
   createdEmailSettings     EmailSetting[]       @relation("UserCreatedEmailSettings")
   updatedEmailSettings     EmailSetting[]       @relation("UserUpdatedEmailSettings")
+  createdAiSettings        AiSetting[]          @relation("UserCreatedAiSettings")
+  updatedAiSettings        AiSetting[]          @relation("UserUpdatedAiSettings")
   createdNotificationLogs  NotificationLog[]    @relation("UserCreatedNotificationLogs")
   receivedNotificationLogs NotificationLog[]    @relation("UserReceivedNotificationLogs")
   passwordResetTokens      PasswordResetToken[] @relation("UserPasswordResetTokens")
@@ -476,6 +484,33 @@ model EmailSetting {
   @@index([updatedByUserId])
 }
 
+model AiSetting {
+  id String @id @default(uuid())
+
+  provider AiProvider
+  status   IntegrationStatus @default(PASSIVE)
+
+  name      String?
+  modelName String?
+  baseUrl   String?
+
+  apiKeyEncrypted String?
+
+  createdByUserId String?
+  createdByUser   User?   @relation("UserCreatedAiSettings", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  updatedByUserId String?
+  updatedByUser   User?   @relation("UserUpdatedAiSettings", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([provider])
+  @@index([status])
+  @@index([createdByUserId])
+  @@index([updatedByUserId])
+}
+
 model NotificationLog {
   id String @id @default(uuid())
 
@@ -534,4 +569,3 @@ model PasswordResetToken {
   @@index([userId])
   @@index([expiresAt])
 }
-
