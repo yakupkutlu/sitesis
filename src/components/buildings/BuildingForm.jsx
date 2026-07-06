@@ -100,7 +100,9 @@ function BuildingForm({
               <option value="">Yönetici seçin</option>
 
               {safeManagers.map((manager) => (
-                <option key={manager}>{manager}</option>
+                <option key={manager.id} value={manager.id}>
+                {manager.fullName} - {manager.email}
+                </option>
               ))}
             </select>
           </label>

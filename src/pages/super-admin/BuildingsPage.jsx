@@ -26,6 +26,11 @@ import {
 } from "../../api/sitesApi";
 import { createBlock, updateBlock } from "../../api/blocksApi";
 import { createApartment } from "../../api/apartmentsApi";
+import { getUsers } from "../../api/usersApi";
+import {
+  createManagerAssignment,
+  getManagerAssignments,
+} from "../../api/managerAssignmentsApi";
 import { useAuth } from "../../context/AuthContext";
 
 const navItems = [
@@ -38,8 +43,6 @@ const navItems = [
   { label: "SMS / E-posta", path: "/super-admin/notifications", icon: Mail },
   { label: "Genel Ayarlar", path: "/super-admin/settings", icon: Settings },
 ];
-
-const managers = [];
 
 const systemOptions = [
   "Merkezi uydu",
@@ -75,6 +78,8 @@ function getFirstDataArray(result) {
   if (Array.isArray(data)) return data;
   if (Array.isArray(data?.items)) return data.items;
   if (Array.isArray(data?.sites)) return data.sites;
+  if (Array.isArray(data?.users)) return data.users;
+  if (Array.isArray(data?.assignments)) return data.assignments;
 
   return [];
 }
@@ -94,7 +99,25 @@ function getBuildingType(site) {
   return blockCount > 1 ? "Site" : "Tek Apartman";
 }
 
-function mapSiteToBuilding(site) {
+function getManagerNameForSite(site, assignments) {
+  const blocks = getBlocksFromSite(site);
+
+  const assignment = assignments.find((item) => {
+    if (item.scopeType === "SITE" && item.siteId === site.id) {
+      return true;
+    }
+
+    if (item.scopeType === "BLOCK") {
+      return blocks.some((block) => block.id === item.blockId);
+    }
+
+    return false;
+  });
+
+  return assignment?.manager?.fullName ?? "Yönetici atanmadı";
+}
+
+function mapSiteToBuilding(site, assignments = []) {
   const blocks = getBlocksFromSite(site);
   const blockInfo = blocks.map((block) => block.name).join(", ");
 
@@ -106,7 +129,7 @@ function mapSiteToBuilding(site) {
     blocks: blocks.length || 1,
     blockInfo,
     apartments: calculateApartmentCount(site),
-    manager: "Yönetici ataması ayrı modülden yapılır",
+    manager: getManagerNameForSite(site, assignments),
     elevator: site.hasElevator ? "Var" : "Yok",
     systems: Array.isArray(site.systems) ? site.systems : [],
     description: site.description ?? "",
@@ -282,6 +305,8 @@ function BuildingsPage() {
   const { user } = useAuth();
 
   const [buildingList, setBuildingList] = useState([]);
+  const [managers, setManagers] = useState([]);
+
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingBuilding, setEditingBuilding] = useState(null);
   const [selectedBuilding, setSelectedBuilding] = useState(null);
@@ -299,9 +324,19 @@ function BuildingsPage() {
   const [errorMessage, setErrorMessage] = useState("");
 
   async function loadSites() {
-    const result = await getSites({ limit: 100 });
-    const sites = getFirstDataArray(result);
-    setBuildingList(sites.map(mapSiteToBuilding));
+    const [sitesResult, usersResult, assignmentsResult] = await Promise.all([
+      getSites({ limit: 100 }),
+      getUsers({ limit: 100 }),
+      getManagerAssignments(),
+    ]);
+
+    const sites = getFirstDataArray(sitesResult);
+    const users = getFirstDataArray(usersResult);
+    const assignments = getFirstDataArray(assignmentsResult);
+    const managerUsers = users.filter((item) => item.role === "MANAGER");
+
+    setManagers(managerUsers);
+    setBuildingList(sites.map((site) => mapSiteToBuilding(site, assignments)));
   }
 
   useEffect(() => {
@@ -312,11 +347,22 @@ function BuildingsPage() {
         setIsLoading(true);
         setErrorMessage("");
 
-        const result = await getSites({ limit: 100 });
-        const sites = getFirstDataArray(result);
+        const [sitesResult, usersResult, assignmentsResult] = await Promise.all([
+          getSites({ limit: 100 }),
+          getUsers({ limit: 100 }),
+          getManagerAssignments(),
+        ]);
 
         if (isMounted) {
-          setBuildingList(sites.map(mapSiteToBuilding));
+          const sites = getFirstDataArray(sitesResult);
+          const users = getFirstDataArray(usersResult);
+          const assignments = getFirstDataArray(assignmentsResult);
+          const managerUsers = users.filter((item) => item.role === "MANAGER");
+
+          setManagers(managerUsers);
+          setBuildingList(
+            sites.map((site) => mapSiteToBuilding(site, assignments))
+          );
         }
       } catch (error) {
         if (isMounted) {
@@ -427,6 +473,26 @@ function BuildingsPage() {
     setErrorMessage("");
   }
 
+  async function assignManagerToSite(siteId) {
+    if (!formData.manager) {
+      return;
+    }
+
+    try {
+      await createManagerAssignment({
+        managerId: formData.manager,
+        scopeType: "SITE",
+        siteId,
+      });
+    } catch (assignmentError) {
+      const assignmentMessage = assignmentError?.message ?? "";
+
+      if (!assignmentMessage.includes("zaten")) {
+        throw assignmentError;
+      }
+    }
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
 
@@ -460,7 +526,11 @@ function BuildingsPage() {
 
       if (!isUpdate) {
         const createdBlocks = await createBlocksForSite(savedSite.id, formData);
-        await createMissingApartmentsForBlocks(createdBlocks, targetApartmentCount);
+        await createMissingApartmentsForBlocks(
+          createdBlocks,
+          targetApartmentCount
+        );
+        await assignManagerToSite(savedSite.id);
       } else {
         const syncedBlocks = await syncBlocksForSite(
           editingBuilding.rawSite,
@@ -483,6 +553,8 @@ function BuildingsPage() {
             "Daire sayısı mevcut sayıdan düşük girildi. Güvenlik için mevcut daireler otomatik silinmedi."
           );
         }
+
+        await assignManagerToSite(editingBuilding.id);
       }
 
       if (selectedImageFile) {

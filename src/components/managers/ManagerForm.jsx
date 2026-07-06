@@ -1,32 +1,38 @@
-import { CheckCircle2, X } from "lucide-react";
+﻿import { CheckCircle2, X } from "lucide-react";
 
 function ManagerForm({
   formData,
-  buildingOptions,
+  sites,
+  blocks,
   editingManager,
   onInputChange,
   onSubmit,
   onCancel,
+  isSaving = false,
 }) {
-  const safeBuildingOptions = buildingOptions || [];
+  const safeSites = sites || [];
+  const safeBlocks = blocks || [];
+  const isEditMode = Boolean(editingManager);
+  const isSiteScope = formData.scopeType === "SITE";
+  const isBlockScope = formData.scopeType === "BLOCK";
 
   return (
     <section className="manager-form-card">
       <div className="manager-form-header">
         <div>
           <span className="section-kicker">
-            {editingManager ? "Yönetici Düzenleme" : "Yeni Yönetici"}
+            {isEditMode ? "Yönetici Düzenleme" : "Yeni Yönetici"}
           </span>
 
           <h3>
-            {editingManager
+            {isEditMode
               ? "Yönetici Bilgilerini Düzenle"
               : "Yeni Yönetici Ekle"}
           </h3>
 
           <p>
-            Yönetici bilgilerini eksiksiz doldurun. Daha sonra bu yönetici
-            site/apartman kayıtlarına atanabilir.
+            Yönetici kullanıcı hesabı oluşturulur ve site ya da blok yetkisi
+            atanır.
           </p>
         </div>
 
@@ -35,6 +41,7 @@ function ManagerForm({
           className="modal-close-button"
           onClick={onCancel}
           aria-label="Yönetici formunu kapat"
+          disabled={isSaving}
         >
           <X size={20} />
         </button>
@@ -46,22 +53,11 @@ function ManagerForm({
             Ad Soyad
             <input
               type="text"
-              name="name"
+              name="fullName"
               placeholder="Örn: Ahmet Yılmaz"
-              value={formData.name}
+              value={formData.fullName}
               onChange={onInputChange}
-              required
-            />
-          </label>
-
-          <label>
-            Görev / Ünvan
-            <input
-              type="text"
-              name="title"
-              placeholder="Örn: Site Yöneticisi"
-              value={formData.title}
-              onChange={onInputChange}
+              disabled={isSaving}
               required
             />
           </label>
@@ -75,6 +71,7 @@ function ManagerForm({
               value={formData.email}
               onChange={onInputChange}
               autoComplete="email"
+              disabled={isSaving}
               required
             />
           </label>
@@ -88,35 +85,81 @@ function ManagerForm({
               value={formData.phone}
               onChange={onInputChange}
               autoComplete="tel"
-              required
+              disabled={isSaving}
             />
           </label>
 
-          <label className="full-width">
-            Atanacağı Site / Apartman
-            <select
-              name="assignedBuilding"
-              value={formData.assignedBuilding}
+          <label>
+            Şifre
+            <input
+              type="password"
+              name="password"
+              placeholder={
+                isEditMode
+                  ? "Değiştirmek istemiyorsanız boş bırakın"
+                  : "En az 8 karakter"
+              }
+              value={formData.password}
               onChange={onInputChange}
-            >
-              <option value="">Henüz atama yapma</option>
+              autoComplete="new-password"
+              disabled={isSaving}
+              required={!isEditMode}
+            />
+          </label>
 
-              {safeBuildingOptions.map((building) => (
-                <option key={building}>{building}</option>
-              ))}
+          <label>
+            Yetki Türü
+            <select
+              name="scopeType"
+              value={formData.scopeType}
+              onChange={onInputChange}
+              disabled={isSaving}
+            >
+              <option value="SITE">Tüm Site Yetkisi</option>
+              <option value="BLOCK">Blok / Apartman Yetkisi</option>
             </select>
           </label>
 
-          <label className="full-width">
-            Not
-            <textarea
-              name="note"
-              rows="3"
-              placeholder="Yönetici hakkında kısa not yazın"
-              value={formData.note}
-              onChange={onInputChange}
-            />
-          </label>
+          {isSiteScope && (
+            <label>
+              Site Seç
+              <select
+                name="siteId"
+                value={formData.siteId}
+                onChange={onInputChange}
+                disabled={isSaving}
+              >
+                <option value="">Henüz atama yapma</option>
+
+                {safeSites.map((site) => (
+                  <option key={site.id} value={site.id}>
+                    {site.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          {isBlockScope && (
+            <label>
+              Blok / Apartman Seç
+              <select
+                name="blockId"
+                value={formData.blockId}
+                onChange={onInputChange}
+                disabled={isSaving}
+              >
+                <option value="">Henüz atama yapma</option>
+
+                {safeBlocks.map((block) => (
+                  <option key={block.id} value={block.id}>
+                    {block.site?.name ? `${block.site.name} / ` : ""}
+                    {block.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
 
         <div className="form-actions">
@@ -124,13 +167,22 @@ function ManagerForm({
             type="button"
             className="secondary-form-button"
             onClick={onCancel}
+            disabled={isSaving}
           >
             Vazgeç
           </button>
 
-          <button type="submit" className="dashboard-action-button">
+          <button
+            type="submit"
+            className="dashboard-action-button"
+            disabled={isSaving}
+          >
             <CheckCircle2 size={18} />
-            {editingManager ? "Değişiklikleri Kaydet" : "Yönetici Ekle"}
+            {isSaving
+              ? "Kaydediliyor..."
+              : isEditMode
+                ? "Değişiklikleri Kaydet"
+                : "Yönetici Ekle"}
           </button>
         </div>
       </form>
