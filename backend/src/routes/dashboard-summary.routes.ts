@@ -429,4 +429,200 @@ router.get(
   })
 );
 
+router.get(
+  "/resident",
+  requireAuth,
+  requireRole("RESIDENT"),
+  asyncHandler(async (request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    const residentUserId = authenticatedRequest.user.id;
+    const now = new Date();
+
+    const residentApartmentWhere = {
+      residents: {
+        some: {
+          userId: residentUserId,
+        },
+      },
+    } satisfies Prisma.ApartmentWhereInput;
+
+    const residentAllocationWhere = {
+      apartment: residentApartmentWhere,
+    } satisfies Prisma.PaymentAllocationWhereInput;
+
+    const residentRequestWhere = {
+      AND: [
+        {
+          createdByUserId: residentUserId,
+        },
+        {
+          apartment: residentApartmentWhere,
+        },
+      ],
+    } satisfies Prisma.ResidentRequestWhereInput;
+
+    const [
+      apartmentsCount,
+      paymentBatchesCount,
+      paymentAllocationsCount,
+      pendingAllocationsCount,
+      paidAllocationsCount,
+      overdueAllocationsCount,
+      totalDebtAggregation,
+      paidTotalAggregation,
+      remainingDebtAggregation,
+      residentRequestsCount,
+      openRequestsCount,
+      notificationLogsCount,
+      pendingNotificationsCount,
+      sentNotificationsCount,
+      failedNotificationsCount,
+    ] = await Promise.all([
+      prisma.apartment.count({
+        where: residentApartmentWhere,
+      }),
+      prisma.paymentBatch.count({
+        where: {
+          allocations: {
+            some: residentAllocationWhere,
+          },
+        },
+      }),
+      prisma.paymentAllocation.count({
+        where: residentAllocationWhere,
+      }),
+      prisma.paymentAllocation.count({
+        where: {
+          AND: [
+            residentAllocationWhere,
+            {
+              status: "PENDING",
+            },
+          ],
+        },
+      }),
+      prisma.paymentAllocation.count({
+        where: {
+          AND: [
+            residentAllocationWhere,
+            {
+              status: "PAID",
+            },
+          ],
+        },
+      }),
+      prisma.paymentAllocation.count({
+        where: {
+          AND: [
+            residentAllocationWhere,
+            {
+              status: "PENDING",
+              paymentBatch: {
+                dueDate: {
+                  lt: now,
+                },
+              },
+            },
+          ],
+        },
+      }),
+      prisma.paymentAllocation.aggregate({
+        where: residentAllocationWhere,
+        _sum: {
+          amountKurus: true,
+        },
+      }),
+      prisma.paymentAllocation.aggregate({
+        where: {
+          AND: [
+            residentAllocationWhere,
+            {
+              status: "PAID",
+            },
+          ],
+        },
+        _sum: {
+          amountKurus: true,
+        },
+      }),
+      prisma.paymentAllocation.aggregate({
+        where: {
+          AND: [
+            residentAllocationWhere,
+            {
+              status: "PENDING",
+            },
+          ],
+        },
+        _sum: {
+          amountKurus: true,
+        },
+      }),
+      prisma.residentRequest.count({
+        where: residentRequestWhere,
+      }),
+      prisma.residentRequest.count({
+        where: {
+          AND: [
+            residentRequestWhere,
+            {
+              status: "OPEN",
+            },
+          ],
+        },
+      }),
+      prisma.notificationLog.count({
+        where: {
+          recipientUserId: residentUserId,
+        },
+      }),
+      prisma.notificationLog.count({
+        where: {
+          recipientUserId: residentUserId,
+          status: "PENDING",
+        },
+      }),
+      prisma.notificationLog.count({
+        where: {
+          recipientUserId: residentUserId,
+          status: "SENT",
+        },
+      }),
+      prisma.notificationLog.count({
+        where: {
+          recipientUserId: residentUserId,
+          status: "FAILED",
+        },
+      }),
+    ]);
+
+    response.status(200).json({
+      success: true,
+      data: {
+        apartmentsCount,
+        paymentBatchesCount,
+        paymentAllocationsCount,
+        pendingAllocationsCount,
+        paidAllocationsCount,
+        overdueAllocationsCount,
+        totalDebtKurus: totalDebtAggregation._sum.amountKurus ?? 0,
+        paidTotalKurus: paidTotalAggregation._sum.amountKurus ?? 0,
+        remainingDebtKurus: remainingDebtAggregation._sum.amountKurus ?? 0,
+        residentRequestsCount,
+        openRequestsCount,
+        notificationLogsCount,
+        pendingNotificationsCount,
+        sentNotificationsCount,
+        failedNotificationsCount,
+      },
+    });
+  })
+);
+
 export default router;
+
