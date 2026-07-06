@@ -1,3 +1,4 @@
+﻿import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   Bell,
@@ -14,6 +15,9 @@ import ResidentPaymentOverview from "../../components/resident-dashboard/Residen
 import ResidentRecentAnnouncements from "../../components/resident-dashboard/ResidentRecentAnnouncements";
 import ResidentOpenRequests from "../../components/resident-dashboard/ResidentOpenRequests";
 
+import { getResidentDashboardSummary } from "../../api/dashboardSummaryApi";
+import { useAuth } from "../../context/AuthContext";
+
 const navItems = [
   { label: "Panel", path: "/resident/dashboard", icon: Home },
   { label: "Aidat ve Ödemeler", path: "/resident/payments", icon: CreditCard },
@@ -23,63 +27,156 @@ const navItems = [
   { label: "Ayarlar", path: "/resident/settings", icon: Settings },
 ];
 
-const residentInfo = {
-  fullName: "Ali Can",
-  role: "Kiracı",
-  siteName: "Mavi Site",
-  apartment: "A Blok / Daire 5",
-};
+function formatNumber(value) {
+  return new Intl.NumberFormat("tr-TR").format(Number(value ?? 0));
+}
 
-const stats = {
-  totalDebt: "3.750 TL",
-  currentDue: "1.250 TL",
-  pendingReceipts: "1",
-  openRequests: "2",
-};
+function formatMoneyFromKurus(value) {
+  const amount = Number(value ?? 0) / 100;
 
-const payment = {
-  currentDue: "1.250 TL",
-  paidAmount: "0 TL",
-  remainingAmount: "1.250 TL",
-  dueDate: "10.07.2026",
-  status: "Ödeme Bekliyor",
-  statusClass: "waiting",
-  progress: 0,
-};
+  return new Intl.NumberFormat("tr-TR", {
+    style: "currency",
+    currency: "TRY",
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
 
-const announcements = [
-  {
-    id: 1,
-    title: "Su Kesintisi Bilgilendirmesi",
-    date: "30.06.2026",
-    description: "Yarın 10:00 - 13:00 saatleri arasında su kesintisi olacaktır.",
-  },
-  {
-    id: 2,
-    title: "Aidat Son Ödeme Hatırlatması",
-    date: "29.06.2026",
-    description: "Bu ayki aidat son ödeme tarihini kontrol ediniz.",
-  },
-];
+function calculateProgress(paidKurus, totalKurus) {
+  const paid = Number(paidKurus ?? 0);
+  const total = Number(totalKurus ?? 0);
 
-const openRequests = [
-  {
-    id: 1,
-    title: "Asansör çalışmıyor",
-    category: "Arıza",
-    status: "İnceleniyor",
-    date: "30.06.2026",
-  },
-  {
-    id: 2,
-    title: "Otopark ışığı yanmıyor",
-    category: "Bakım",
-    status: "Yeni",
-    date: "29.06.2026",
-  },
-];
+  if (total <= 0) {
+    return 0;
+  }
+
+  return Math.min(100, Math.round((paid / total) * 100));
+}
 
 function ResidentDashboard() {
+  const { user } = useAuth();
+
+  const [summary, setSummary] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadSummary() {
+      try {
+        setIsLoading(true);
+        setErrorMessage("");
+
+        const result = await getResidentDashboardSummary();
+        const summaryData = result?.data ?? result;
+
+        if (isMounted) {
+          setSummary(summaryData);
+        }
+      } catch (error) {
+        if (isMounted) {
+          setErrorMessage(
+            error?.message ?? "Sakin dashboard bilgileri alınamadı."
+          );
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadSummary();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const residentInfo = useMemo(
+    () => ({
+      fullName: user?.fullName ?? "Sakin",
+      role: "Sakin",
+      siteName: "Bağlı yaşam alanı",
+      apartment:
+        Number(summary?.apartmentsCount ?? 0) > 0
+          ? `${formatNumber(summary?.apartmentsCount)} daire bağlantısı`
+          : "Daire bilgisi yok",
+    }),
+    [summary, user]
+  );
+
+  const stats = useMemo(
+    () => ({
+      totalDebt: formatMoneyFromKurus(summary?.totalDebtKurus),
+      currentDue: formatMoneyFromKurus(summary?.remainingDebtKurus),
+      pendingReceipts: formatNumber(summary?.pendingAllocationsCount),
+      openRequests: formatNumber(summary?.openRequestsCount),
+    }),
+    [summary]
+  );
+
+  const payment = useMemo(
+    () => ({
+      currentDue: formatMoneyFromKurus(summary?.totalDebtKurus),
+      paidAmount: formatMoneyFromKurus(summary?.paidTotalKurus),
+      remainingAmount: formatMoneyFromKurus(summary?.remainingDebtKurus),
+      dueDate: "-",
+      status:
+        Number(summary?.remainingDebtKurus ?? 0) > 0
+          ? "Ödeme Bekliyor"
+          : "Borç Yok",
+      statusClass:
+        Number(summary?.remainingDebtKurus ?? 0) > 0 ? "waiting" : "paid",
+      progress: calculateProgress(
+        summary?.paidTotalKurus,
+        summary?.totalDebtKurus
+      ),
+    }),
+    [summary]
+  );
+
+  const announcements = useMemo(
+    () => [
+      {
+        id: 1,
+        title: "Duyurular",
+        date: "-",
+        description:
+          "Size gönderilen duyuruları Duyurular sayfasından takip edebilirsiniz.",
+      },
+      {
+        id: 2,
+        title: "Bildirim Özeti",
+        date: "-",
+        description: `Gönderilen bildirim: ${formatNumber(
+          summary?.sentNotificationsCount
+        )} | Bekleyen: ${formatNumber(summary?.pendingNotificationsCount)}`,
+      },
+    ],
+    [summary]
+  );
+
+  const openRequests = useMemo(
+    () => [
+      {
+        id: 1,
+        title: "Açık Talepler",
+        category: "Talep",
+        status: `${formatNumber(summary?.openRequestsCount)} açık talep`,
+        date: "-",
+      },
+      {
+        id: 2,
+        title: "Toplam Talepler",
+        category: "Özet",
+        status: `${formatNumber(summary?.residentRequestsCount)} toplam talep`,
+        date: "-",
+      },
+    ],
+    [summary]
+  );
+
   return (
     <DashboardLayout
       roleTitle="Panel"
@@ -93,8 +190,8 @@ function ResidentDashboard() {
           <span className="section-kicker">Sakin Paneli</span>
           <h2>Hoş geldiniz, {residentInfo.fullName}</h2>
           <p>
-            {residentInfo.siteName} / {residentInfo.apartment} için aidat,
-            duyuru, dekont ve talep bilgilerinizi buradan takip edebilirsiniz.
+            Aidat, ödeme, duyuru, dekont ve talep bilgilerinizi buradan takip
+            edebilirsiniz.
           </p>
         </div>
 
@@ -104,17 +201,31 @@ function ResidentDashboard() {
         </div>
       </div>
 
-      <ResidentStatCards stats={stats} />
+      {errorMessage && (
+        <div className="login-error-message">
+          <p>{errorMessage}</p>
+        </div>
+      )}
 
-      <div className="resident-dashboard-grid">
-        <ResidentPaymentOverview payment={payment} />
-        <ResidentQuickActions />
-      </div>
+      {isLoading ? (
+        <div className="dashboard-panel">
+          <p>Dashboard bilgileri yükleniyor...</p>
+        </div>
+      ) : (
+        <>
+          <ResidentStatCards stats={stats} />
 
-      <div className="resident-dashboard-grid">
-        <ResidentRecentAnnouncements announcements={announcements} />
-        <ResidentOpenRequests requests={openRequests} />
-      </div>
+          <div className="resident-dashboard-grid">
+            <ResidentPaymentOverview payment={payment} />
+            <ResidentQuickActions />
+          </div>
+
+          <div className="resident-dashboard-grid">
+            <ResidentRecentAnnouncements announcements={announcements} />
+            <ResidentOpenRequests requests={openRequests} />
+          </div>
+        </>
+      )}
     </DashboardLayout>
   );
 }

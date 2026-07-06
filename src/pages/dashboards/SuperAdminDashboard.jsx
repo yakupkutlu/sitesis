@@ -1,3 +1,4 @@
+﻿import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
@@ -13,6 +14,9 @@ import {
   Users,
 } from "lucide-react";
 
+import { getSuperAdminDashboardSummary } from "../../api/dashboardSummaryApi";
+import { useAuth } from "../../context/AuthContext";
+
 const navItems = [
   { label: "Panel", path: "/super-admin/dashboard", icon: BarChart3 },
   { label: "Site / Apartmanlar", path: "/super-admin/buildings", icon: Building2 },
@@ -22,56 +26,6 @@ const navItems = [
   { label: "AI API Ayarları", path: "/super-admin/ai-settings", icon: BrainCircuit },
   { label: "SMS / E-posta", path: "/super-admin/notifications", icon: Mail },
   { label: "Genel Ayarlar", path: "/super-admin/settings", icon: Settings },
-];
-
-const stats = [
-  {
-    label: "Toplam Site / Apartman",
-    value: "24",
-    description: "Sisteme kayıtlı yönetim alanı",
-    icon: Building2,
-  },
-  {
-    label: "Toplam Yönetici",
-    value: "18",
-    description: "Aktif yönetici hesabı",
-    icon: Users,
-  },
-  {
-    label: "Toplam Kullanıcı",
-    value: "642",
-    description: "Kiracı ve ev sahibi kayıtları",
-    icon: UserRound,
-  },
-  {
-    label: "Gönderilen Bildirim",
-    value: "1.284",
-    description: "SMS ve e-posta bilgilendirmeleri",
-    icon: MessageSquareText,
-  },
-];
-
-const recentActivities = [
-  {
-    title: "Yeni apartman eklendi",
-    description: "Güneş Apartmanı sisteme kaydedildi.",
-    icon: Building2,
-  },
-  {
-    title: "Yeni sakin kaydı oluşturuldu",
-    description: "Mavi Site / A Blok / Daire 5 için kiracı kaydı eklendi.",
-    icon: UserRound,
-  },
-  {
-    title: "AI dekont okuma kullanıldı",
-    description: "12 dekont otomatik okuma kuyruğuna alındı.",
-    icon: BrainCircuit,
-  },
-  {
-    title: "E-posta ayarları güncellendi",
-    description: "SMTP sağlayıcı bilgileri kontrol edildi.",
-    icon: Mail,
-  },
 ];
 
 const quickActions = [
@@ -102,12 +56,112 @@ const quickActions = [
   },
 ];
 
+function formatNumber(value) {
+  return new Intl.NumberFormat("tr-TR").format(Number(value ?? 0));
+}
+
 function SuperAdminDashboard() {
+  const { user } = useAuth();
+
+  const [summary, setSummary] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadSummary() {
+      try {
+        setIsLoading(true);
+        setErrorMessage("");
+
+        const result = await getSuperAdminDashboardSummary();
+        const summaryData = result?.data ?? result;
+
+        if (isMounted) {
+          setSummary(summaryData);
+        }
+      } catch (error) {
+        if (isMounted) {
+          setErrorMessage(
+            error?.message ?? "Dashboard bilgileri alınamadı."
+          );
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadSummary();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const stats = useMemo(
+    () => [
+      {
+        label: "Toplam Site / Apartman",
+        value: formatNumber(summary?.sitesCount),
+        description: `Blok: ${formatNumber(summary?.blocksCount)} | Daire: ${formatNumber(summary?.apartmentsCount)}`,
+        icon: Building2,
+      },
+      {
+        label: "Toplam Yönetici",
+        value: formatNumber(summary?.managersCount),
+        description: "Sisteme kayıtlı yönetici hesapları",
+        icon: Users,
+      },
+      {
+        label: "Toplam Kullanıcı",
+        value: formatNumber(summary?.usersCount),
+        description: `Sakin: ${formatNumber(summary?.residentsCount)} | Süper Admin: ${formatNumber(summary?.superAdminsCount)}`,
+        icon: UserRound,
+      },
+      {
+        label: "Gönderilen Bildirim",
+        value: formatNumber(summary?.sentNotificationsCount),
+        description: `Bekleyen: ${formatNumber(summary?.pendingNotificationsCount)} | Hatalı: ${formatNumber(summary?.failedNotificationsCount)}`,
+        icon: MessageSquareText,
+      },
+    ],
+    [summary]
+  );
+
+  const systemActivities = useMemo(
+    () => [
+      {
+        title: "Ödeme kayıtları",
+        description: `Toplam ödeme kalemi: ${formatNumber(summary?.paymentAllocationsCount)} | Ödenen: ${formatNumber(summary?.paidAllocationsCount)} | Bekleyen: ${formatNumber(summary?.pendingAllocationsCount)}`,
+        icon: BarChart3,
+      },
+      {
+        title: "Gecikmiş ödemeler",
+        description: `Gecikmiş ödeme kalemi: ${formatNumber(summary?.overdueAllocationsCount)}`,
+        icon: Bell,
+      },
+      {
+        title: "Sakin talepleri",
+        description: `Toplam talep: ${formatNumber(summary?.residentRequestsCount)} | Açık talep: ${formatNumber(summary?.openRequestsCount)}`,
+        icon: UserRound,
+      },
+      {
+        title: "Bildirim kayıtları",
+        description: `Toplam bildirim logu: ${formatNumber(summary?.notificationLogsCount)}`,
+        icon: Mail,
+      },
+    ],
+    [summary]
+  );
+
   return (
     <DashboardLayout
       roleTitle="Süper Admin Paneli"
       roleBadge="Süper Admin"
-      userName="Alaa"
+      userName={user?.fullName ?? "Süper Admin"}
       navItems={navItems}
       theme="super-admin"
     >
@@ -127,81 +181,95 @@ function SuperAdminDashboard() {
         </Link>
       </div>
 
-      <section className="dashboard-stats-grid">
-        {stats.map((stat) => {
-          const Icon = stat.icon;
+      {errorMessage && (
+        <div className="login-error-message">
+          <p>{errorMessage}</p>
+        </div>
+      )}
 
-          return (
-            <article className="dashboard-stat-card" key={stat.label}>
-              <div className="dashboard-stat-icon">
-                <Icon size={24} />
-              </div>
-
-              <div>
-                <span>{stat.label}</span>
-                <strong>{stat.value}</strong>
-                <p>{stat.description}</p>
-              </div>
-            </article>
-          );
-        })}
-      </section>
-
-      <section className="dashboard-panels-grid">
+      {isLoading ? (
         <div className="dashboard-panel">
-          <div className="dashboard-panel-header">
-            <div>
-              <span className="section-kicker">Aktiviteler</span>
-              <h3>Son İşlemler</h3>
-            </div>
-          </div>
-
-          <div className="activity-list">
-            {recentActivities.map((activity) => {
-              const Icon = activity.icon;
+          <p>Dashboard bilgileri yükleniyor...</p>
+        </div>
+      ) : (
+        <>
+          <section className="dashboard-stats-grid">
+            {stats.map((stat) => {
+              const Icon = stat.icon;
 
               return (
-                <div className="activity-item" key={activity.title}>
-                  <div className="activity-icon">
-                    <Icon size={18} />
+                <article className="dashboard-stat-card" key={stat.label}>
+                  <div className="dashboard-stat-icon">
+                    <Icon size={24} />
                   </div>
 
                   <div>
-                    <strong>{activity.title}</strong>
-                    <p>{activity.description}</p>
+                    <span>{stat.label}</span>
+                    <strong>{stat.value}</strong>
+                    <p>{stat.description}</p>
                   </div>
+                </article>
+              );
+            })}
+          </section>
+
+          <section className="dashboard-panels-grid">
+            <div className="dashboard-panel">
+              <div className="dashboard-panel-header">
+                <div>
+                  <span className="section-kicker">Sistem Özeti</span>
+                  <h3>Canlı Veriler</h3>
                 </div>
-              );
-            })}
-          </div>
-        </div>
+              </div>
 
-        <div className="dashboard-panel">
-          <div className="dashboard-panel-header">
-            <div>
-              <span className="section-kicker">Kısayollar</span>
-              <h3>Hızlı İşlemler</h3>
+              <div className="activity-list">
+                {systemActivities.map((activity) => {
+                  const Icon = activity.icon;
+
+                  return (
+                    <div className="activity-item" key={activity.title}>
+                      <div className="activity-icon">
+                        <Icon size={18} />
+                      </div>
+
+                      <div>
+                        <strong>{activity.title}</strong>
+                        <p>{activity.description}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          </div>
 
-          <div className="quick-actions">
-            {quickActions.map((action) => {
-              const Icon = action.icon;
+            <div className="dashboard-panel">
+              <div className="dashboard-panel-header">
+                <div>
+                  <span className="section-kicker">Kısayollar</span>
+                  <h3>Hızlı İşlemler</h3>
+                </div>
+              </div>
 
-              return (
-                <Link
-                  to={action.path}
-                  className="quick-action-link"
-                  key={action.label}
-                >
-                  <Icon size={19} />
-                  <span>{action.label}</span>
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-      </section>
+              <div className="quick-actions">
+                {quickActions.map((action) => {
+                  const Icon = action.icon;
+
+                  return (
+                    <Link
+                      to={action.path}
+                      className="quick-action-link"
+                      key={action.label}
+                    >
+                      <Icon size={19} />
+                      <span>{action.label}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+        </>
+      )}
     </DashboardLayout>
   );
 }
