@@ -51,6 +51,55 @@ async function deleteStoredSiteBlockImage(imageUrl?: string | null) {
   }
 }
 
+function getSiteBlockImageContentType(imageUrl: string) {
+  const fileExtension = path.extname(imageUrl).toLowerCase();
+
+  if (fileExtension === ".png") {
+    return "image/png";
+  }
+
+  if (fileExtension === ".jpg" || fileExtension === ".jpeg") {
+    return "image/jpeg";
+  }
+
+  if (fileExtension === ".webp") {
+    return "image/webp";
+  }
+
+  throw new HttpError(400, "Görsel dosya türü desteklenmiyor.");
+}
+
+async function ensureUserCanAccessBlockImage(params: {
+  user: AuthenticatedRequest["user"];
+  blockId: string;
+  siteId: string;
+}) {
+  if (!params.user) {
+    throw new HttpError(401, "Oturum bulunamadı.");
+  }
+
+  if (params.user.role === "SUPER_ADMIN") {
+    return;
+  }
+
+  if (params.user.role === "MANAGER") {
+    const managerScope = await getManagerScope(params.user.id);
+
+    if (!hasManagerScope(managerScope)) {
+      throw new HttpError(403, "Bu yöneticiye atanmış bir site veya blok bulunamadı.");
+    }
+
+    if (managerScope.siteIds.includes(params.siteId)) {
+      return;
+    }
+
+    if (managerScope.blockIds.includes(params.blockId)) {
+      return;
+    }
+  }
+
+  throw new HttpError(403, "Bu blok/apartman görselini görüntüleme yetkiniz yok.");
+}
 const getBlocksQuerySchema = z.object({
   siteId: z.string().uuid().optional(),
 });
@@ -89,6 +138,55 @@ function getRequiredParam(request: Request, paramName: string) {
   return paramValue;
 }
 
+router.get(
+  "/:blockId/image",
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+    const blockId = getRequiredParam(request, "blockId");
+
+    const block = await prisma.block.findUnique({
+      where: {
+        id: blockId,
+      },
+      select: {
+        id: true,
+        siteId: true,
+        imageUrl: true,
+      },
+    });
+
+    if (!block) {
+      throw new HttpError(404, "Blok/Apartman bulunamadı.");
+    }
+
+    await ensureUserCanAccessBlockImage({
+      user: authenticatedRequest.user,
+      blockId,
+      siteId: block.siteId,
+    });
+
+    if (!block.imageUrl) {
+      throw new HttpError(404, "Blok/Apartman görseli bulunamadı.");
+    }
+
+    const imageContentType = getSiteBlockImageContentType(block.imageUrl);
+    const imageFilePath = path.join(
+      process.cwd(),
+      "uploads",
+      "site-block-images",
+      path.basename(block.imageUrl)
+    );
+
+    try {
+      const imageBuffer = await fs.readFile(imageFilePath);
+
+      response.setHeader("Content-Type", imageContentType);
+      response.status(200).send(imageBuffer);
+    } catch {
+      throw new HttpError(404, "Blok/Apartman görsel dosyası bulunamadı.");
+    }
+  })
+);
 router.get(
   "/",
   requireRole("SUPER_ADMIN", "MANAGER"),
@@ -511,3 +609,4 @@ router.patch(
 );
 
 export default router;
+

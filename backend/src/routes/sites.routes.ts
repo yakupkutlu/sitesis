@@ -51,6 +51,68 @@ async function deleteStoredSiteBlockImage(imageUrl?: string | null) {
   }
 }
 
+function getSiteBlockImageContentType(imageUrl: string) {
+  const fileExtension = path.extname(imageUrl).toLowerCase();
+
+  if (fileExtension === ".png") {
+    return "image/png";
+  }
+
+  if (fileExtension === ".jpg" || fileExtension === ".jpeg") {
+    return "image/jpeg";
+  }
+
+  if (fileExtension === ".webp") {
+    return "image/webp";
+  }
+
+  throw new HttpError(400, "Görsel dosya türü desteklenmiyor.");
+}
+
+async function ensureUserCanAccessSiteImage(params: {
+  user: AuthenticatedRequest["user"];
+  siteId: string;
+}) {
+  if (!params.user) {
+    throw new HttpError(401, "Oturum bulunamadı.");
+  }
+
+  if (params.user.role === "SUPER_ADMIN") {
+    return;
+  }
+
+  if (params.user.role === "MANAGER") {
+    const managerScope = await getManagerScope(params.user.id);
+
+    if (!hasManagerScope(managerScope)) {
+      throw new HttpError(403, "Bu yöneticiye atanmış bir site veya blok bulunamadı.");
+    }
+
+    if (managerScope.siteIds.includes(params.siteId)) {
+      return;
+    }
+
+    if (managerScope.blockIds.length > 0) {
+      const accessibleBlock = await prisma.block.findFirst({
+        where: {
+          id: {
+            in: managerScope.blockIds,
+          },
+          siteId: params.siteId,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (accessibleBlock) {
+        return;
+      }
+    }
+  }
+
+  throw new HttpError(403, "Bu site görselini görüntüleme yetkiniz yok.");
+}
 const createSiteSchema = z.object({
   name: z.string().trim().min(2),
   address: z.string().trim().min(2),
@@ -89,6 +151,53 @@ function getRequiredParam(request: Request, paramName: string) {
   return paramValue;
 }
 
+router.get(
+  "/:siteId/image",
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+    const siteId = getRequiredParam(request, "siteId");
+
+    const site = await prisma.site.findUnique({
+      where: {
+        id: siteId,
+      },
+      select: {
+        id: true,
+        imageUrl: true,
+      },
+    });
+
+    if (!site) {
+      throw new HttpError(404, "Site bulunamadı.");
+    }
+
+    await ensureUserCanAccessSiteImage({
+      user: authenticatedRequest.user,
+      siteId,
+    });
+
+    if (!site.imageUrl) {
+      throw new HttpError(404, "Site görseli bulunamadı.");
+    }
+
+    const imageContentType = getSiteBlockImageContentType(site.imageUrl);
+    const imageFilePath = path.join(
+      process.cwd(),
+      "uploads",
+      "site-block-images",
+      path.basename(site.imageUrl)
+    );
+
+    try {
+      const imageBuffer = await fs.readFile(imageFilePath);
+
+      response.setHeader("Content-Type", imageContentType);
+      response.status(200).send(imageBuffer);
+    } catch {
+      throw new HttpError(404, "Site görsel dosyası bulunamadı.");
+    }
+  })
+);
 router.get(
   "/",
   requireRole("SUPER_ADMIN", "MANAGER"),
@@ -454,3 +563,4 @@ router.patch(
 );
 
 export default router;
+

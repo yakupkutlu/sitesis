@@ -228,4 +228,28 @@ describe("Site and Block Image Upload", () => {
     expect(response.status).toBe(400);
     expect(response.body.success).toBe(false);
   });
+
+  it("GET /api/sites/:siteId/image should return uploaded site image", async () => {
+    const auth = await buildAuthenticatedRequest();
+
+    const response = await request(app)
+      .get(`/api/sites/${testSiteId}/image`)
+      .set("Cookie", auth.cookies);
+
+    expect(response.status).toBe(200);
+    expect(response.headers["content-type"]).toContain("image/png");
+    expect(response.body.length).toBeGreaterThan(0);
+  });
+
+  it("GET /api/blocks/:blockId/image should return uploaded block image", async () => {
+    const auth = await buildAuthenticatedRequest();
+
+    const response = await request(app)
+      .get(`/api/blocks/${testBlockId}/image`)
+      .set("Cookie", auth.cookies);
+
+    expect(response.status).toBe(200);
+    expect(response.headers["content-type"]).toContain("image/png");
+    expect(response.body.length).toBeGreaterThan(0);
+  });
 });
