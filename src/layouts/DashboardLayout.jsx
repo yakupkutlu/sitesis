@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import {
   Bell,
@@ -10,6 +10,8 @@ import {
   UserRound,
   X,
 } from "lucide-react";
+
+import { useAuth } from "../context/AuthContext";
 
 const notificationsByRole = {
   "Süper Admin": [
@@ -90,10 +92,12 @@ function DashboardLayout({
   children,
 }) {
   const navigate = useNavigate();
+  const { logout } = useAuth();
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isNotificationMenuOpen, setIsNotificationMenuOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const dashboardIsDarkMode =
     typeof isDarkMode === "boolean" ? isDarkMode : getStoredDarkMode(roleBadge);
@@ -130,22 +134,28 @@ function DashboardLayout({
     setIsProfileMenuOpen(false);
   }
 
-  function handleLogout() {
-    document.body.classList.remove("dark-mode");
+  async function handleLogout() {
+    if (isLoggingOut) {
+      return;
+    }
 
-    localStorage.removeItem("authToken");
-    localStorage.removeItem("userRole");
-    localStorage.removeItem("userInfo");
+    setIsLoggingOut(true);
 
-    sessionStorage.removeItem("authToken");
-    sessionStorage.removeItem("userRole");
-    sessionStorage.removeItem("userInfo");
+    try {
+      document.body.classList.remove("dark-mode");
 
-    setIsSidebarOpen(false);
-    setIsProfileMenuOpen(false);
-    setIsNotificationMenuOpen(false);
+      setIsSidebarOpen(false);
+      setIsProfileMenuOpen(false);
+      setIsNotificationMenuOpen(false);
 
-    navigate("/login");
+      await logout();
+
+      navigate("/login", {
+        replace: true,
+      });
+    } finally {
+      setIsLoggingOut(false);
+    }
   }
 
   return (
@@ -204,9 +214,14 @@ function DashboardLayout({
             Siteye Dön
           </Link>
 
-          <button type="button" className="logout-button" onClick={handleLogout}>
+          <button
+            type="button"
+            className="logout-button"
+            onClick={handleLogout}
+            disabled={isLoggingOut}
+          >
             <LogOut size={18} />
-            Çıkış Yap
+            {isLoggingOut ? "Çıkış yapılıyor..." : "Çıkış Yap"}
           </button>
         </div>
       </aside>
