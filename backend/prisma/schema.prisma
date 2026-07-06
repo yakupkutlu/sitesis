@@ -136,6 +136,8 @@ model User {
   updatedEmailSettings     EmailSetting[]       @relation("UserUpdatedEmailSettings")
   createdAiSettings        AiSetting[]          @relation("UserCreatedAiSettings")
   updatedAiSettings        AiSetting[]          @relation("UserUpdatedAiSettings")
+  createdSystemSettings    SystemSetting[]      @relation("UserCreatedSystemSettings")
+  updatedSystemSettings    SystemSetting[]      @relation("UserUpdatedSystemSettings")
   createdNotificationLogs  NotificationLog[]    @relation("UserCreatedNotificationLogs")
   receivedNotificationLogs NotificationLog[]    @relation("UserReceivedNotificationLogs")
   passwordResetTokens      PasswordResetToken[] @relation("UserPasswordResetTokens")
@@ -507,6 +509,31 @@ model AiSetting {
 
   @@index([provider])
   @@index([status])
+  @@index([createdByUserId])
+  @@index([updatedByUserId])
+}
+
+model SystemSetting {
+  id String @id @default(uuid())
+
+  appName      String  @default("Sitesis")
+  logoUrl      String?
+  contactEmail String?
+  contactPhone String?
+  address      String?
+  websiteUrl   String?
+  supportEmail String?
+  supportPhone String?
+
+  createdByUserId String?
+  createdByUser   User?   @relation("UserCreatedSystemSettings", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  updatedByUserId String?
+  updatedByUser   User?   @relation("UserUpdatedSystemSettings", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([createdByUserId])
   @@index([updatedByUserId])
 }

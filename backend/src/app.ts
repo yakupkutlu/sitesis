@@ -29,6 +29,7 @@ import smsSettingsRoutes from "./routes/sms-settings.routes.js";
 import emailSettingsRoutes from "./routes/email-settings.routes.js";
 import notificationLogsRoutes from "./routes/notification-logs.routes.js";
 import aiSettingsRoutes from "./routes/ai-settings.routes.js";
+import systemSettingsRoutes from "./routes/system-settings.routes.js";
 const app = express();
 
 app.use(helmet());
@@ -91,6 +92,7 @@ app.use("/api/sms-settings", smsSettingsRoutes);
 app.use("/api/email-settings", emailSettingsRoutes);
 app.use("/api/notification-logs", notificationLogsRoutes);
 app.use("/api/ai-settings", aiSettingsRoutes);
+app.use("/api/system-settings", systemSettingsRoutes);
 
 app.use((_request: Request, response: Response) => {
   response.status(404).json({
@@ -102,3 +104,4 @@ app.use((_request: Request, response: Response) => {
 app.use(errorHandler);
 
 export default app;
+
