@@ -33,6 +33,12 @@ import systemSettingsRoutes from "./routes/system-settings.routes.js";
 import dashboardSummaryRoutes from "./routes/dashboard-summary.routes.js";
 const app = express();
 
+app.disable("x-powered-by");
+
+if (env.TRUST_PROXY) {
+  app.set("trust proxy", 1);
+}
+
 app.use(helmet());
 
 app.use(
@@ -64,7 +70,7 @@ const generalLimiter = rateLimit({
   legacyHeaders: false,
   message: {
     success: false,
-    message: "أ‡ok fazla istek gأ¶nderildi. Lأ¼tfen daha sonra tekrar deneyin.",
+    message: "Cok fazla istek gonderildi. Lutfen daha sonra tekrar deneyin.",
   },
 });
 
@@ -99,12 +105,13 @@ app.use("/api/dashboard-summary", dashboardSummaryRoutes);
 app.use((_request: Request, response: Response) => {
   response.status(404).json({
     success: false,
-    message: "API adresi bulunamadؤ±.",
+    message: "API adresi bulunamadi.",
   });
 });
 
 app.use(errorHandler);
 
 export default app;
+
 
 
