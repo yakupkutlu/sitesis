@@ -19,11 +19,32 @@ const router = express.Router();
 
 router.use(requireAuth);
 
+
+const managerConfirmReceiptSchema = z.object({
+  paymentAllocationId: z.string().uuid(),
+  payerName: z.string().trim().optional(),
+  bankAccount: z.string().trim().optional(),
+  amount: z.coerce.number().positive().optional(),
+  paymentOwnerType: z.string().trim().optional(),
+  note: z.string().trim().optional(),
+});
 const uploadReceiptSchema = z.object({
   paymentAllocationId: z.string().uuid(),
   note: z.string().trim().optional(),
 });
 
+
+const analyzeReceiptSchema = z.object({
+  payerName: z.string().trim().optional(),
+  bankAccount: z.string().trim().optional(),
+  amount: z.coerce.number().positive(),
+  paymentOwnerType: z.string().trim().optional(),
+  manualApartmentId: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.string().uuid().optional()
+  ),
+  description: z.string().trim().optional(),
+});
 const receiptParamsSchema = z.object({
   receiptId: z.string().uuid(),
 });
@@ -32,6 +53,13 @@ const reviewReceiptSchema = z.object({
   reviewNote: z.string().trim().optional(),
 });
 
+
+function formatKurusAsTry(amountKurus: number) {
+  return (amountKurus / 100).toLocaleString("tr-TR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
 async function deleteUploadedFile(file?: Express.Multer.File) {
   if (!file) {
     return;
@@ -187,6 +215,211 @@ async function ensureUserCanDownloadReceipt(params: {
 
   throw new HttpError(403, "Bu dekontu indirme yetkiniz yok.");
 }
+
+
+router.post(
+  "/analyze",
+  requireRole("SUPER_ADMIN", "MANAGER"),
+  receiptUpload.single("receipt"),
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+    const uploadedFile = request.file;
+
+    try {
+      if (!authenticatedRequest.user) {
+        throw new HttpError(401, "Oturum bulunamadı.");
+      }
+
+      if (!uploadedFile) {
+        throw new HttpError(400, "Dekont dosyası zorunludur.");
+      }
+
+      const validationResult = analyzeReceiptSchema.safeParse(request.body);
+
+      if (!validationResult.success) {
+        throw new HttpError(
+          400,
+          "Dekont analiz bilgileri geçersiz.",
+          validationResult.error.flatten().fieldErrors
+        );
+      }
+
+      const isAllowedFile = await isAllowedReceiptFile(
+        uploadedFile.path,
+        uploadedFile.mimetype
+      );
+
+      if (!isAllowedFile) {
+        throw new HttpError(
+          400,
+          "Dekont dosyası gerçek PDF, PNG, JPG veya WEBP formatında olmalıdır."
+        );
+      }
+
+      const {
+        payerName,
+        amount,
+        paymentOwnerType,
+        manualApartmentId,
+        description,
+      } = validationResult.data;
+
+      const amountKurus = Math.round(amount * 100);
+
+      let managerAccessFilter: Prisma.PaymentAllocationWhereInput = {};
+
+      if (authenticatedRequest.user.role === "MANAGER") {
+        const managerScope = await getManagerScope(authenticatedRequest.user.id);
+
+        if (!hasManagerScope(managerScope)) {
+          throw new HttpError(
+            403,
+            "Bu yöneticiye atanmış bir site veya blok bulunamadı."
+          );
+        }
+
+        managerAccessFilter = {
+          OR: [
+            {
+              apartment: {
+                blockId: {
+                  in: managerScope.blockIds,
+                },
+              },
+            },
+            {
+              apartment: {
+                block: {
+                  siteId: {
+                    in: managerScope.siteIds,
+                  },
+                },
+              },
+            },
+          ],
+        };
+      }
+
+      const allocations = await prisma.paymentAllocation.findMany({
+        where: {
+          status: "PENDING",
+          amountKurus,
+          receipts: {
+            none: {
+              status: "PENDING",
+            },
+          },
+          ...(manualApartmentId ? { apartmentId: manualApartmentId } : {}),
+          ...managerAccessFilter,
+        },
+        include: {
+          paymentBatch: {
+            select: {
+              id: true,
+              title: true,
+              dueDate: true,
+            },
+          },
+          apartment: {
+            select: {
+              id: true,
+              number: true,
+              block: {
+                select: {
+                  id: true,
+                  name: true,
+                  site: {
+                    select: {
+                      id: true,
+                      name: true,
+                    },
+                  },
+                },
+              },
+              residents: {
+                select: {
+                  type: true,
+                  user: {
+                    select: {
+                      id: true,
+                      fullName: true,
+                      email: true,
+                    },
+                  },
+                },
+                take: 1,
+              },
+            },
+          },
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+        take: 5,
+      });
+
+      if (allocations.length === 0) {
+        response.status(200).json({
+          success: true,
+          data: {
+            status: "Eşleşme bulunamadı",
+            message:
+              "Bu tutar ve seçimlere uygun bekleyen ödeme bulunamadı. Daire, tutar veya açıklamayı kontrol edin.",
+            apartment: null,
+            suggestions: [],
+            extracted: {
+              payerName: payerName ?? null,
+              amountKurus,
+              paymentOwnerType: paymentOwnerType ?? null,
+              description: description ?? null,
+            },
+          },
+        });
+
+        return;
+      }
+
+      const bestMatch = allocations[0];
+      const resident = bestMatch.apartment.residents[0];
+
+      const apartmentLabel = `${bestMatch.apartment.block.site.name} / ${bestMatch.apartment.block.name} / Daire ${bestMatch.apartment.number}`;
+
+      response.status(200).json({
+        success: true,
+        data: {
+          status: "Eşleşme bulundu",
+          message:
+            "Dekont bilgileri bekleyen ödeme kaydı ile eşleşti. Sonraki adımda yönetici bu eşleşmeyi onaylayacak.",
+          apartment: {
+            id: bestMatch.apartment.id,
+            label: apartmentLabel,
+            residentName: resident?.user.fullName ?? "-",
+            residentRole: resident?.type === "OWNER" ? "Ev Sahibi" : "Kiracı",
+            expectedAmountText: `${formatKurusAsTry(bestMatch.amountKurus)} TL`,
+            paymentTitle: bestMatch.paymentBatch.title,
+            paymentAllocationId: bestMatch.id,
+          },
+          suggestions: allocations.map((allocation) => {
+            return {
+              paymentAllocationId: allocation.id,
+              paymentTitle: allocation.paymentBatch.title,
+              apartmentLabel: `${allocation.apartment.block.site.name} / ${allocation.apartment.block.name} / Daire ${allocation.apartment.number}`,
+              amountKurus: allocation.amountKurus,
+            };
+          }),
+          extracted: {
+            payerName: payerName ?? null,
+            amountKurus,
+            paymentOwnerType: paymentOwnerType ?? null,
+            description: description ?? null,
+          },
+        },
+      });
+    } finally {
+      await deleteUploadedFile(uploadedFile);
+    }
+  })
+);
 
 router.get(
   "/",
@@ -692,7 +925,219 @@ router.patch(
   })
 );
 
+
+router.post(
+  "/manager-confirm",
+  requireRole("SUPER_ADMIN", "MANAGER"),
+  receiptUpload.single("receipt"),
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+    const uploadedFile = request.file;
+    let shouldDeleteUploadedFile = true;
+
+    try {
+      if (!authenticatedRequest.user) {
+        throw new HttpError(401, "Oturum bulunamadı.");
+      }
+
+      if (!uploadedFile) {
+        throw new HttpError(400, "Dekont dosyası zorunludur.");
+      }
+
+      const validationResult = managerConfirmReceiptSchema.safeParse(request.body);
+
+      if (!validationResult.success) {
+        throw new HttpError(
+          400,
+          "Dekont eşleştirme bilgileri geçersiz.",
+          validationResult.error.flatten().fieldErrors
+        );
+      }
+
+      const isAllowedFile = await isAllowedReceiptFile(
+        uploadedFile.path,
+        uploadedFile.mimetype
+      );
+
+      if (!isAllowedFile) {
+        throw new HttpError(
+          400,
+          "Dekont dosyası gerçek PDF, PNG, JPG veya WEBP formatında olmalıdır."
+        );
+      }
+
+      const {
+        paymentAllocationId,
+        amount,
+        note,
+        payerName,
+        bankAccount,
+        paymentOwnerType,
+      } = validationResult.data;
+
+      let managerAccessFilter: Prisma.PaymentAllocationWhereInput = {};
+
+      if (authenticatedRequest.user.role === "MANAGER") {
+        const managerScope = await getManagerScope(authenticatedRequest.user.id);
+
+        if (!hasManagerScope(managerScope)) {
+          throw new HttpError(
+            403,
+            "Bu yöneticiye atanmış bir site veya blok bulunamadı."
+          );
+        }
+
+        managerAccessFilter = {
+          OR: [
+            {
+              apartment: {
+                blockId: {
+                  in: managerScope.blockIds,
+                },
+              },
+            },
+            {
+              apartment: {
+                block: {
+                  siteId: {
+                    in: managerScope.siteIds,
+                  },
+                },
+              },
+            },
+          ],
+        };
+      }
+
+      const allocation = await prisma.paymentAllocation.findFirst({
+        where: {
+          id: paymentAllocationId,
+          ...managerAccessFilter,
+        },
+        select: {
+          id: true,
+          amountKurus: true,
+          status: true,
+        },
+      });
+
+      if (!allocation) {
+        throw new HttpError(404, "Eşleşen ödeme kaydı bulunamadı.");
+      }
+
+      if (allocation.status === "PAID") {
+        throw new HttpError(409, "Bu ödeme zaten ödenmiş.");
+      }
+
+      if (allocation.status === "CANCELLED") {
+        throw new HttpError(400, "İptal edilmiş ödeme onaylanamaz.");
+      }
+
+      if (amount !== undefined) {
+        const amountKurus = Math.round(amount * 100);
+
+        if (amountKurus !== allocation.amountKurus) {
+          throw new HttpError(
+            400,
+            "Dekont tutarı ile ödeme tutarı eşleşmiyor."
+          );
+        }
+      }
+
+      const existingPendingReceipt = await prisma.paymentReceipt.findFirst({
+        where: {
+          paymentAllocationId,
+          status: "PENDING",
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (existingPendingReceipt) {
+        throw new HttpError(
+          409,
+          "Bu ödeme için zaten onay bekleyen bir dekont var."
+        );
+      }
+
+      const fallbackNote = [
+        payerName ? `Ödeyen: ${payerName}` : null,
+        bankAccount ? `Hesap/IBAN: ${bankAccount}` : null,
+        paymentOwnerType ? `Tip: ${paymentOwnerType}` : null,
+      ]
+        .filter(Boolean)
+        .join(" | ");
+
+      const result = await prisma.$transaction(async (transaction) => {
+        const approvedReceipt = await transaction.paymentReceipt.create({
+          data: {
+            paymentAllocationId,
+            uploadedByUserId: authenticatedRequest.user!.id,
+            originalFileName: uploadedFile.originalname,
+            storedFileName: uploadedFile.filename,
+            mimeType: uploadedFile.mimetype,
+            sizeBytes: uploadedFile.size,
+            note: note || fallbackNote || null,
+            status: "APPROVED",
+            reviewNote: "Yönetici tarafından eşleştirilerek onaylandı.",
+            reviewedAt: new Date(),
+            reviewedByUserId: authenticatedRequest.user!.id,
+          },
+        });
+
+        const updatedAllocation = await transaction.paymentAllocation.update({
+          where: {
+            id: paymentAllocationId,
+          },
+          data: {
+            status: "PAID",
+            paidAt: new Date(),
+          },
+        });
+
+        return {
+          receipt: approvedReceipt,
+          paymentAllocation: updatedAllocation,
+        };
+      });
+
+      shouldDeleteUploadedFile = false;
+
+      await createAuditLog({
+        request,
+        userId: authenticatedRequest.user.id,
+        action: "MANAGER_CONFIRM_PAYMENT_RECEIPT",
+        entityType: "PaymentReceipt",
+        entityId: result.receipt.id,
+        metadata: {
+          paymentAllocationId,
+          amountKurus: allocation.amountKurus,
+          payerName,
+          bankAccount,
+          paymentOwnerType,
+        },
+      });
+
+      response.status(201).json({
+        success: true,
+        message:
+          "Dekont eşleştirildi, onaylandı ve ödeme ödendi olarak işaretlendi.",
+        data: result,
+      });
+    } finally {
+      if (shouldDeleteUploadedFile) {
+        await deleteUploadedFile(uploadedFile);
+      }
+    }
+  })
+);
+
 export default router;
+
+
+
+
 
 
 

@@ -53,3 +53,56 @@ export async function uploadPaymentReceipt({ paymentAllocationId, note, receipt 
     body: formData,
   });
 }
+
+export async function analyzeManagerPaymentReceipt({
+  payerName,
+  bankAccount,
+  amount,
+  paymentOwnerType,
+  manualApartmentId,
+  description,
+  receipt,
+}) {
+  const formData = new FormData();
+
+  if (payerName) formData.append("payerName", payerName);
+  if (bankAccount) formData.append("bankAccount", bankAccount);
+  if (amount) formData.append("amount", amount);
+  if (paymentOwnerType) formData.append("paymentOwnerType", paymentOwnerType);
+  if (manualApartmentId) formData.append("manualApartmentId", manualApartmentId);
+  if (description) formData.append("description", description);
+
+  formData.append("receipt", receipt);
+
+  return apiRequest("/payment-receipts/analyze", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+export async function managerConfirmPaymentReceipt({
+  paymentAllocationId,
+  payerName,
+  bankAccount,
+  amount,
+  paymentOwnerType,
+  note,
+  receipt,
+}) {
+  const formData = new FormData();
+
+  formData.append("paymentAllocationId", paymentAllocationId);
+
+  if (payerName) formData.append("payerName", payerName);
+  if (bankAccount) formData.append("bankAccount", bankAccount);
+  if (amount) formData.append("amount", amount);
+  if (paymentOwnerType) formData.append("paymentOwnerType", paymentOwnerType);
+  if (note) formData.append("note", note);
+
+  formData.append("receipt", receipt);
+
+  return apiRequest("/payment-receipts/manager-confirm", {
+    method: "POST",
+    body: formData,
+  });
+}

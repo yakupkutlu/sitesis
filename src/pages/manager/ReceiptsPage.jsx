@@ -6,6 +6,7 @@ import {
   CreditCard,
   Home,
   MessageSquareText,
+  Plus,
   Settings,
   UploadCloud,
   UserRound,
@@ -14,12 +15,16 @@ import {
 import ReceiptToolbar from "../../components/receipts/ReceiptToolbar";
 import ReceiptTable from "../../components/receipts/ReceiptTable";
 import ReceiptDetailsModal from "../../components/receipts/ReceiptDetailsModal";
+import ReceiptUploadForm from "../../components/receipts/ReceiptUploadForm";
 import {
+  analyzeManagerPaymentReceipt,
   approvePaymentReceipt,
   getPaymentReceiptDownloadUrl,
+  managerConfirmPaymentReceipt,
   getPaymentReceipts,
   rejectPaymentReceipt,
 } from "../../api/paymentReceiptsApi";
+import { getApartments } from "../../api/apartmentsApi";
 import { useAuth } from "../../context/AuthContext";
 
 const navItems = [
@@ -39,6 +44,28 @@ const statusLabels = {
   REJECTED: "Reddedildi",
 };
 
+const emptyUploadFormData = {
+  payerName: "",
+  bankAccount: "",
+  amount: "",
+  paymentOwnerType: "Kiracı Ödemesi",
+  manualApartmentId: "",
+  description: "",
+  fileName: "",
+  fileType: "",
+  fileSizeText: "",
+};
+
+const allowedReceiptTypes = [
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/webp",
+];
+
+const maxReceiptSize = 10 * 1024 * 1024;
+
 function getDataArray(result) {
   const data = result?.data ?? result;
 
@@ -46,6 +73,7 @@ function getDataArray(result) {
   if (Array.isArray(data?.items)) return data.items;
   if (Array.isArray(data?.receipts)) return data.receipts;
   if (Array.isArray(data?.paymentReceipts)) return data.paymentReceipts;
+  if (Array.isArray(data?.apartments)) return data.apartments;
 
   return [];
 }
@@ -100,6 +128,12 @@ function fixTurkishFileName(value) {
     .replaceAll("Äž", "Ğ");
 }
 
+function getApartmentLabel(apartment) {
+  return `${apartment.block?.site?.name ?? "Site"} / ${
+    apartment.block?.name ?? "Blok"
+  } / Daire ${apartment.number}`;
+}
+
 function mapReceiptToViewModel(receipt) {
   const allocation = receipt.paymentAllocation ?? {};
   const apartment = allocation.apartment ?? {};
@@ -135,7 +169,14 @@ function ReceiptsPage() {
   const { user } = useAuth();
 
   const [receipts, setReceipts] = useState([]);
+  const [apartments, setApartments] = useState([]);
   const [selectedReceipt, setSelectedReceipt] = useState(null);
+
+  const [showUploadForm, setShowUploadForm] = useState(false);
+  const [uploadFormData, setUploadFormData] = useState(emptyUploadFormData);
+  const [selectedUploadFile, setSelectedUploadFile] = useState(null);
+  const [uploadFileError, setUploadFileError] = useState("");
+  const [matchResult, setMatchResult] = useState(null);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("Tümü");
@@ -144,6 +185,17 @@ function ReceiptsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+
+  const apartmentOptions = useMemo(() => {
+    return apartments.map((apartment) => ({
+      id: apartment.id,
+      label: getApartmentLabel(apartment),
+      residentName:
+        apartment.residents?.[0]?.user?.fullName ??
+        apartment.apartmentResidents?.[0]?.user?.fullName ??
+        "-",
+    }));
+  }, [apartments]);
 
   async function loadReceipts() {
     const result = await getPaymentReceipts({
@@ -155,21 +207,32 @@ function ReceiptsPage() {
     setReceipts(getDataArray(result).map(mapReceiptToViewModel));
   }
 
+  async function loadInitialData() {
+    const [receiptResult, apartmentResult] = await Promise.all([
+      getPaymentReceipts({ page: 1, limit: 100 }),
+      getApartments({ page: 1, limit: 100 }),
+    ]);
+
+    setReceipts(getDataArray(receiptResult).map(mapReceiptToViewModel));
+    setApartments(getDataArray(apartmentResult));
+  }
+
   useEffect(() => {
     let isMounted = true;
 
-    async function loadInitialData() {
+    async function run() {
       try {
         setIsLoading(true);
         setErrorMessage("");
 
-        const result = await getPaymentReceipts({
-          page: 1,
-          limit: 100,
-        });
+        const [receiptResult, apartmentResult] = await Promise.all([
+          getPaymentReceipts({ page: 1, limit: 100 }),
+          getApartments({ page: 1, limit: 100 }),
+        ]);
 
         if (isMounted) {
-          setReceipts(getDataArray(result).map(mapReceiptToViewModel));
+          setReceipts(getDataArray(receiptResult).map(mapReceiptToViewModel));
+          setApartments(getDataArray(apartmentResult));
         }
       } catch (error) {
         if (isMounted) {
@@ -182,7 +245,7 @@ function ReceiptsPage() {
       }
     }
 
-    loadInitialData();
+    run();
 
     return () => {
       isMounted = false;
@@ -222,6 +285,149 @@ function ReceiptsPage() {
       return matchesSearch && matchesStatus;
     });
   }, [receipts, searchTerm, statusFilter]);
+
+  function openUploadForm() {
+    setShowUploadForm(true);
+    setUploadFormData(emptyUploadFormData);
+    setSelectedUploadFile(null);
+    setUploadFileError("");
+    setMatchResult(null);
+    setMessage("");
+    setErrorMessage("");
+  }
+
+  function closeUploadForm() {
+    setShowUploadForm(false);
+    setUploadFormData(emptyUploadFormData);
+    setSelectedUploadFile(null);
+    setUploadFileError("");
+    setMatchResult(null);
+  }
+
+  function handleUploadInputChange(event) {
+    const { name, value } = event.target;
+
+    setUploadFormData((currentData) => ({
+      ...currentData,
+      [name]: value,
+    }));
+
+    setMatchResult(null);
+  }
+
+  function handleUploadFileChange(event) {
+    const file = event.target.files?.[0];
+
+    setUploadFileError("");
+    setSelectedUploadFile(null);
+    setMatchResult(null);
+
+    if (!file) {
+      setUploadFormData((currentData) => ({
+        ...currentData,
+        fileName: "",
+        fileType: "",
+        fileSizeText: "",
+      }));
+      return;
+    }
+
+    if (!allowedReceiptTypes.includes(file.type)) {
+      setUploadFileError("Bu dosya türü desteklenmiyor.");
+      return;
+    }
+
+    if (file.size > maxReceiptSize) {
+      setUploadFileError("Dekont dosyası en fazla 10 MB olabilir.");
+      return;
+    }
+
+    setSelectedUploadFile(file);
+
+    setUploadFormData((currentData) => ({
+      ...currentData,
+      fileName: fixTurkishFileName(file.name),
+      fileType: file.type,
+      fileSizeText: formatFileSize(file.size),
+    }));
+  }
+
+  async function handleConfirmMatch() {
+    const paymentAllocationId = matchResult?.apartment?.paymentAllocationId;
+
+    if (!paymentAllocationId) {
+      setErrorMessage("Onaylanacak eşleşme bulunamadı.");
+      return;
+    }
+
+    if (!selectedUploadFile) {
+      setUploadFileError("Lütfen geçerli bir dekont dosyası seçiniz.");
+      return;
+    }
+
+    const isConfirmed = window.confirm(
+      "Bu dekontu eşleştirip ödemeyi ödendi olarak işaretlemek istiyor musunuz?"
+    );
+
+    if (!isConfirmed) {
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      setMessage("");
+      setErrorMessage("");
+
+      await managerConfirmPaymentReceipt({
+        paymentAllocationId,
+        payerName: uploadFormData.payerName.trim() || undefined,
+        bankAccount: uploadFormData.bankAccount.trim() || undefined,
+        amount: uploadFormData.amount,
+        paymentOwnerType: uploadFormData.paymentOwnerType,
+        note: uploadFormData.description.trim() || undefined,
+        receipt: selectedUploadFile,
+      });
+
+      await loadReceipts();
+      closeUploadForm();
+
+      setMessage("Dekont eşleştirildi, onaylandı ve ödeme ödendi olarak işaretlendi.");
+    } catch (error) {
+      setErrorMessage(error?.message ?? "Dekont eşleştirilip onaylanamadı.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+  async function handleAnalyzeUpload(event) {
+    event.preventDefault();
+
+    if (!selectedUploadFile) {
+      setUploadFileError("Lütfen geçerli bir dekont dosyası seçiniz.");
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      setMessage("");
+      setErrorMessage("");
+
+      const result = await analyzeManagerPaymentReceipt({
+        payerName: uploadFormData.payerName.trim() || undefined,
+        bankAccount: uploadFormData.bankAccount.trim() || undefined,
+        amount: uploadFormData.amount,
+        paymentOwnerType: uploadFormData.paymentOwnerType,
+        manualApartmentId: uploadFormData.manualApartmentId || undefined,
+        description: uploadFormData.description.trim() || undefined,
+        receipt: selectedUploadFile,
+      });
+
+      setMatchResult(result?.data ?? result);
+    } catch (error) {
+      setErrorMessage(error?.message ?? "Dekont ön analizi yapılamadı.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
 
   async function handleApprove(receiptId) {
     const reviewNote = window.prompt(
@@ -300,6 +506,16 @@ function ReceiptsPage() {
             dekontları onaylayabilir veya reddedebilirsiniz.
           </p>
         </div>
+
+        <button
+          type="button"
+          className="dashboard-action-button"
+          onClick={openUploadForm}
+          disabled={isSaving}
+        >
+          <Plus size={18} />
+          Dekont Ekle
+        </button>
       </div>
 
       {errorMessage && (
@@ -312,6 +528,21 @@ function ReceiptsPage() {
         <div className="login-success-message">
           <p>{message}</p>
         </div>
+      )}
+
+      {showUploadForm && (
+        <ReceiptUploadForm
+          formData={uploadFormData}
+          apartmentOptions={apartmentOptions}
+          fileError={uploadFileError}
+          matchResult={matchResult}
+          onInputChange={handleUploadInputChange}
+          onFileChange={handleUploadFileChange}
+          onSubmit={handleAnalyzeUpload}
+          onCancel={closeUploadForm}
+          onConfirmMatch={handleConfirmMatch}
+          isSaving={isSaving}
+        />
       )}
 
       <section className="dashboard-summary-grid">

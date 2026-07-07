@@ -1,9 +1,14 @@
-function ReceiptMatchPreview({ matchResult }) {
+﻿function ReceiptMatchPreview({
+  matchResult,
+  onConfirm,
+  isSaving = false,
+}) {
   if (!matchResult) {
     return null;
   }
 
   const matchedApartment = matchResult.apartment;
+  const canConfirm = Boolean(matchedApartment?.paymentAllocationId);
 
   return (
     <section className="receipt-match-preview">
@@ -36,6 +41,19 @@ function ReceiptMatchPreview({ matchResult }) {
             <span>Beklenen Tutar</span>
             <strong>{matchedApartment.expectedAmountText || "-"}</strong>
           </div>
+        </div>
+      )}
+
+      {canConfirm && (
+        <div className="form-actions">
+          <button
+            type="button"
+            className="dashboard-action-button"
+            onClick={onConfirm}
+            disabled={isSaving}
+          >
+            {isSaving ? "Onaylanıyor..." : "Eşleştir ve Onayla"}
+          </button>
         </div>
       )}
     </section>

@@ -1,4 +1,4 @@
-import { AlertTriangle, FileCheck2, ShieldCheck, X } from "lucide-react";
+﻿import { AlertTriangle, FileCheck2, ShieldCheck, X } from "lucide-react";
 import ReceiptMatchPreview from "./ReceiptMatchPreview";
 
 const allowedReceiptFileTypesText = "PDF, PNG, JPG, JPEG ve WEBP";
@@ -14,8 +14,10 @@ function ReceiptUploadForm({
   onFileChange,
   onSubmit,
   onCancel,
+  onConfirmMatch,
+  isSaving = false,
 }) {
-  const safeApartmentOptions = apartmentOptions || [];
+  const safeApartmentOptions = apartmentOptions || {};
 
   return (
     <section className="receipt-form-card">
@@ -23,11 +25,11 @@ function ReceiptUploadForm({
         <div>
           <span className="section-kicker">Yeni Dekont</span>
 
-          <h3>Dekont Yükle</h3>
+          <h3>Dekont Ekle</h3>
 
           <p>
             Dekont bilgileri daire, sakin, tutar ve açıklama alanlarına göre
-            kontrol edilir. Onay verilmeden ödeme kaydına işlenmez.
+            kontrol edilir. Yönetici onayı olmadan ödeme kaydına işlenmez.
           </p>
         </div>
 
@@ -36,6 +38,7 @@ function ReceiptUploadForm({
           className="modal-close-button"
           onClick={onCancel}
           aria-label="Dekont formunu kapat"
+          disabled={isSaving}
         >
           <X size={20} />
         </button>
@@ -64,7 +67,7 @@ function ReceiptUploadForm({
               value={formData.payerName}
               onChange={onInputChange}
               placeholder="Örn: Ali Can"
-              required
+              disabled={isSaving}
             />
           </label>
 
@@ -76,6 +79,7 @@ function ReceiptUploadForm({
               value={formData.bankAccount}
               onChange={onInputChange}
               placeholder="Örn: TR00 0000 0000 0000"
+              disabled={isSaving}
             />
           </label>
 
@@ -88,6 +92,7 @@ function ReceiptUploadForm({
               onChange={onInputChange}
               placeholder="Örn: 1250"
               min="0"
+              disabled={isSaving}
               required
             />
           </label>
@@ -98,6 +103,7 @@ function ReceiptUploadForm({
               name="paymentOwnerType"
               value={formData.paymentOwnerType}
               onChange={onInputChange}
+              disabled={isSaving}
             >
               {paymentOwnerTypeOptions.map((option) => (
                 <option key={option}>{option}</option>
@@ -111,6 +117,7 @@ function ReceiptUploadForm({
               name="manualApartmentId"
               value={formData.manualApartmentId}
               onChange={onInputChange}
+              disabled={isSaving}
             >
               <option value="">Otomatik eşleştir</option>
 
@@ -128,6 +135,7 @@ function ReceiptUploadForm({
               type="file"
               accept=".pdf,.png,.jpg,.jpeg,.webp"
               onChange={onFileChange}
+              disabled={isSaving}
               required
             />
           </label>
@@ -161,17 +169,23 @@ function ReceiptUploadForm({
               onChange={onInputChange}
               rows="3"
               placeholder="Örn: A Blok Daire 5 Temmuz aidatı"
+              disabled={isSaving}
             />
           </label>
         </div>
 
-        <ReceiptMatchPreview matchResult={matchResult} />
+        <ReceiptMatchPreview
+          matchResult={matchResult}
+          onConfirm={onConfirmMatch}
+          isSaving={isSaving}
+        />
 
         <div className="form-actions">
           <button
             type="button"
             className="secondary-form-button"
             onClick={onCancel}
+            disabled={isSaving}
           >
             Vazgeç
           </button>
@@ -179,9 +193,9 @@ function ReceiptUploadForm({
           <button
             type="submit"
             className="dashboard-action-button"
-            disabled={Boolean(fileError)}
+            disabled={Boolean(fileError) || isSaving}
           >
-            Dekontu Kaydet
+            {isSaving ? "Kontrol Ediliyor..." : "Eşleştirme Önizle"}
           </button>
         </div>
       </form>
@@ -190,3 +204,4 @@ function ReceiptUploadForm({
 }
 
 export default ReceiptUploadForm;
+
