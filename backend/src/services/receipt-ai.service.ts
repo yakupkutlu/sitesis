@@ -244,11 +244,14 @@ async function callCustomVision(params: {
 export async function analyzeReceiptWithAiFallback(
   input: ReceiptAiAnalyzeInput
 ): Promise<ReceiptAiAnalyzeResult> {
-  if (!input.mimeType.startsWith("image/")) {
+  const isSupportedAiFile =
+    input.mimeType.startsWith("image/") || input.mimeType === "application/pdf";
+
+  if (!isSupportedAiFile) {
     return {
       ...emptyAiResult,
       description:
-        "Bu ilk AI sürümü sadece görsel dekontları analiz eder. PDF için sonraki adımda PDF dönüştürme eklenecek.",
+        "AI sadece PDF, PNG, JPG, JPEG ve WEBP dekont dosyalarını analiz edebilir.",
     };
   }
 
@@ -335,3 +338,4 @@ export async function analyzeReceiptWithAiFallback(
 
   return emptyAiResult;
 }
+

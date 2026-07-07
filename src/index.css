@@ -11100,3 +11100,16 @@ input:focus-visible {
     grid-template-columns: 1fr;
   }
 }
+
+.receipt-ai-result-card {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: 16px;
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.receipt-match-grid .full-width {
+  grid-column: 1 / -1;
+}
+

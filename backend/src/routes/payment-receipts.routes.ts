@@ -285,6 +285,11 @@ router.post(
         originalFileName: uploadedFile.originalname,
       });
 
+      const serializedAiResult = {
+        ...aiResult,
+        message: buildAiAnalyzeMessage(aiResult),
+      };
+
       const effectiveAmount = amount ?? aiResult.amount;
 
       if (effectiveAmount === null || effectiveAmount === undefined) {
@@ -406,6 +411,7 @@ router.post(
         response.status(200).json({
           success: true,
           data: {
+            ai: serializedAiResult,
             status: "Eşleşme bulunamadı",
             message:
               "Bu tutar ve seçimlere uygun bekleyen ödeme bulunamadı. Daire, tutar veya açıklamayı kontrol edin.",
@@ -431,6 +437,7 @@ router.post(
       response.status(200).json({
         success: true,
         data: {
+          ai: serializedAiResult,
           status: "Eşleşme bulundu",
           message:
             "Dekont bilgileri bekleyen ödeme kaydı ile eşleşti. Sonraki adımda yönetici bu eşleşmeyi onaylayacak.",
@@ -1207,6 +1214,9 @@ router.post(
 );
 
 export default router;
+
+
+
 
 
 
