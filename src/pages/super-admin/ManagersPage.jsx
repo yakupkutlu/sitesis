@@ -22,6 +22,7 @@ import { getBlocks } from "../../api/blocksApi";
 import { createUser, getUsers, updateUser } from "../../api/usersApi";
 import {
   createManagerAssignment,
+  deleteManagerAssignment,
   getManagerAssignments,
 } from "../../api/managerAssignmentsApi";
 import { useAuth } from "../../context/AuthContext";
@@ -92,16 +93,6 @@ function getAssignmentLabel(assignment) {
   return "Henüz atanmadı";
 }
 
-function getManagerTitle(assignment) {
-  if (!assignment) {
-    return "Yönetici";
-  }
-
-  return assignment.scopeType === "SITE"
-    ? "Site Yöneticisi"
-    : "Blok / Apartman Yöneticisi";
-}
-
 function buildAssignmentMap(assignments) {
   const assignmentMap = new Map();
 
@@ -110,29 +101,57 @@ function buildAssignmentMap(assignments) {
       continue;
     }
 
-    if (!assignmentMap.has(assignment.managerId)) {
-      assignmentMap.set(assignment.managerId, assignment);
-    }
+    const currentAssignments = assignmentMap.get(assignment.managerId) ?? [];
+    assignmentMap.set(assignment.managerId, [...currentAssignments, assignment]);
   }
 
   return assignmentMap;
 }
 
+function getAssignmentLabels(assignments) {
+  if (!assignments || assignments.length === 0) {
+    return "Henüz atanmadı";
+  }
+
+  return assignments.map(getAssignmentLabel).join(", ");
+}
+
+function getManagerTitleFromAssignments(assignments) {
+  if (!assignments || assignments.length === 0) {
+    return "Yönetici";
+  }
+
+  const hasSiteScope = assignments.some((item) => item.scopeType === "SITE");
+  const blockCount = assignments.filter((item) => item.scopeType === "BLOCK").length;
+
+  if (hasSiteScope) {
+    return "Site Yöneticisi";
+  }
+
+  if (blockCount > 1) {
+    return "Çoklu Blok Yöneticisi";
+  }
+
+  return "Blok / Apartman Yöneticisi";
+}
+
 function mapUserToManager(user, assignmentMap) {
-  const assignment = assignmentMap.get(user.id);
+  const assignments = assignmentMap.get(user.id) ?? [];
+  const primaryAssignment = assignments[0];
 
   return {
     id: user.id,
     name: user.fullName,
-    title: getManagerTitle(assignment),
+    title: getManagerTitleFromAssignments(assignments),
     email: user.email,
     phone: user.phone ?? "-",
-    assignedBuilding: getAssignmentLabel(assignment),
+    assignedBuilding: getAssignmentLabels(assignments),
     note: "Yetki bilgisi backend manager assignment üzerinden yönetilir.",
     status: user.status === "ACTIVE" ? "Aktif" : "Pasif",
     createdAt: formatDate(user.createdAt),
     rawUser: user,
-    assignment,
+    assignment: primaryAssignment,
+    assignments,
   };
 }
 
@@ -419,6 +438,33 @@ function ManagersPage() {
     }
   }
 
+  async function handleDeleteAssignment(assignment) {
+    const label = getAssignmentLabel(assignment);
+
+    const isConfirmed = window.confirm(
+      `${label} yetkisini kaldırmak istiyor musunuz?`
+    );
+
+    if (!isConfirmed) {
+      return;
+    }
+
+    try {
+      setMessage("");
+      setErrorMessage("");
+      setIsSaving(true);
+
+      await deleteManagerAssignment(assignment.id);
+      await loadManagersData();
+
+      setMessage("Yönetici yetkisi başarıyla kaldırıldı.");
+    } catch (error) {
+      setErrorMessage(error?.message ?? "Yönetici yetkisi kaldırılamadı.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   return (
     <DashboardLayout
       roleTitle="Yöneticiler"
@@ -479,6 +525,66 @@ function ManagersPage() {
         statusFilter={statusFilter}
         setStatusFilter={setStatusFilter}
       />
+
+      <section className="dashboard-panel">
+        <span className="section-kicker">Yetki Kapsamları</span>
+        <h3>Yönetici Yetkileri</h3>
+
+        <p>
+          Bir yönetici bir siteye veya birden fazla bloğa atanabilir. Gereksiz
+          yetkileri buradan kaldırabilirsiniz.
+        </p>
+
+        <div className="apartments-table-wrapper">
+          <table className="apartments-table">
+            <thead>
+              <tr>
+                <th>Yönetici</th>
+                <th>Yetki Türü</th>
+                <th>Kapsam</th>
+                <th>İşlem</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {managerList.some((manager) => manager.assignments?.length > 0) ? (
+                managerList.flatMap((manager) =>
+                  (manager.assignments || []).map((assignment) => (
+                    <tr key={assignment.id}>
+                      <td>
+                        <strong>{manager.name}</strong>
+                        <br />
+                        <span>{manager.email}</span>
+                      </td>
+
+                      <td>{assignment.scopeType === "SITE" ? "Site" : "Blok"}</td>
+
+                      <td>{getAssignmentLabel(assignment)}</td>
+
+                      <td>
+                        <button
+                          type="button"
+                          className="danger-table-button"
+                          onClick={() => handleDeleteAssignment(assignment)}
+                          disabled={isSaving}
+                        >
+                          Yetkiyi Kaldır
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )
+              ) : (
+                <tr>
+                  <td colSpan="4" className="empty-table-message">
+                    Henüz yönetici yetkisi bulunamadı.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       {isLoading ? (
         <div className="dashboard-panel">

@@ -4,42 +4,15 @@ import {
   AlertCircle,
   Building2,
   CheckCircle2,
-  Crown,
   Eye,
   EyeOff,
   LockKeyhole,
   Mail,
   ShieldCheck,
-  UserCog,
-  Users,
 } from "lucide-react";
 
 import { loginUser } from "../api/authApi";
 import { useAuth } from "../context/AuthContext";
-
-const roleOptions = [
-  {
-    label: "Süper Admin",
-    value: "super-admin",
-    backendRole: "SUPER_ADMIN",
-    path: "/super-admin/dashboard",
-    icon: Crown,
-  },
-  {
-    label: "Yönetici",
-    value: "manager",
-    backendRole: "MANAGER",
-    path: "/manager/dashboard",
-    icon: UserCog,
-  },
-  {
-    label: "Sakin",
-    value: "resident",
-    backendRole: "RESIDENT",
-    path: "/resident/dashboard",
-    icon: Users,
-  },
-];
 
 const backendRolePaths = {
   SUPER_ADMIN: "/super-admin/dashboard",
@@ -49,10 +22,6 @@ const backendRolePaths = {
 
 function isValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-}
-
-function getSelectedRoleData(selectedRole) {
-  return roleOptions.find((role) => role.value === selectedRole);
 }
 
 function getUserFromLoginResult(result) {
@@ -94,11 +63,10 @@ function saveFrontendUserData({ user, role, rememberMe }) {
 
 function Login() {
   const navigate = useNavigate();
-  const { setUser, refreshUser } = useAuth();
+  const { refreshUser } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [selectedRole, setSelectedRole] = useState("manager");
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -114,7 +82,6 @@ function Login() {
     event.preventDefault();
 
     const trimmedEmail = email.trim().toLowerCase();
-    const selectedRoleData = getSelectedRoleData(selectedRole);
 
     if (!trimmedEmail || !password) {
       setErrorMessage("Lütfen e-posta ve şifre alanlarını doldurun.");
@@ -128,11 +95,6 @@ function Login() {
 
     if (password.length < 6) {
       setErrorMessage("Şifre en az 6 karakter olmalıdır.");
-      return;
-    }
-
-    if (!selectedRoleData) {
-      setErrorMessage("Lütfen geçerli bir kullanıcı rolü seçin.");
       return;
     }
 
@@ -163,10 +125,8 @@ function Login() {
       navigate(backendRolePaths[backendRole], {
         replace: true,
       });
-    } catch (error) {
-      setErrorMessage(
-        error?.message ?? "Giriş başarısız oldu. Lütfen bilgilerinizi kontrol edin."
-      );
+    } catch {
+      setErrorMessage("E-posta veya şifre hatalı.");
     } finally {
       setIsSubmitting(false);
     }
@@ -185,8 +145,8 @@ function Login() {
           <h1>Yönetim panelinize güvenli şekilde erişin.</h1>
 
           <p>
-            Süper admin, yönetici ve sakin kullanıcıları kendi yetkilerine göre
-            sisteme giriş yapar.
+            Kullanıcı rolü veritabanındaki hesap bilgisine göre otomatik
+            belirlenir.
           </p>
 
           <div className="login-check-list">
@@ -228,35 +188,6 @@ function Login() {
               <p>{errorMessage}</p>
             </div>
           )}
-
-          <div className="input-group">
-            <span>Kullanıcı Rolü</span>
-
-            <div className="login-role-grid">
-              {roleOptions.map((role) => {
-                const Icon = role.icon;
-                const isSelected = selectedRole === role.value;
-
-                return (
-                  <button
-                    type="button"
-                    className={`login-role-option ${
-                      isSelected ? "active" : ""
-                    }`}
-                    key={role.value}
-                    onClick={() => {
-                      setSelectedRole(role.value);
-                      clearErrorMessage();
-                    }}
-                    disabled={isSubmitting}
-                  >
-                    <Icon size={18} />
-                    <span>{role.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
 
           <label className="input-group">
             <span>E-posta</span>
@@ -337,8 +268,8 @@ function Login() {
             <ShieldCheck size={19} />
 
             <p>
-              Sisteme sadece yönetim tarafından tanımlanan kullanıcılar giriş
-              yapabilir. Kayıt işlemi panel içinden yapılır.
+              Giriş sonrası sistem sizi veritabanındaki rolünüze göre doğru
+              panele yönlendirir.
             </p>
           </div>
         </form>
@@ -348,5 +279,3 @@ function Login() {
 }
 
 export default Login;
-
-

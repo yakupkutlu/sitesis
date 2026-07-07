@@ -1,4 +1,4 @@
-import express, { type Request, type Response } from "express";
+﻿import express, { type Request, type Response } from "express";
 import { z } from "zod";
 
 import prisma from "../db/prisma.js";
@@ -288,6 +288,69 @@ router.post(
       success: true,
       message: "Yönetici blok/apartmana başarıyla atandı.",
       data: assignment,
+    });
+  })
+);
+
+router.delete(
+  "/:assignmentId",
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    const assignmentIdParam = request.params.assignmentId;
+
+    if (
+          typeof assignmentIdParam !== "string" ||
+          assignmentIdParam.trim().length === 0
+    ) {
+  throw new HttpError(400, "Yönetici yetki id bilgisi zorunludur.");
+}
+
+const assignmentId = assignmentIdParam;
+    const assignment = await prisma.managerAssignment.findUnique({
+      where: {
+        id: assignmentId,
+      },
+      select: {
+        id: true,
+        managerId: true,
+        scopeType: true,
+        siteId: true,
+        blockId: true,
+      },
+    });
+
+    if (!assignment) {
+      throw new HttpError(404, "Yönetici yetki kaydı bulunamadı.");
+    }
+
+    await prisma.managerAssignment.delete({
+      where: {
+        id: assignmentId,
+      },
+    });
+
+    await createAuditLog({
+      request,
+      userId: authenticatedRequest.user.id,
+      action: "DELETE_MANAGER_ASSIGNMENT",
+      entityType: "ManagerAssignment",
+      entityId: assignment.id,
+      metadata: {
+        managerId: assignment.managerId,
+        scopeType: assignment.scopeType,
+        siteId: assignment.siteId,
+        blockId: assignment.blockId,
+      },
+    });
+
+    response.status(200).json({
+      success: true,
+      message: "Yönetici yetkisi başarıyla kaldırıldı.",
     });
   })
 );

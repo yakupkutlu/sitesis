@@ -120,6 +120,7 @@ router.post(
 
 router.post(
   "/forgot-password",
+  forgotPasswordLimiter,
   asyncHandler(async (request, response) => {
     const validationResult = forgotPasswordSchema.safeParse(request.body);
 

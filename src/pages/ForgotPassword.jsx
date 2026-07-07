@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowLeft,
@@ -9,43 +9,52 @@ import {
   KeyRound,
 } from "lucide-react";
 
+import { requestPasswordReset } from "../api/authApi";
+
 function isValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
-function isValidPhone(value) {
-  const cleanedValue = value.replace(/\s/g, "");
-  return /^(05\d{9}|\+905\d{9})$/.test(cleanedValue);
-}
-
 function ForgotPassword() {
-  const [identifier, setIdentifier] = useState("");
+  const [email, setEmail] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
 
-    const trimmedIdentifier = identifier.trim();
+    const trimmedEmail = email.trim().toLowerCase();
 
-    if (!trimmedIdentifier) {
-      setErrorMessage("Lütfen e-posta adresinizi veya telefon numaranızı girin.");
+    if (!trimmedEmail) {
+      setErrorMessage("Lütfen e-posta adresinizi girin.");
       setSuccessMessage("");
       return;
     }
 
-    if (!isValidEmail(trimmedIdentifier) && !isValidPhone(trimmedIdentifier)) {
-      setErrorMessage(
-        "Lütfen geçerli bir e-posta adresi veya telefon numarası girin."
+    if (!isValidEmail(trimmedEmail)) {
+      setErrorMessage("Lütfen geçerli bir e-posta adresi girin.");
+      setSuccessMessage("");
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      setErrorMessage("");
+      setSuccessMessage("");
+
+      await requestPasswordReset({
+        email: trimmedEmail,
+      });
+
+      setSuccessMessage(
+        "Şifre sıfırlama talebiniz alınmıştır. Eğer e-posta sistemde kayıtlıysa sıfırlama bağlantısı gönderilecektir."
       );
-      setSuccessMessage("");
-      return;
+    } catch {
+      setErrorMessage("Şifre sıfırlama talebi gönderilemedi.");
+    } finally {
+      setIsSubmitting(false);
     }
-
-    setErrorMessage("");
-    setSuccessMessage("Talebiniz alınmıştır.");
-
-    
   }
 
   return (
@@ -60,8 +69,8 @@ function ForgotPassword() {
         <h1>Şifrenizi mi unuttunuz?</h1>
 
         <p className="forgot-description">
-          E-posta adresinizi veya telefon numaranızı girin. Talebiniz güvenli şekilde
-          işleme alınacaktır.
+          E-posta adresinizi girin. Güvenlik nedeniyle sistem, bu e-postanın
+          kayıtlı olup olmadığını açık şekilde söylemez.
         </p>
 
         {errorMessage && (
@@ -80,15 +89,19 @@ function ForgotPassword() {
 
         <form className="forgot-form" onSubmit={handleSubmit}>
           <label className="input-group">
-            <span>E-posta veya Telefon</span>
+            <span>E-posta</span>
+
             <div className="input-with-icon">
               <Mail size={19} />
+
               <input
-                type="text"
-                placeholder="ornek@mail.com veya 05xx xxx xx xx"
-                value={identifier}
+                type="email"
+                placeholder="ornek@mail.com"
+                value={email}
+                autoComplete="email"
+                disabled={isSubmitting}
                 onChange={(event) => {
-                  setIdentifier(event.target.value);
+                  setEmail(event.target.value);
                   setErrorMessage("");
                   setSuccessMessage("");
                 }}
@@ -96,16 +109,23 @@ function ForgotPassword() {
             </div>
           </label>
 
-          <button type="submit" className="login-submit-button">
-            Şifre Sıfırlama Bağlantısı Gönder
+          <button
+            type="submit"
+            className="login-submit-button"
+            disabled={isSubmitting}
+          >
+            {isSubmitting
+              ? "Gönderiliyor..."
+              : "Şifre Sıfırlama Bağlantısı Gönder"}
           </button>
         </form>
 
         <div className="forgot-security-note">
           <ShieldCheck size={19} />
+
           <p>
-            Güvenlik nedeniyle sistem, girilen bilginin kayıtlı olup olmadığını
-            açık şekilde söylemez.
+            Güvenlik nedeniyle sistem, girilen e-postanın kayıtlı olup
+            olmadığını açık şekilde söylemez.
           </p>
         </div>
 

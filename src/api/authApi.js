@@ -32,3 +32,13 @@ export async function requestPasswordReset({ email }) {
     },
   });
 }
+
+export async function resetPassword({ token, password }) {
+  return apiRequest("/auth/reset-password", {
+    method: "POST",
+    body: {
+      token,
+      password,
+    },
+  });
+}

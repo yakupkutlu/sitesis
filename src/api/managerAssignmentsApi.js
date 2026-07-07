@@ -10,3 +10,9 @@ export async function createManagerAssignment(payload) {
     body: payload,
   });
 }
+
+export async function deleteManagerAssignment(assignmentId) {
+  return apiRequest(`/manager-assignments/${assignmentId}`, {
+    method: "DELETE",
+  });
+}

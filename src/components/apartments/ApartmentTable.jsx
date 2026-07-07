@@ -1,34 +1,22 @@
-import { Edit, Eye, Trash2 } from "lucide-react";
+﻿import { Eye } from "lucide-react";
 
 function getApartmentStatusClass(status) {
   if (status === "Dolu") {
     return "active";
   }
 
-  if (status === "Bakımda") {
-    return "pending";
-  }
-
   return "passive";
 }
 
 function getPaymentStatusClass(paymentStatus) {
-  if (paymentStatus === "Ödendi") {
-    return "paid";
+  if (paymentStatus === "Yok") {
+    return "empty";
   }
 
-  if (paymentStatus === "Gecikmiş") {
-    return "late";
-  }
-
-  if (paymentStatus === "Bekliyor") {
-    return "waiting";
-  }
-
-  return "empty";
+  return "waiting";
 }
 
-function ApartmentTable({ apartments, onView, onEdit, onDelete }) {
+function ApartmentTable({ apartments, onView }) {
   const safeApartments = apartments || [];
 
   return (
@@ -38,13 +26,13 @@ function ApartmentTable({ apartments, onView, onEdit, onDelete }) {
           <thead>
             <tr>
               <th>Daire</th>
+              <th>Site</th>
               <th>Blok</th>
               <th>Kat</th>
               <th>Durum</th>
-              <th>Kullanım</th>
-              <th>Sakin</th>
-              <th>Telefon</th>
-              <th>Aidat Durumu</th>
+              <th>Sakin Bilgisi</th>
+              <th>Ödeme Kaydı</th>
+              <th>Açıklama</th>
               <th>İşlem</th>
             </tr>
           </thead>
@@ -63,6 +51,8 @@ function ApartmentTable({ apartments, onView, onEdit, onDelete }) {
                       <strong>{apartment.apartmentNo || "-"}</strong>
                     </td>
 
+                    <td>{apartment.site || "-"}</td>
+
                     <td>{apartment.block || "-"}</td>
 
                     <td>{apartment.floor || "-"}</td>
@@ -73,16 +63,12 @@ function ApartmentTable({ apartments, onView, onEdit, onDelete }) {
                       </span>
                     </td>
 
-                    <td>{apartment.usageType || "-"}</td>
-
                     <td>
                       <div className="apartment-resident-cell">
                         <strong>{apartment.residentName || "-"}</strong>
-                        <span>{apartment.note || "Not bulunmuyor"}</span>
+                        <span>{apartment.usageType || "-"}</span>
                       </div>
                     </td>
-
-                    <td>{apartment.phone || "-"}</td>
 
                     <td>
                       <span
@@ -91,6 +77,8 @@ function ApartmentTable({ apartments, onView, onEdit, onDelete }) {
                         {apartment.paymentStatus || "-"}
                       </span>
                     </td>
+
+                    <td>{apartment.note || "-"}</td>
 
                     <td>
                       <div className="table-actions">
@@ -102,27 +90,6 @@ function ApartmentTable({ apartments, onView, onEdit, onDelete }) {
                           } detayını görüntüle`}
                         >
                           <Eye size={16} />
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => onEdit(apartment)}
-                          aria-label={`${
-                            apartment.apartmentNo || "Daire"
-                          } düzenle`}
-                        >
-                          <Edit size={16} />
-                        </button>
-
-                        <button
-                          type="button"
-                          className="danger-table-button"
-                          onClick={() => onDelete(apartment.id)}
-                          aria-label={`${
-                            apartment.apartmentNo || "Daire"
-                          } kaydını sil`}
-                        >
-                          <Trash2 size={16} />
                         </button>
                       </div>
                     </td>

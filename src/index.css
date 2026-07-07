@@ -11008,3 +11008,34 @@ input:focus-visible {
   color: inherit !important;
 }
 
+
+.danger-table-button {
+  border: 0;
+  border-radius: 10px;
+  padding: 9px 14px;
+  background: #fee2e2;
+  color: #b91c1c;
+  font-weight: 700;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.danger-table-button:hover {
+  background: #fecaca;
+  transform: translateY(-1px);
+}
+
+.danger-table-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.dashboard-layout.dark-mode .danger-table-button {
+  background: rgba(239, 68, 68, 0.16);
+  color: #fecaca;
+}
+
+.dashboard-layout.dark-mode .danger-table-button:hover {
+  background: rgba(239, 68, 68, 0.28);
+}

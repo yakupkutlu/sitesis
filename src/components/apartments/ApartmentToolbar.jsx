@@ -1,16 +1,15 @@
-import { Filter, Search } from "lucide-react";
-
-const blockOptions = ["Tümü", "A Blok", "B Blok", "C Blok"];
-const statusOptions = ["Tümü", "Dolu", "Boş", "Bakımda"];
+﻿import { Filter, Search } from "lucide-react";
 
 function ApartmentToolbar({
   searchTerm,
   setSearchTerm,
   blockFilter,
   setBlockFilter,
-  statusFilter,
-  setStatusFilter,
+  blockOptions,
+  isLoading = false,
 }) {
+  const safeBlockOptions = blockOptions || [];
+
   return (
     <section className="apartment-toolbar">
       <div className="apartment-search">
@@ -18,9 +17,10 @@ function ApartmentToolbar({
 
         <input
           type="text"
-          placeholder="Daire no, blok, kat, sakin veya durum ara..."
+          placeholder="Daire no veya açıklama ara..."
           value={searchTerm}
           onChange={(event) => setSearchTerm(event.target.value)}
+          disabled={isLoading}
         />
       </div>
 
@@ -31,23 +31,15 @@ function ApartmentToolbar({
           value={blockFilter}
           onChange={(event) => setBlockFilter(event.target.value)}
           aria-label="Blok filtresi"
+          disabled={isLoading}
         >
-          {blockOptions.map((option) => (
-            <option key={option}>{option}</option>
-          ))}
-        </select>
-      </div>
+          <option value="ALL_BLOCKS">Tüm bloklar</option>
 
-      <div className="apartment-filter">
-        <Filter size={18} />
-
-        <select
-          value={statusFilter}
-          onChange={(event) => setStatusFilter(event.target.value)}
-          aria-label="Daire durum filtresi"
-        >
-          {statusOptions.map((option) => (
-            <option key={option}>{option}</option>
+          {safeBlockOptions.map((block) => (
+            <option key={block.id} value={block.id}>
+              {block.site?.name ? `${block.site.name} / ` : ""}
+              {block.name}
+            </option>
           ))}
         </select>
       </div>
