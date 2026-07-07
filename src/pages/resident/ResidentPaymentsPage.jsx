@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   Bell,
@@ -14,6 +14,9 @@ import ResidentPaymentToolbar from "../../components/resident-payments/ResidentP
 import ResidentPaymentTable from "../../components/resident-payments/ResidentPaymentTable";
 import ResidentPaymentDetailsModal from "../../components/resident-payments/ResidentPaymentDetailsModal";
 
+import { getMyPaymentAllocations } from "../../api/paymentBatchesApi";
+import { useAuth } from "../../context/AuthContext";
+
 const navItems = [
   { label: "Panel", path: "/resident/dashboard", icon: Home },
   { label: "Aidat ve Ödemeler", path: "/resident/payments", icon: CreditCard },
@@ -23,90 +26,167 @@ const navItems = [
   { label: "Ayarlar", path: "/resident/settings", icon: Settings },
 ];
 
-const residentInfo = {
-  fullName: "Ali Can",
-  siteName: "Mavi Site",
-  apartment: "A Blok / Daire 5",
-};
+function getDataArray(result) {
+  const data = result?.data ?? result;
 
-const initialPayments = [
-  {
-    id: 1,
-    title: "Temmuz Aidatı",
-    category: "Aidat",
-    period: "Temmuz 2026",
-    amount: "1.250 TL",
-    paidAmount: "0 TL",
-    remainingAmount: "1.250 TL",
-    dueDate: "10.07.2026",
-    status: "Bekliyor",
-    apartment: "A Blok / Daire 5",
-    description: "Temmuz ayı site aidatı.",
-    numericAmount: 1250,
-    numericPaidAmount: 0,
-    numericRemainingAmount: 1250,
-  },
-  {
-    id: 2,
-    title: "Asansör Bakım Gideri",
-    category: "Asansör",
-    period: "Haziran 2026",
-    amount: "500 TL",
-    paidAmount: "250 TL",
-    remainingAmount: "250 TL",
-    dueDate: "20.06.2026",
-    status: "Kısmi Ödendi",
-    apartment: "A Blok / Daire 5",
-    description: "A Blok asansör bakım gideri.",
-    numericAmount: 500,
-    numericPaidAmount: 250,
-    numericRemainingAmount: 250,
-  },
-  {
-    id: 3,
-    title: "Haziran Aidatı",
-    category: "Aidat",
-    period: "Haziran 2026",
-    amount: "1.250 TL",
-    paidAmount: "1.250 TL",
-    remainingAmount: "0 TL",
-    dueDate: "10.06.2026",
-    status: "Ödendi",
-    apartment: "A Blok / Daire 5",
-    description: "Haziran ayı site aidatı.",
-    numericAmount: 1250,
-    numericPaidAmount: 1250,
-    numericRemainingAmount: 0,
-  },
-  {
-    id: 4,
-    title: "Ortak Alan Temizlik Gideri",
-    category: "Temizlik",
-    period: "Mayıs 2026",
-    amount: "300 TL",
-    paidAmount: "0 TL",
-    remainingAmount: "300 TL",
-    dueDate: "25.05.2026",
-    status: "Gecikti",
-    apartment: "A Blok / Daire 5",
-    description: "Ortak alan temizlik gideri.",
-    numericAmount: 300,
-    numericPaidAmount: 0,
-    numericRemainingAmount: 300,
-  },
-];
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.allocations)) return data.allocations;
+  if (Array.isArray(data?.paymentAllocations)) return data.paymentAllocations;
+
+  return [];
+}
+
+function formatCurrencyFromKurus(value) {
+  return `${((Number(value) || 0) / 100).toLocaleString("tr-TR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} TL`;
+}
+
+function formatDate(value) {
+  if (!value) return "-";
+
+  try {
+    return new Date(value).toLocaleDateString("tr-TR");
+  } catch {
+    return "-";
+  }
+}
+
+function normalizeText(value) {
+  return String(value ?? "").toLocaleLowerCase("tr-TR").trim();
+}
+
+function isPastDueDate(value) {
+  if (!value) return false;
+
+  const dueDate = new Date(value);
+  const today = new Date();
+
+  dueDate.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
+
+  return dueDate < today;
+}
+
+function getAllocationStatus(allocation) {
+  if (allocation.status === "PAID") {
+    return "Ödendi";
+  }
+
+  if (allocation.status === "CANCELLED") {
+    return "İptal Edildi";
+  }
+
+  const hasPendingReceipt = Array.isArray(allocation.receipts)
+    ? allocation.receipts.some((receipt) => receipt.status === "PENDING")
+    : false;
+
+  if (hasPendingReceipt) {
+    return "Dekont Bekliyor";
+  }
+
+  const dueDate = allocation.paymentBatch?.dueDate;
+
+  if (isPastDueDate(dueDate)) {
+    return "Gecikti";
+  }
+
+  return "Bekliyor";
+}
+
+function getApartmentText(allocation) {
+  const apartment = allocation.apartment ?? {};
+  const block = apartment.block ?? {};
+  const site = block.site ?? {};
+
+  return `${site.name ?? "Site"} / ${block.name ?? "Blok"} / Daire ${
+    apartment.number ?? "-"
+  }`;
+}
+
+function mapAllocationToPayment(allocation) {
+  const batch = allocation.paymentBatch ?? {};
+  const amountText = formatCurrencyFromKurus(allocation.amountKurus);
+  const status = getAllocationStatus(allocation);
+  const isPaid = allocation.status === "PAID";
+  const isCancelled = allocation.status === "CANCELLED";
+  const shouldCountAsDebt = !isPaid && !isCancelled;
+
+  return {
+    id: allocation.id,
+    title: batch.title ?? "Ödeme",
+    category: "Aidat / Gider",
+    period: formatDate(batch.createdAt),
+    amount: amountText,
+    paidAmount: isPaid ? amountText : "0 TL",
+    remainingAmount: shouldCountAsDebt ? amountText : "0 TL",
+    dueDate: formatDate(batch.dueDate),
+    status,
+    apartment: getApartmentText(allocation),
+    description: batch.description ?? "Açıklama yok.",
+    numericAmount: (Number(allocation.amountKurus) || 0) / 100,
+    numericPaidAmount: isPaid ? (Number(allocation.amountKurus) || 0) / 100 : 0,
+    numericRemainingAmount: shouldCountAsDebt
+      ? (Number(allocation.amountKurus) || 0) / 100
+      : 0,
+    paymentAllocationId: allocation.id,
+    receipts: allocation.receipts ?? [],
+    raw: allocation,
+  };
+}
 
 function formatCurrency(value) {
-  return `${value.toLocaleString("tr-TR")} TL`;
+  return `${Number(value || 0).toLocaleString("tr-TR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} TL`;
 }
 
 function ResidentPaymentsPage() {
-  const [payments] = useState(initialPayments);
+  const { user } = useAuth();
+
+  const [payments, setPayments] = useState([]);
   const [selectedPayment, setSelectedPayment] = useState(null);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("Tümü");
   const [categoryFilter, setCategoryFilter] = useState("Tümü");
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadPayments() {
+      try {
+        setIsLoading(true);
+        setErrorMessage("");
+
+        const result = await getMyPaymentAllocations();
+
+        if (isMounted) {
+          setPayments(getDataArray(result).map(mapAllocationToPayment));
+        }
+      } catch {
+        if (isMounted) {
+          setErrorMessage("Ödeme kayıtları alınamadı.");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadPayments();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const summary = useMemo(() => {
     const totalDebt = payments.reduce(
@@ -137,18 +217,22 @@ function ResidentPaymentsPage() {
 
   const filteredPayments = useMemo(() => {
     return payments.filter((payment) => {
-      const searchValue = searchTerm.toLowerCase();
+      const searchValue = normalizeText(searchTerm);
 
-      const matchesSearch =
-        payment.title.toLowerCase().includes(searchValue) ||
-        payment.category.toLowerCase().includes(searchValue) ||
-        payment.period.toLowerCase().includes(searchValue) ||
-        payment.status.toLowerCase().includes(searchValue) ||
-        payment.description.toLowerCase().includes(searchValue);
+      const searchableText = [
+        payment.title,
+        payment.category,
+        payment.period,
+        payment.status,
+        payment.description,
+        payment.apartment,
+      ]
+        .join(" ")
+        .toLocaleLowerCase("tr-TR");
 
+      const matchesSearch = searchableText.includes(searchValue);
       const matchesStatus =
         statusFilter === "Tümü" ? true : payment.status === statusFilter;
-
       const matchesCategory =
         categoryFilter === "Tümü" ? true : payment.category === categoryFilter;
 
@@ -160,20 +244,28 @@ function ResidentPaymentsPage() {
     <DashboardLayout
       roleTitle="Aidat ve Ödemeler"
       roleBadge="Sakin"
-      userName={residentInfo.fullName}
+      userName={user?.fullName ?? "Sakin"}
       navItems={navItems}
       theme="resident"
     >
       <div className="dashboard-page-header">
         <div>
           <span className="section-kicker">Ödeme Takibi</span>
+
           <h2>Aidat ve Ödemeler</h2>
+
           <p>
-            {residentInfo.siteName} / {residentInfo.apartment} için aidat,
-            ortak gider ve ödeme durumlarınızı buradan takip edebilirsiniz.
+            Dairenize ait aidat, ortak gider ve ödeme durumlarını buradan takip
+            edebilirsiniz.
           </p>
         </div>
       </div>
+
+      {errorMessage && (
+        <div className="login-error-message">
+          <p>{errorMessage}</p>
+        </div>
+      )}
 
       <ResidentPaymentSummaryCards summary={summary} />
 
@@ -186,10 +278,16 @@ function ResidentPaymentsPage() {
         setCategoryFilter={setCategoryFilter}
       />
 
-      <ResidentPaymentTable
-        payments={filteredPayments}
-        onView={setSelectedPayment}
-      />
+      {isLoading ? (
+        <div className="dashboard-panel">
+          <p>Ödeme kayıtları yükleniyor...</p>
+        </div>
+      ) : (
+        <ResidentPaymentTable
+          payments={filteredPayments}
+          onView={setSelectedPayment}
+        />
+      )}
 
       <ResidentPaymentDetailsModal
         payment={selectedPayment}
@@ -200,3 +298,4 @@ function ResidentPaymentsPage() {
 }
 
 export default ResidentPaymentsPage;
+

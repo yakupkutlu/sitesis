@@ -22,6 +22,7 @@ import {
   deleteApartmentResident,
   getApartmentResidents,
   updateApartmentResident,
+  updateResidentPassword,
 } from "../../api/apartmentResidentsApi";
 import { getApartments } from "../../api/apartmentsApi";
 import { useAuth } from "../../context/AuthContext";
@@ -260,12 +261,28 @@ function ResidentsPage() {
       setErrorMessage("");
 
       if (editingResident) {
+        if (formData.password && formData.password.length < 8) {
+          setErrorMessage("Yeni şifre en az 8 karakter olmalıdır.");
+          setIsSaving(false);
+          return;
+        }
+
         await updateApartmentResident(editingResident.id, {
           apartmentId: formData.apartmentId,
           type: formData.type,
         });
 
-        setMessage("Sakin daire bağlantısı başarıyla güncellendi.");
+        if (formData.password) {
+          await updateResidentPassword(editingResident.id, {
+            password: formData.password,
+          });
+        }
+
+        setMessage(
+          formData.password
+            ? "Sakin bilgileri ve şifresi başarıyla güncellendi."
+            : "Sakin daire bağlantısı başarıyla güncellendi."
+        );
       } else {
         if (!formData.fullName.trim()) {
           setErrorMessage("Ad soyad zorunludur.");
@@ -414,3 +431,4 @@ function ResidentsPage() {
 }
 
 export default ResidentsPage;
+

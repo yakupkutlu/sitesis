@@ -37,3 +37,7 @@ export async function cancelPaymentBatch(paymentBatchId) {
     method: "PATCH",
   });
 }
+
+export async function getMyPaymentAllocations() {
+  return apiRequest("/payment-batches/my-allocations");
+}

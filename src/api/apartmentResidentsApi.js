@@ -44,3 +44,10 @@ export async function deleteApartmentResident(apartmentResidentId) {
     method: "DELETE",
   });
 }
+
+export async function updateResidentPassword(apartmentResidentId, payload) {
+  return apiRequest(`/apartment-residents/${apartmentResidentId}/resident-password`, {
+    method: "PATCH",
+    body: payload,
+  });
+}

@@ -1,19 +1,22 @@
-import { useState } from "react";
+﻿import { useEffect, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   Bell,
   CreditCard,
   Home,
   MessageSquareText,
+  Save,
   Settings,
+  ShieldCheck,
   UploadCloud,
 } from "lucide-react";
 
-import ResidentProfileSettings from "../../components/resident-settings/ResidentProfileSettings";
-import ResidentApartmentInfo from "../../components/resident-settings/ResidentApartmentInfo";
-import ResidentNotificationSettings from "../../components/resident-settings/ResidentNotificationSettings";
-import ResidentSecuritySettings from "../../components/resident-settings/ResidentSecuritySettings";
-import ResidentAppearanceSettings from "../../components/resident-settings/ResidentAppearanceSettings";
+import {
+  changeOwnPassword,
+  getCurrentUser,
+  updateOwnProfile,
+} from "../../api/authApi";
+import { useAuth } from "../../context/AuthContext";
 
 const navItems = [
   { label: "Panel", path: "/resident/dashboard", icon: Home },
@@ -24,37 +27,7 @@ const navItems = [
   { label: "Ayarlar", path: "/resident/settings", icon: Settings },
 ];
 
-const allowedAvatarTypes = [
-  "image/png",
-  "image/jpeg",
-  "image/jpg",
-  "image/webp",
-];
-
-const maxAvatarSize = 2 * 1024 * 1024;
-
-const apartmentInfo = {
-  siteName: "Mavi Site",
-  apartment: "A Blok / Daire 5",
-  address: "İskenderun / Hatay",
-  residentType: "Kiracı",
-};
-
-const initialProfileData = {
-  fullName: "Ali Can",
-  role: "Kiracı",
-  email: "ali.can@example.com",
-  phone: "+90 555 000 00 00",
-  avatarPreview: "",
-};
-
-const initialNotificationData = {
-  smsEnabled: true,
-  emailEnabled: true,
-  requestStatusNotify: true,
-};
-
-const initialSecurityData = {
+const emptySecurityData = {
   currentPassword: "",
   newPassword: "",
   confirmPassword: "",
@@ -67,22 +40,63 @@ function getInitialAppearanceData() {
   };
 }
 
-function isValidAvatarFile(file) {
-  return allowedAvatarTypes.includes(file.type) && file.size <= maxAvatarSize;
-}
-
 function ResidentSettingsPage() {
-  const [profileData, setProfileData] = useState(initialProfileData);
-  const [notificationData, setNotificationData] = useState(
-    initialNotificationData
-  );
-  const [securityData, setSecurityData] = useState(initialSecurityData);
-  const [appearanceData, setAppearanceData] = useState(
-    getInitialAppearanceData
-  );
-  const [avatarError, setAvatarError] = useState("");
+  const { user, refreshUser } = useAuth();
+
+  const [profileData, setProfileData] = useState({
+    fullName: "",
+    email: "",
+    phone: "",
+    role: "RESIDENT",
+  });
+
+  const [securityData, setSecurityData] = useState(emptySecurityData);
+  const [appearanceData, setAppearanceData] = useState(getInitialAppearanceData);
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
+  const [message, setMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
 
   const isDarkMode = appearanceData.themeMode.toLowerCase().includes("koyu");
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadProfile() {
+      try {
+        setIsLoading(true);
+        setErrorMessage("");
+
+        const result = await getCurrentUser();
+        const currentUser = result?.data?.user ?? result?.user ?? user;
+
+        if (isMounted && currentUser) {
+          setProfileData({
+            fullName: currentUser.fullName ?? "",
+            email: currentUser.email ?? "",
+            phone: currentUser.phone ?? "",
+            role: currentUser.role ?? "RESIDENT",
+          });
+        }
+      } catch {
+        if (isMounted) {
+          setErrorMessage("Profil bilgileri alınamadı.");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadProfile();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   function handleProfileChange(event) {
     const { name, value } = event.target;
@@ -93,45 +107,42 @@ function ResidentSettingsPage() {
     }));
   }
 
-  function handleAvatarChange(event) {
-    const file = event.target.files?.[0];
+  async function handleSaveProfile(event) {
+    event.preventDefault();
 
-    setAvatarError("");
-
-    if (!file) {
+    if (!profileData.fullName.trim()) {
+      setErrorMessage("Ad soyad zorunludur.");
       return;
     }
 
-    if (!allowedAvatarTypes.includes(file.type)) {
-      setAvatarError("Lütfen PNG, JPG, JPEG veya WEBP formatında görsel seçin.");
-      return;
+    try {
+      setIsSavingProfile(true);
+      setMessage("");
+      setErrorMessage("");
+
+      const result = await updateOwnProfile({
+        fullName: profileData.fullName.trim(),
+        phone: profileData.phone.trim() || null,
+      });
+
+      const updatedUser = result?.data?.user ?? result?.user;
+
+      if (updatedUser) {
+        setProfileData((currentData) => ({
+          ...currentData,
+          fullName: updatedUser.fullName ?? currentData.fullName,
+          phone: updatedUser.phone ?? "",
+        }));
+      }
+
+      await refreshUser();
+
+      setMessage("Profil bilgileri başarıyla güncellendi.");
+    } catch {
+      setErrorMessage("Profil bilgileri kaydedilemedi.");
+    } finally {
+      setIsSavingProfile(false);
     }
-
-    if (file.size > maxAvatarSize) {
-      setAvatarError("Profil fotoğrafı en fazla 2 MB olabilir.");
-      return;
-    }
-
-    if (!isValidAvatarFile(file)) {
-      setAvatarError("Seçilen profil fotoğrafı geçerli değil.");
-      return;
-    }
-
-    const avatarUrl = URL.createObjectURL(file);
-
-    setProfileData((currentData) => ({
-      ...currentData,
-      avatarPreview: avatarUrl,
-    }));
-  }
-
-  function handleNotificationChange(event) {
-    const { name, checked } = event.target;
-
-    setNotificationData((currentData) => ({
-      ...currentData,
-      [name]: checked,
-    }));
   }
 
   function handleSecurityChange(event) {
@@ -143,7 +154,7 @@ function ResidentSettingsPage() {
     }));
   }
 
-  function handleSecuritySubmit(event) {
+  async function handleSaveSecurity(event) {
     event.preventDefault();
 
     if (
@@ -151,45 +162,68 @@ function ResidentSettingsPage() {
       !securityData.newPassword ||
       !securityData.confirmPassword
     ) {
-      alert("Lütfen tüm şifre alanlarını doldurunuz.");
+      setErrorMessage("Lütfen tüm şifre alanlarını doldurun.");
       return;
     }
 
-    if (securityData.newPassword.length < 6) {
-      alert("Yeni şifre en az 6 karakter olmalıdır.");
+    if (securityData.newPassword.length < 8) {
+      setErrorMessage("Yeni şifre en az 8 karakter olmalıdır.");
       return;
     }
 
     if (securityData.newPassword !== securityData.confirmPassword) {
-      alert("Yeni şifreler eşleşmiyor.");
+      setErrorMessage("Yeni şifre ve tekrar alanı aynı olmalıdır.");
       return;
     }
 
-    setSecurityData(initialSecurityData);
+    try {
+      setIsSavingPassword(true);
+      setMessage("");
+      setErrorMessage("");
 
-    alert("Şifre güncelleme talebi alındı.");
+      await changeOwnPassword({
+        currentPassword: securityData.currentPassword,
+        newPassword: securityData.newPassword,
+      });
+
+      setSecurityData(emptySecurityData);
+      setMessage("Şifre başarıyla güncellendi.");
+    } catch {
+      setErrorMessage("Şifre güncellenemedi. Mevcut şifrenizi kontrol edin.");
+    } finally {
+      setIsSavingPassword(false);
+    }
   }
 
   function handleAppearanceChange(event) {
     const { name, value } = event.target;
 
-    const newAppearanceData = {
+    const nextAppearanceData = {
       ...appearanceData,
       [name]: value,
     };
 
-    setAppearanceData(newAppearanceData);
+    setAppearanceData(nextAppearanceData);
 
-    localStorage.setItem("residentThemeMode", newAppearanceData.themeMode);
-    localStorage.setItem("residentCardDensity", newAppearanceData.cardDensity);
+    localStorage.setItem("residentThemeMode", nextAppearanceData.themeMode);
+    localStorage.setItem("residentCardDensity", nextAppearanceData.cardDensity);
+  }
+
+  function handleSaveAppearance(event) {
+    event.preventDefault();
+
+    localStorage.setItem("residentThemeMode", appearanceData.themeMode);
+    localStorage.setItem("residentCardDensity", appearanceData.cardDensity);
+
+    setMessage("Görünüm ayarları kaydedildi.");
+    setErrorMessage("");
   }
 
   return (
     <DashboardLayout
       roleTitle="Ayarlar"
       roleBadge="Sakin"
-      userName={profileData.fullName}
-      userAvatar={profileData.avatarPreview}
+      userName={profileData.fullName || user?.fullName || "Sakin"}
       navItems={navItems}
       theme="resident"
       isDarkMode={isDarkMode}
@@ -201,38 +235,181 @@ function ResidentSettingsPage() {
           <h2>Profil ve Ayarlar</h2>
 
           <p>
-            Profil, bildirim, güvenlik ve görünüm tercihlerinizi buradan
-            yönetebilirsiniz.
+            Profil bilgilerinizi, güvenlik ayarlarınızı ve görünüm tercihinizi
+            buradan yönetebilirsiniz.
           </p>
         </div>
       </div>
 
-      <div className="resident-settings-grid">
-        <ResidentProfileSettings
-          profileData={profileData}
-          onInputChange={handleProfileChange}
-          onAvatarChange={handleAvatarChange}
-          avatarError={avatarError}
-        />
+      {errorMessage && (
+        <div className="login-error-message">
+          <p>{errorMessage}</p>
+        </div>
+      )}
 
-        <ResidentApartmentInfo apartmentInfo={apartmentInfo} />
+      {message && (
+        <div className="login-success-message">
+          <p>{message}</p>
+        </div>
+      )}
 
-        <ResidentNotificationSettings
-          notificationData={notificationData}
-          onToggleChange={handleNotificationChange}
-        />
+      {isLoading ? (
+        <div className="dashboard-panel">
+          <p>Ayarlar yükleniyor...</p>
+        </div>
+      ) : (
+        <div className="resident-settings-grid">
+          <section className="dashboard-panel">
+            <span className="section-kicker">Profil</span>
+            <h3>Profil Bilgileri</h3>
 
-        <ResidentSecuritySettings
-          securityData={securityData}
-          onInputChange={handleSecurityChange}
-          onSubmit={handleSecuritySubmit}
-        />
+            <form className="manager-form" onSubmit={handleSaveProfile}>
+              <div className="form-grid">
+                <label>
+                  Ad Soyad
+                  <input
+                    type="text"
+                    name="fullName"
+                    value={profileData.fullName}
+                    onChange={handleProfileChange}
+                    disabled={isSavingProfile}
+                    required
+                  />
+                </label>
 
-        <ResidentAppearanceSettings
-          appearanceData={appearanceData}
-          onInputChange={handleAppearanceChange}
-        />
-      </div>
+                <label>
+                  E-posta
+                  <input type="email" value={profileData.email} disabled />
+                </label>
+
+                <label>
+                  Telefon
+                  <input
+                    type="text"
+                    name="phone"
+                    value={profileData.phone}
+                    onChange={handleProfileChange}
+                    disabled={isSavingProfile}
+                    placeholder="05xx xxx xx xx"
+                  />
+                </label>
+
+                <label>
+                  Rol
+                  <input type="text" value={profileData.role} disabled />
+                </label>
+              </div>
+
+              <div className="form-actions">
+                <button
+                  type="submit"
+                  className="dashboard-action-button"
+                  disabled={isSavingProfile}
+                >
+                  <Save size={18} />
+                  {isSavingProfile ? "Kaydediliyor..." : "Profili Kaydet"}
+                </button>
+              </div>
+            </form>
+          </section>
+
+          <section className="dashboard-panel">
+            <span className="section-kicker">Güvenlik</span>
+            <h3>Şifre Değiştir</h3>
+
+            <form className="manager-form" onSubmit={handleSaveSecurity}>
+              <div className="form-grid">
+                <label>
+                  Mevcut Şifre
+                  <input
+                    type="password"
+                    name="currentPassword"
+                    value={securityData.currentPassword}
+                    onChange={handleSecurityChange}
+                    disabled={isSavingPassword}
+                  />
+                </label>
+
+                <label>
+                  Yeni Şifre
+                  <input
+                    type="password"
+                    name="newPassword"
+                    value={securityData.newPassword}
+                    onChange={handleSecurityChange}
+                    disabled={isSavingPassword}
+                  />
+                </label>
+
+                <label>
+                  Yeni Şifre Tekrar
+                  <input
+                    type="password"
+                    name="confirmPassword"
+                    value={securityData.confirmPassword}
+                    onChange={handleSecurityChange}
+                    disabled={isSavingPassword}
+                  />
+                </label>
+              </div>
+
+              <div className="login-security-note">
+                <ShieldCheck size={18} />
+                <p>Yeni şifre en az 8 karakter olmalıdır.</p>
+              </div>
+
+              <div className="form-actions">
+                <button
+                  type="submit"
+                  className="dashboard-action-button"
+                  disabled={isSavingPassword}
+                >
+                  {isSavingPassword ? "Güncelleniyor..." : "Şifreyi Güncelle"}
+                </button>
+              </div>
+            </form>
+          </section>
+
+          <section className="dashboard-panel">
+            <span className="section-kicker">Görünüm</span>
+            <h3>Görünüm Ayarları</h3>
+
+            <form className="manager-form" onSubmit={handleSaveAppearance}>
+              <div className="form-grid">
+                <label>
+                  Tema
+                  <select
+                    name="themeMode"
+                    value={appearanceData.themeMode}
+                    onChange={handleAppearanceChange}
+                  >
+                    <option>Açık Tema</option>
+                    <option>Koyu Tema</option>
+                  </select>
+                </label>
+
+                <label>
+                  Kart Yoğunluğu
+                  <select
+                    name="cardDensity"
+                    value={appearanceData.cardDensity}
+                    onChange={handleAppearanceChange}
+                  >
+                    <option>Rahat</option>
+                    <option>Kompakt</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="form-actions">
+                <button type="submit" className="dashboard-action-button">
+                  Görünümü Kaydet
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
     </DashboardLayout>
   );
 }

@@ -384,6 +384,81 @@ async function queuePaymentBatchNotifications(params: {
   return summary;
 }
 
+
+router.get(
+  "/my-allocations",
+  requireRole("RESIDENT"),
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    const allocations = await prisma.paymentAllocation.findMany({
+      where: {
+        apartment: {
+          residents: {
+            some: {
+              userId: authenticatedRequest.user.id,
+            },
+          },
+        },
+      },
+      include: {
+        apartment: {
+          select: {
+            id: true,
+            number: true,
+            block: {
+              select: {
+                id: true,
+                name: true,
+                site: {
+                  select: {
+                    id: true,
+                    name: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        paymentBatch: {
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            totalAmountKurus: true,
+            dueDate: true,
+            createdAt: true,
+          },
+        },
+        receipts: {
+          select: {
+            id: true,
+            status: true,
+            originalFileName: true,
+            createdAt: true,
+            reviewNote: true,
+          },
+          orderBy: {
+            createdAt: "desc",
+          },
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    response.status(200).json({
+      success: true,
+      data: allocations,
+    });
+  })
+);
+
 router.get(
   "/",
   requireRole("SUPER_ADMIN", "MANAGER"),
@@ -982,4 +1057,5 @@ router.patch(
 );
 
 export default router;
+
 

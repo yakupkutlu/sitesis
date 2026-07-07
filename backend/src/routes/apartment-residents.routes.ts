@@ -707,7 +707,99 @@ router.post(
   })
 );
 
+
+const updateResidentPasswordSchema = z.object({
+  password: z.string().min(8, "Yeni şifre en az 8 karakter olmalıdır."),
+});
+
+router.patch(
+  "/:apartmentResidentId/resident-password",
+  requireRole("SUPER_ADMIN", "MANAGER"),
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    const apartmentResidentId = getRequiredParam(request, "apartmentResidentId");
+
+    const validationResult = updateResidentPasswordSchema.safeParse(request.body);
+
+    if (!validationResult.success) {
+      throw new HttpError(
+        400,
+        "Gönderilen şifre bilgisi geçersiz.",
+        validationResult.error.flatten().fieldErrors
+      );
+    }
+
+    const targetApartmentResident = await prisma.apartmentResident.findUnique({
+      where: {
+        id: apartmentResidentId,
+      },
+      select: {
+        id: true,
+        apartmentId: true,
+        userId: true,
+        user: {
+          select: {
+            id: true,
+            role: true,
+            email: true,
+          },
+        },
+      },
+    });
+
+    if (!targetApartmentResident) {
+      throw new HttpError(404, "Daire sakini kaydı bulunamadı.");
+    }
+
+    if (targetApartmentResident.user.role !== "RESIDENT") {
+      throw new HttpError(400, "Sadece sakin şifresi değiştirilebilir.");
+    }
+
+    if (authenticatedRequest.user.role === "MANAGER") {
+      await ensureApartmentIsInsideUserScope({
+        userId: authenticatedRequest.user.id,
+        userRole: authenticatedRequest.user.role,
+        apartmentId: targetApartmentResident.apartmentId,
+      });
+    }
+
+    const passwordHash = await bcrypt.hash(validationResult.data.password, 12);
+
+    await prisma.user.update({
+      where: {
+        id: targetApartmentResident.userId,
+      },
+      data: {
+        passwordHash,
+      },
+    });
+
+    await createAuditLog({
+      request,
+      userId: authenticatedRequest.user.id,
+      action: "UPDATE_RESIDENT_PASSWORD",
+      entityType: "User",
+      entityId: targetApartmentResident.userId,
+      metadata: {
+        apartmentResidentId: targetApartmentResident.id,
+        residentEmail: targetApartmentResident.user.email,
+      },
+    });
+
+    response.status(200).json({
+      success: true,
+      message: "Sakin şifresi başarıyla güncellendi.",
+    });
+  })
+);
+
 export default router;
+
 
 
 
