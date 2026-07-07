@@ -377,6 +377,7 @@ router.post(
       },
       select: {
         id: true,
+        status: true,
         apartment: {
           select: {
             residents: {
@@ -406,6 +407,37 @@ router.post(
       await deleteUploadedFile(request.file);
 
       throw new HttpError(403, "Bu ödeme kaydı için dekont yükleme yetkiniz yok.");
+    }
+
+    if (allocation.status === "PAID") {
+      await deleteUploadedFile(request.file);
+
+      throw new HttpError(409, "Bu ödeme zaten ödenmiş. Yeni dekont yüklenemez.");
+    }
+
+    if (allocation.status === "CANCELLED") {
+      await deleteUploadedFile(request.file);
+
+      throw new HttpError(400, "İptal edilmiş ödeme için dekont yüklenemez.");
+    }
+
+    const existingPendingReceipt = await prisma.paymentReceipt.findFirst({
+      where: {
+        paymentAllocationId,
+        status: "PENDING",
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (existingPendingReceipt) {
+      await deleteUploadedFile(request.file);
+
+      throw new HttpError(
+        409,
+        "Bu ödeme için zaten onay bekleyen bir dekont var. Yönetici onaylayana veya reddedene kadar tekrar yükleyemezsiniz."
+      );
     }
 
     const receipt = await prisma.paymentReceipt.create({
@@ -661,3 +693,6 @@ router.patch(
 );
 
 export default router;
+
+
+

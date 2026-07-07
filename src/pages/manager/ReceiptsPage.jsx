@@ -50,12 +50,12 @@ function getDataArray(result) {
   return [];
 }
 
-function formatCurrency(value) {
+function formatCurrencyFromKurus(value) {
   return new Intl.NumberFormat("tr-TR", {
     style: "currency",
     currency: "TRY",
     minimumFractionDigits: 2,
-  }).format(Number(value) || 0);
+  }).format((Number(value) || 0) / 100);
 }
 
 function formatDate(value) {
@@ -84,6 +84,22 @@ function normalizeText(value) {
   return String(value ?? "").toLocaleLowerCase("tr-TR").trim();
 }
 
+function fixTurkishFileName(value) {
+  return String(value ?? "")
+    .replaceAll("Ã¶", "ö")
+    .replaceAll("Ã¼", "ü")
+    .replaceAll("Ã§", "ç")
+    .replaceAll("Ä±", "ı")
+    .replaceAll("ÅŸ", "ş")
+    .replaceAll("ÄŸ", "ğ")
+    .replaceAll("Ã–", "Ö")
+    .replaceAll("Ãœ", "Ü")
+    .replaceAll("Ã‡", "Ç")
+    .replaceAll("Ä°", "İ")
+    .replaceAll("Åž", "Ş")
+    .replaceAll("Äž", "Ğ");
+}
+
 function mapReceiptToViewModel(receipt) {
   const allocation = receipt.paymentAllocation ?? {};
   const apartment = allocation.apartment ?? {};
@@ -100,10 +116,10 @@ function mapReceiptToViewModel(receipt) {
       : "-",
     paymentTitle: batch.title ?? "-",
     dueDate: formatDate(batch.dueDate),
-    amount: allocation.amount ?? 0,
-    amountText: formatCurrency(allocation.amount),
+    amount: allocation.amountKurus ?? 0,
+    amountText: formatCurrencyFromKurus(allocation.amountKurus),
     description: receipt.note ?? "",
-    fileName: receipt.originalFileName ?? "-",
+    fileName: fixTurkishFileName(receipt.originalFileName ?? "-"),
     fileType: receipt.mimeType ?? "-",
     fileSizeText: formatFileSize(receipt.sizeBytes),
     status: statusLabels[receipt.status] ?? receipt.status,
@@ -351,3 +367,5 @@ function ReceiptsPage() {
 }
 
 export default ReceiptsPage;
+
+

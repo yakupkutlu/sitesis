@@ -1,4 +1,4 @@
-import { FileCheck2, ShieldCheck, UploadCloud } from "lucide-react";
+﻿import { FileCheck2, ShieldCheck, UploadCloud } from "lucide-react";
 
 const allowedReceiptFileTypesText = "PDF, PNG, JPG, JPEG ve WEBP";
 const maxReceiptFileSizeText = "10 MB";
@@ -11,6 +11,7 @@ function ResidentReceiptUploadForm({
   onInputChange,
   onFileChange,
   onSubmit,
+  isSaving = false,
 }) {
   const safeFormData = formData || {};
   const safePaymentOptions = paymentOptions || [];
@@ -48,10 +49,11 @@ function ResidentReceiptUploadForm({
           <label>
             İlgili Ödeme
             <select
-              name="paymentId"
-              value={safeFormData.paymentId || ""}
+              name="paymentAllocationId"
+              value={safeFormData.paymentAllocationId || ""}
               onChange={onInputChange}
               required
+              disabled={isSaving}
             >
               <option value="">Ödeme seçiniz</option>
 
@@ -64,27 +66,15 @@ function ResidentReceiptUploadForm({
             </select>
           </label>
 
-          <label>
-            Ödenen Tutar
-            <input
-              type="number"
-              name="amount"
-              value={safeFormData.amount || ""}
-              onChange={onInputChange}
-              placeholder="Örn: 1250"
-              min="0"
-              required
-            />
-          </label>
-
           <label className="full-width">
             Açıklama
             <textarea
-              name="description"
-              value={safeFormData.description || ""}
+              name="note"
+              value={safeFormData.note || ""}
               onChange={onInputChange}
               rows="4"
               placeholder="Örn: Temmuz aidatı için ödeme dekontudur."
+              disabled={isSaving}
             />
           </label>
 
@@ -99,6 +89,7 @@ function ResidentReceiptUploadForm({
                 accept=".pdf,.png,.jpg,.jpeg,.webp"
                 onChange={onFileChange}
                 required
+                disabled={isSaving}
               />
             </label>
 
@@ -125,10 +116,10 @@ function ResidentReceiptUploadForm({
           <button
             type="submit"
             className="dashboard-action-button"
-            disabled={Boolean(fileError)}
+            disabled={Boolean(fileError) || isSaving}
           >
             <UploadCloud size={18} />
-            Dekontu Gönder
+            {isSaving ? "Gönderiliyor..." : "Dekontu Gönder"}
           </button>
         </div>
       </form>
