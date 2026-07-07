@@ -115,48 +115,48 @@ enum NotificationSourceType {
 }
 
 model User {
-  id                       String               @id @default(uuid())
-  fullName                 String
-  email                    String               @unique
-  phone                    String?
-  passwordHash             String
-  role                     UserRole
-  status                   UserStatus           @default(ACTIVE)
-  apartmentResidents       ApartmentResident[]
-  uploadedReceipts         PaymentReceipt[]     @relation("UploadedReceipts")
-  reviewedReceipts         PaymentReceipt[]     @relation("ReviewedReceipts")
-  managerAssignments       ManagerAssignment[]  @relation("ManagerAssignments")
-  auditLogs                AuditLog[]           @relation("UserAuditLogs")
-  announcements            Announcement[]       @relation("UserAnnouncements")
-  createdRequests          ResidentRequest[]    @relation("UserCreatedRequests")
-  assignedRequests         ResidentRequest[]    @relation("UserAssignedRequests")
-  createdSmsSettings       SmsSetting[]         @relation("UserCreatedSmsSettings")
-  updatedSmsSettings       SmsSetting[]         @relation("UserUpdatedSmsSettings")
-  createdEmailSettings     EmailSetting[]       @relation("UserCreatedEmailSettings")
-  updatedEmailSettings     EmailSetting[]       @relation("UserUpdatedEmailSettings")
-  createdAiSettings        AiSetting[]          @relation("UserCreatedAiSettings")
-  updatedAiSettings        AiSetting[]          @relation("UserUpdatedAiSettings")
-  createdSystemSettings    SystemSetting[]      @relation("UserCreatedSystemSettings")
-  updatedSystemSettings    SystemSetting[]      @relation("UserUpdatedSystemSettings")
+  id                            String                  @id @default(uuid())
+  fullName                      String
+  email                         String                  @unique
+  phone                         String?
+  passwordHash                  String
+  role                          UserRole
+  status                        UserStatus              @default(ACTIVE)
+  apartmentResidents            ApartmentResident[]
+  uploadedReceipts              PaymentReceipt[]        @relation("UploadedReceipts")
+  reviewedReceipts              PaymentReceipt[]        @relation("ReviewedReceipts")
+  managerAssignments            ManagerAssignment[]     @relation("ManagerAssignments")
+  auditLogs                     AuditLog[]              @relation("UserAuditLogs")
+  announcements                 Announcement[]          @relation("UserAnnouncements")
+  createdRequests               ResidentRequest[]       @relation("UserCreatedRequests")
+  assignedRequests              ResidentRequest[]       @relation("UserAssignedRequests")
+  createdSmsSettings            SmsSetting[]            @relation("UserCreatedSmsSettings")
+  updatedSmsSettings            SmsSetting[]            @relation("UserUpdatedSmsSettings")
+  createdEmailSettings          EmailSetting[]          @relation("UserCreatedEmailSettings")
+  updatedEmailSettings          EmailSetting[]          @relation("UserUpdatedEmailSettings")
+  createdAiSettings             AiSetting[]             @relation("UserCreatedAiSettings")
+  updatedAiSettings             AiSetting[]             @relation("UserUpdatedAiSettings")
+  createdSystemSettings         SystemSetting[]         @relation("UserCreatedSystemSettings")
+  updatedSystemSettings         SystemSetting[]         @relation("UserUpdatedSystemSettings")
   createdSystemSecuritySettings SystemSecuritySetting[] @relation("UserCreatedSystemSecuritySettings")
   updatedSystemSecuritySettings SystemSecuritySetting[] @relation("UserUpdatedSystemSecuritySettings")
-  createdNotificationLogs  NotificationLog[]    @relation("UserCreatedNotificationLogs")
-  receivedNotificationLogs NotificationLog[]    @relation("UserReceivedNotificationLogs")
-  passwordResetTokens      PasswordResetToken[] @relation("UserPasswordResetTokens")
-  
+  createdNotificationLogs       NotificationLog[]       @relation("UserCreatedNotificationLogs")
+  receivedNotificationLogs      NotificationLog[]       @relation("UserReceivedNotificationLogs")
+  passwordResetTokens           PasswordResetToken[]    @relation("UserPasswordResetTokens")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model Site {
-  id          String   @id @default(uuid())
-  name        String
-  address     String
-  description String?
-  imageUrl    String?
-  hasElevator Boolean  @default(false)
-  systems     String[] @default([])
-  isActive Boolean @default(true)
+  id                 String              @id @default(uuid())
+  name               String
+  address            String
+  description        String?
+  imageUrl           String?
+  hasElevator        Boolean             @default(false)
+  systems            String[]            @default([])
+  isActive           Boolean             @default(true)
   blocks             Block[]
   paymentBatches     PaymentBatch[]
   managerAssignments ManagerAssignment[]
@@ -310,13 +310,24 @@ model PaymentReceipt {
   reviewedByUserId String?
   reviewedByUser   User?   @relation("ReviewedReceipts", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  aiProvider        AiProvider?
+  aiModelName       String?
+  aiPayerName       String?
+  aiAmountKurus     Int?
+  aiApartmentNumber String?
+  aiDescription     String?
+  aiPaymentDate     String?
+  aiConfidence      Float?
+  aiAnalyzedAt      DateTime?
 
   @@index([paymentAllocationId])
   @@index([uploadedByUserId])
   @@index([reviewedByUserId])
   @@index([status])
+  @@index([aiProvider])
+  @@index([aiAnalyzedAt])
 }
 
 model ManagerAssignment {
@@ -598,6 +609,7 @@ model PasswordResetToken {
   @@index([userId])
   @@index([expiresAt])
 }
+
 model SystemSecuritySetting {
   id String @id @default(uuid())
 

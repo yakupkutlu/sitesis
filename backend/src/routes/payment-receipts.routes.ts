@@ -31,6 +31,7 @@ const managerConfirmReceiptSchema = z.object({
   amount: z.coerce.number().positive().optional(),
   paymentOwnerType: z.string().trim().optional(),
   note: z.string().trim().optional(),
+  aiResult: z.string().trim().optional(),
 });
 const uploadReceiptSchema = z.object({
   paymentAllocationId: z.string().uuid(),
@@ -68,6 +69,69 @@ function buildAiAnalyzeMessage(aiResult: ReceiptAiAnalyzeResult) {
   }
 
   return `${aiResult.provider} ile dekont bilgileri okundu.`;
+}
+
+function parseSavedAiResult(value: string | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+
+    const provider =
+      typeof parsed.provider === "string" &&
+      ["OPENAI", "GEMINI", "CUSTOM"].includes(parsed.provider)
+        ? (parsed.provider as "OPENAI" | "GEMINI" | "CUSTOM")
+        : null;
+
+    const amount =
+      typeof parsed.amount === "number" && Number.isFinite(parsed.amount)
+        ? parsed.amount
+        : null;
+
+    const amountKurus =
+      typeof parsed.amountKurus === "number" && Number.isFinite(parsed.amountKurus)
+        ? Math.round(parsed.amountKurus)
+        : amount !== null
+          ? Math.round(amount * 100)
+          : null;
+
+    const confidence =
+      typeof parsed.confidence === "number" && Number.isFinite(parsed.confidence)
+        ? Math.max(0, Math.min(1, parsed.confidence))
+        : null;
+
+    return {
+      aiProvider: provider,
+      aiModelName:
+        typeof parsed.modelName === "string" && parsed.modelName.trim().length > 0
+          ? parsed.modelName.trim()
+          : null,
+      aiPayerName:
+        typeof parsed.payerName === "string" && parsed.payerName.trim().length > 0
+          ? parsed.payerName.trim()
+          : null,
+      aiAmountKurus: amountKurus,
+      aiApartmentNumber:
+        typeof parsed.apartmentNumber === "string" &&
+        parsed.apartmentNumber.trim().length > 0
+          ? parsed.apartmentNumber.trim()
+          : null,
+      aiDescription:
+        typeof parsed.description === "string" && parsed.description.trim().length > 0
+          ? parsed.description.trim()
+          : null,
+      aiPaymentDate:
+        typeof parsed.paymentDate === "string" && parsed.paymentDate.trim().length > 0
+          ? parsed.paymentDate.trim()
+          : null,
+      aiConfidence: confidence,
+      aiAnalyzedAt: provider ? new Date() : null,
+    };
+  } catch {
+    return null;
+  }
 }
 function formatKurusAsTry(amountKurus: number) {
   return (amountKurus / 100).toLocaleString("tr-TR", {
@@ -1024,6 +1088,7 @@ router.post(
         payerName,
         bankAccount,
         paymentOwnerType,
+        aiResult,
       } = validationResult.data;
 
       let managerAccessFilter: Prisma.PaymentAllocationWhereInput = {};
@@ -1085,36 +1150,7 @@ router.post(
       }
 
       if (amount !== undefined) {
-        const aiResult = await analyzeReceiptWithAiFallback({
-        filePath: uploadedFile.path,
-        mimeType: uploadedFile.mimetype,
-        originalFileName: uploadedFile.originalname,
-      });
-
-      const effectiveAmount = amount ?? aiResult.amount;
-
-      if (effectiveAmount === null || effectiveAmount === undefined) {
-        response.status(200).json({
-          success: true,
-          message:
-            "AI dekont tutarını okuyamadı. Lütfen tutarı manuel girip tekrar deneyin.",
-          data: {
-            status: "Eşleşme bulunamadı",
-            message:
-              "Dekont tutarı okunamadığı için ödeme eşleştirmesi yapılamadı.",
-            apartment: null,
-            suggestions: [],
-            ai: {
-              ...aiResult,
-              message: buildAiAnalyzeMessage(aiResult),
-            },
-          },
-        });
-
-        return;
-      }
-
-      const amountKurus = Math.round(effectiveAmount * 100);
+        const amountKurus = Math.round(amount * 100);
 
         if (amountKurus !== allocation.amountKurus) {
           throw new HttpError(
@@ -1123,7 +1159,6 @@ router.post(
           );
         }
       }
-
       const existingPendingReceipt = await prisma.paymentReceipt.findFirst({
         where: {
           paymentAllocationId,
@@ -1140,6 +1175,8 @@ router.post(
           "Bu ödeme için zaten onay bekleyen bir dekont var."
         );
       }
+
+      const savedAiResult = parseSavedAiResult(aiResult);
 
       const fallbackNote = [
         payerName ? `Ödeyen: ${payerName}` : null,
@@ -1163,6 +1200,19 @@ router.post(
             reviewNote: "Yönetici tarafından eşleştirilerek onaylandı.",
             reviewedAt: new Date(),
             reviewedByUserId: authenticatedRequest.user!.id,
+            ...(savedAiResult
+              ? {
+                  aiProvider: savedAiResult.aiProvider,
+                  aiModelName: savedAiResult.aiModelName,
+                  aiPayerName: savedAiResult.aiPayerName,
+                  aiAmountKurus: savedAiResult.aiAmountKurus,
+                  aiApartmentNumber: savedAiResult.aiApartmentNumber,
+                  aiDescription: savedAiResult.aiDescription,
+                  aiPaymentDate: savedAiResult.aiPaymentDate,
+                  aiConfidence: savedAiResult.aiConfidence,
+                  aiAnalyzedAt: savedAiResult.aiAnalyzedAt,
+                }
+              : {}),
           },
         });
 
@@ -1214,6 +1264,9 @@ router.post(
 );
 
 export default router;
+
+
+
 
 
 

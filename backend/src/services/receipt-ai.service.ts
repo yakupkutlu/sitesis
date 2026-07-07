@@ -58,10 +58,29 @@ Kurallar:
 - amount TL cinsinden sayı olmalı. Örnek: 1250.50
 - apartmentNumber dekont açıklamasında daire no varsa çıkar.
 - bilgi yoksa null yaz.
+- TCKN, TC kimlik no, IBAN, banka hesap numarası, telefon numarası veya özel kimlik numarası döndürme.
+- Açıklama içinde hassas bilgi varsa "[HASSAS BİLGİ GİZLENDİ]" yaz.
 - confidence 0 ile 1 arasında olmalı.
 `;
 }
 
+
+function maskSensitiveReceiptText(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  return value
+    // TCKN / 11 haneli kimlik numarası
+    .replace(/\b\d{11}\b/g, "[TCKN GİZLENDİ]")
+    // IBAN
+    .replace(/\bTR\d{2}[\s\d]{10,}\b/gi, "[IBAN GİZLENDİ]")
+    // Uzun banka / referans / işlem numaraları
+    .replace(/\b\d{12,}\b/g, "[NUMARA GİZLENDİ]")
+    // Türkiye telefon numarası benzeri değerler
+    .replace(/\b0?5\d{9}\b/g, "[TELEFON GİZLENDİ]")
+    .trim();
+}
 function normalizeAiJson(rawText: string) {
   const cleanedText = rawText
     .trim()
@@ -80,7 +99,7 @@ function normalizeAiJson(rawText: string) {
   return {
     payerName:
       typeof parsed.payerName === "string" && parsed.payerName.trim().length > 0
-        ? parsed.payerName.trim()
+        ? maskSensitiveReceiptText(parsed.payerName.trim())
         : null,
     amount,
     amountKurus: amount !== null ? Math.round(amount * 100) : null,
@@ -91,7 +110,7 @@ function normalizeAiJson(rawText: string) {
         : null,
     description:
       typeof parsed.description === "string" && parsed.description.trim().length > 0
-        ? parsed.description.trim()
+        ? maskSensitiveReceiptText(parsed.description.trim())
         : null,
     paymentDate:
       typeof parsed.paymentDate === "string" && parsed.paymentDate.trim().length > 0
@@ -291,7 +310,7 @@ export async function analyzeReceiptWithAiFallback(
       const apiKey = decryptText(setting.apiKeyEncrypted);
       const modelName =
         setting.modelName ||
-        (setting.provider === "GEMINI" ? "gemini-1.5-flash" : "gpt-4o-mini");
+        (setting.provider === "GEMINI" ? "gemini-2.5-flash" : "gpt-4o-mini");
 
       let extracted;
 
@@ -338,4 +357,7 @@ export async function analyzeReceiptWithAiFallback(
 
   return emptyAiResult;
 }
+
+
+
 

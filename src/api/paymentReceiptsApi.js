@@ -37,7 +37,11 @@ export function getPaymentReceiptDownloadUrl(receiptId) {
   return `${baseUrl}/payment-receipts/${receiptId}/download`;
 }
 
-export async function uploadPaymentReceipt({ paymentAllocationId, note, receipt }) {
+export async function uploadPaymentReceipt({
+  paymentAllocationId,
+  note,
+  receipt,
+}) {
   const formData = new FormData();
 
   formData.append("paymentAllocationId", paymentAllocationId);
@@ -88,6 +92,7 @@ export async function managerConfirmPaymentReceipt({
   paymentOwnerType,
   note,
   receipt,
+  aiResult,
 }) {
   const formData = new FormData();
 
@@ -98,6 +103,10 @@ export async function managerConfirmPaymentReceipt({
   if (amount) formData.append("amount", amount);
   if (paymentOwnerType) formData.append("paymentOwnerType", paymentOwnerType);
   if (note) formData.append("note", note);
+
+  if (aiResult) {
+    formData.append("aiResult", JSON.stringify(aiResult));
+  }
 
   formData.append("receipt", receipt);
 

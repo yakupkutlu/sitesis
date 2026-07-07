@@ -207,16 +207,6 @@ function ReceiptsPage() {
     setReceipts(getDataArray(result).map(mapReceiptToViewModel));
   }
 
-  async function loadInitialData() {
-    const [receiptResult, apartmentResult] = await Promise.all([
-      getPaymentReceipts({ page: 1, limit: 100 }),
-      getApartments({ page: 1, limit: 100 }),
-    ]);
-
-    setReceipts(getDataArray(receiptResult).map(mapReceiptToViewModel));
-    setApartments(getDataArray(apartmentResult));
-  }
-
   useEffect(() => {
     let isMounted = true;
 
@@ -386,6 +376,7 @@ function ReceiptsPage() {
         paymentOwnerType: uploadFormData.paymentOwnerType,
         note: uploadFormData.description.trim() || undefined,
         receipt: selectedUploadFile,
+        aiResult: matchResult?.ai,
       });
 
       await loadReceipts();
@@ -598,5 +589,9 @@ function ReceiptsPage() {
 }
 
 export default ReceiptsPage;
+
+
+
+
 
 
