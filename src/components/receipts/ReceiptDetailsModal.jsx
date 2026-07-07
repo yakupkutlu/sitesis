@@ -1,9 +1,53 @@
 ﻿import { X } from "lucide-react";
 
+function formatAiAmount(amountKurus) {
+  if (amountKurus === null || amountKurus === undefined) {
+    return "-";
+  }
+
+  return `${(Number(amountKurus) / 100).toLocaleString("tr-TR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} TL`;
+}
+
+function formatAiConfidence(confidence) {
+  if (confidence === null || confidence === undefined) {
+    return "-";
+  }
+
+  return `%${Math.round(Number(confidence) * 100)}`;
+}
+
+function formatDateTime(value) {
+  if (!value) {
+    return "-";
+  }
+
+  try {
+    return new Date(value).toLocaleString("tr-TR");
+  } catch {
+    return "-";
+  }
+}
+
 function ReceiptDetailsModal({ receipt, onClose }) {
   if (!receipt) {
     return null;
   }
+
+  const rawReceipt = receipt.raw || {};
+
+  const hasAiInfo = Boolean(
+    rawReceipt.aiProvider ||
+      rawReceipt.aiModelName ||
+      rawReceipt.aiPayerName ||
+      rawReceipt.aiAmountKurus !== null && rawReceipt.aiAmountKurus !== undefined ||
+      rawReceipt.aiApartmentNumber ||
+      rawReceipt.aiDescription ||
+      rawReceipt.aiPaymentDate ||
+      rawReceipt.aiConfidence !== null && rawReceipt.aiConfidence !== undefined
+  );
 
   return (
     <div className="modal-overlay">
@@ -85,6 +129,69 @@ function ReceiptDetailsModal({ receipt, onClose }) {
             <strong>{receipt.reviewedBy || "-"}</strong>
           </div>
         </div>
+
+        {hasAiInfo && (
+          <div className="receipt-ai-result-card">
+            <div>
+              <span className="section-kicker">AI Analiz Bilgileri</span>
+              <h4>Dekont AI ile analiz edilerek kaydedildi.</h4>
+            </div>
+
+            <div className="receipt-match-grid">
+              <div>
+                <span>Sağlayıcı</span>
+                <strong>{rawReceipt.aiProvider || "-"}</strong>
+              </div>
+
+              <div>
+                <span>Model</span>
+                <strong>{rawReceipt.aiModelName || "-"}</strong>
+              </div>
+
+              <div>
+                <span>Okunan Tutar</span>
+                <strong>{formatAiAmount(rawReceipt.aiAmountKurus)}</strong>
+              </div>
+
+              <div>
+                <span>Güven Oranı</span>
+                <strong>{formatAiConfidence(rawReceipt.aiConfidence)}</strong>
+              </div>
+
+              <div>
+                <span>Ödeyen</span>
+                <strong>{rawReceipt.aiPayerName || "-"}</strong>
+              </div>
+
+              <div>
+                <span>Okunan Daire No</span>
+                <strong>{rawReceipt.aiApartmentNumber || "-"}</strong>
+              </div>
+
+              <div>
+                <span>Ödeme Tarihi</span>
+                <strong>{rawReceipt.aiPaymentDate || "-"}</strong>
+              </div>
+
+              <div>
+                <span>Analiz Tarihi</span>
+                <strong>{formatDateTime(rawReceipt.aiAnalyzedAt)}</strong>
+              </div>
+
+              <div className="full-width">
+                <span>Okunan Açıklama</span>
+                <strong>{rawReceipt.aiDescription || "-"}</strong>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!hasAiInfo && (
+          <div className="details-description">
+            <span>AI Analiz Bilgileri</span>
+            <p>Bu dekont için kayıtlı AI analiz bilgisi bulunmuyor.</p>
+          </div>
+        )}
 
         <div className="details-description">
           <span>Dekont Notu</span>
