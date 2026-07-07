@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   BarChart3,
@@ -17,6 +17,15 @@ import ResidentForm from "../../components/residents/ResidentForm";
 import ResidentTable from "../../components/residents/ResidentTable";
 import ResidentDetailsModal from "../../components/residents/ResidentDetailsModal";
 
+import {
+  createResidentAndAssignApartment,
+  deleteApartmentResident,
+  getApartmentResidents,
+  updateApartmentResident,
+} from "../../api/apartmentResidentsApi";
+import { getApartments } from "../../api/apartmentsApi";
+import { useAuth } from "../../context/AuthContext";
+
 const navItems = [
   { label: "Panel", path: "/manager/dashboard", icon: BarChart3 },
   { label: "Daireler", path: "/manager/apartments", icon: Home },
@@ -28,126 +37,205 @@ const navItems = [
   { label: "Ayarlar", path: "/manager/settings", icon: Settings },
 ];
 
+const typeToLabel = {
+  OWNER: "Ev Sahibi",
+  TENANT: "Kiracı",
+};
+
+const labelToType = {
+  "Ev Sahibi": "OWNER",
+  Kiracı: "TENANT",
+};
+
 const emptyFormData = {
-  name: "",
-  role: "Kiracı",
-  block: "A Blok",
-  apartment: "Daire 1",
+  fullName: "",
+  type: "TENANT",
+  apartmentId: "",
   phone: "",
   email: "",
-  status: "Aktif",
-  paymentStatus: "Bekliyor",
-  totalDebt: "0 TL",
-  paidAmount: "0 TL",
-  remainingDebt: "0 TL",
-  lastPaymentDate: "-",
+  password: "",
   note: "",
 };
 
-const initialResidents = [
-  {
-    id: 1,
-    name: "Ali Can",
-    role: "Kiracı",
-    block: "A Blok",
-    apartment: "Daire 5",
-    phone: "0555 444 55 66",
-    email: "ali.can@example.com",
-    status: "Aktif",
-    paymentStatus: "Gecikmiş",
-    totalDebt: "2.500 TL",
-    paidAmount: "1.250 TL",
-    remainingDebt: "1.250 TL",
-    lastPaymentDate: "10.06.2026",
-    note: "Bu ay aidat ödemesi gecikmiş.",
-    createdAt: "30.06.2026",
-  },
-  {
-    id: 2,
-    name: "Ayşe Demir",
-    role: "Ev Sahibi",
-    block: "A Blok",
-    apartment: "Daire 1",
-    phone: "0555 777 88 99",
-    email: "ayse.demir@example.com",
-    status: "Aktif",
-    paymentStatus: "Ödendi",
-    totalDebt: "1.250 TL",
-    paidAmount: "1.250 TL",
-    remainingDebt: "0 TL",
-    lastPaymentDate: "05.06.2026",
-    note: "Daire sahibi aktif olarak oturuyor.",
-    createdAt: "29.06.2026",
-  },
-  {
-    id: 3,
-    name: "Mehmet Kaya",
-    role: "Kiracı",
-    block: "B Blok",
-    apartment: "Daire 8",
-    phone: "0555 222 11 00",
-    email: "mehmet.kaya@example.com",
-    status: "Onay Bekliyor",
+function getDataArray(result) {
+  const data = result?.data ?? result;
+
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.residents)) return data.residents;
+  if (Array.isArray(data?.apartments)) return data.apartments;
+
+  return [];
+}
+
+function formatDate(value) {
+  if (!value) return "-";
+
+  try {
+    return new Date(value).toLocaleDateString("tr-TR");
+  } catch {
+    return "-";
+  }
+}
+
+function mapApartmentResidentToViewModel(item) {
+  const user = item.user ?? {};
+  const apartment = item.apartment ?? {};
+  const block = apartment.block ?? {};
+  const site = block.site ?? {};
+
+  return {
+    id: item.id,
+    name: user.fullName ?? "-",
+    role: typeToLabel[item.type] ?? item.type ?? "-",
+    site: site.name ?? "-",
+    block: block.name ?? "-",
+    apartment: apartment.number ? `Daire ${apartment.number}` : "-",
+    phone: user.phone ?? "-",
+    email: user.email ?? "-",
+    status: user.status === "ACTIVE" ? "Aktif" : "Pasif",
     paymentStatus: "Bekliyor",
-    totalDebt: "1.800 TL",
+    totalDebt: "0 TL",
     paidAmount: "0 TL",
-    remainingDebt: "1.800 TL",
+    remainingDebt: "0 TL",
     lastPaymentDate: "-",
-    note: "Yeni kayıt onay bekliyor.",
-    createdAt: "30.06.2026",
-  },
-  {
-    id: 4,
-    name: "Zeynep Aydın",
-    role: "Ev Sahibi",
-    block: "C Blok",
-    apartment: "Daire 12",
-    phone: "0555 333 44 55",
-    email: "zeynep.aydin@example.com",
-    status: "Pasif",
-    paymentStatus: "Kısmi Ödeme",
-    totalDebt: "3.000 TL",
-    paidAmount: "2.000 TL",
-    remainingDebt: "1.000 TL",
-    lastPaymentDate: "02.06.2026",
-    note: "Tadilat süreci nedeniyle pasif.",
-    createdAt: "28.06.2026",
-  },
-];
+    note: `${site.name ?? "Site"} / ${block.name ?? "Blok"} / ${
+      apartment.number ? `Daire ${apartment.number}` : "Daire"
+    }`,
+    createdAt: formatDate(item.createdAt),
+    raw: item,
+  };
+}
 
 function ResidentsPage() {
-  const [residents, setResidents] = useState(initialResidents);
-  const [formData, setFormData] = useState(emptyFormData);
-  const [showForm, setShowForm] = useState(false);
-  const [editingResident, setEditingResident] = useState(null);
+  const { user } = useAuth();
+
+  const [residents, setResidents] = useState([]);
+  const [apartments, setApartments] = useState([]);
+
   const [selectedResident, setSelectedResident] = useState(null);
+  const [editingResident, setEditingResident] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [formData, setFormData] = useState(emptyFormData);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [roleFilter, setRoleFilter] = useState("Tümü");
   const [statusFilter, setStatusFilter] = useState("Tümü");
 
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  async function loadResidents() {
+    const result = await getApartmentResidents({
+      page: 1,
+      limit: 100,
+      search: searchTerm.trim(),
+    });
+
+    const nextResidents = getDataArray(result).map(mapApartmentResidentToViewModel);
+    setResidents(nextResidents);
+  }
+
+  async function loadApartments() {
+    const result = await getApartments({
+      page: 1,
+      limit: 100,
+    });
+
+    setApartments(getDataArray(result));
+  }
+
+  async function loadPageData() {
+    await Promise.all([loadResidents(), loadApartments()]);
+  }
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadInitialData() {
+      try {
+        setIsLoading(true);
+        setErrorMessage("");
+        await loadPageData();
+      } catch (error) {
+        if (isMounted) {
+          setErrorMessage(error?.message ?? "Sakin kayıtları alınamadı.");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadInitialData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const filteredResidents = useMemo(() => {
     return residents.filter((resident) => {
-      const searchValue = searchTerm.toLowerCase();
+      const searchValue = searchTerm.trim().toLowerCase();
 
-      const matchesSearch =
-        resident.name.toLowerCase().includes(searchValue) ||
-        resident.role.toLowerCase().includes(searchValue) ||
-        resident.block.toLowerCase().includes(searchValue) ||
-        resident.apartment.toLowerCase().includes(searchValue) ||
-        resident.phone.toLowerCase().includes(searchValue) ||
-        resident.email.toLowerCase().includes(searchValue) ||
-        resident.paymentStatus.toLowerCase().includes(searchValue);
+      const searchableText = [
+        resident.name,
+        resident.role,
+        resident.site,
+        resident.block,
+        resident.apartment,
+        resident.phone,
+        resident.email,
+        resident.paymentStatus,
+      ]
+        .join(" ")
+        .toLowerCase();
 
+      const matchesSearch = searchableText.includes(searchValue);
       const matchesRole =
         roleFilter === "Tümü" ? true : resident.role === roleFilter;
-
       const matchesStatus =
         statusFilter === "Tümü" ? true : resident.status === statusFilter;
 
       return matchesSearch && matchesRole && matchesStatus;
     });
   }, [residents, searchTerm, roleFilter, statusFilter]);
+
+  function openCreateForm() {
+    setEditingResident(null);
+    setFormData(emptyFormData);
+    setShowForm(true);
+    setMessage("");
+    setErrorMessage("");
+  }
+
+  function openEditForm(resident) {
+    setEditingResident(resident);
+
+    setFormData({
+      fullName: resident.name,
+      type: labelToType[resident.role] ?? "TENANT",
+      apartmentId: resident.raw?.apartmentId ?? resident.raw?.apartment?.id ?? "",
+      phone: resident.phone === "-" ? "" : resident.phone,
+      email: resident.email,
+      password: "",
+      note: resident.note ?? "",
+    });
+
+    setShowForm(true);
+    setMessage("");
+    setErrorMessage("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function closeForm() {
+    setEditingResident(null);
+    setFormData(emptyFormData);
+    setShowForm(false);
+  }
 
   function handleInputChange(event) {
     const { name, value } = event.target;
@@ -158,114 +246,140 @@ function ResidentsPage() {
     }));
   }
 
-  function handleOpenForm() {
-    setFormData(emptyFormData);
-    setEditingResident(null);
-    setShowForm(true);
-  }
-
-  function handleCancelForm() {
-    setFormData(emptyFormData);
-    setEditingResident(null);
-    setShowForm(false);
-  }
-
-  function handleEdit(resident) {
-    setEditingResident(resident);
-
-    setFormData({
-      name: resident.name,
-      role: resident.role,
-      block: resident.block,
-      apartment: resident.apartment,
-      phone: resident.phone,
-      email: resident.email,
-      status: resident.status,
-      paymentStatus: resident.paymentStatus,
-      totalDebt: resident.totalDebt,
-      paidAmount: resident.paidAmount,
-      remainingDebt: resident.remainingDebt,
-      lastPaymentDate: resident.lastPaymentDate,
-      note: resident.note,
-    });
-
-    setShowForm(true);
-  }
-
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
 
-    if (editingResident) {
-      setResidents((currentResidents) =>
-        currentResidents.map((resident) =>
-          resident.id === editingResident.id
-            ? {
-                ...resident,
-                ...formData,
-              }
-            : resident
-        )
-      );
-    } else {
-      const newResident = {
-        id: Date.now(),
-        ...formData,
-        createdAt: new Date().toLocaleDateString("tr-TR"),
-      };
-
-      setResidents((currentResidents) => [newResident, ...currentResidents]);
-    }
-
-    handleCancelForm();
-  }
-
-  function handleDelete(residentId) {
-    const confirmed = window.confirm("Bu sakin kaydını silmek istiyor musunuz?");
-
-    if (!confirmed) {
+    if (!formData.apartmentId) {
+      setErrorMessage("Daire seçimi zorunludur.");
       return;
     }
 
-    setResidents((currentResidents) =>
-      currentResidents.filter((resident) => resident.id !== residentId)
+    try {
+      setIsSaving(true);
+      setMessage("");
+      setErrorMessage("");
+
+      if (editingResident) {
+        await updateApartmentResident(editingResident.id, {
+          apartmentId: formData.apartmentId,
+          type: formData.type,
+        });
+
+        setMessage("Sakin daire bağlantısı başarıyla güncellendi.");
+      } else {
+        if (!formData.fullName.trim()) {
+          setErrorMessage("Ad soyad zorunludur.");
+          return;
+        }
+
+        if (!formData.email.trim()) {
+          setErrorMessage("E-posta zorunludur.");
+          return;
+        }
+
+        if (formData.password.length < 8) {
+          setErrorMessage("Şifre en az 8 karakter olmalıdır.");
+          return;
+        }
+
+        await createResidentAndAssignApartment({
+          fullName: formData.fullName.trim(),
+          email: formData.email.trim(),
+          phone: formData.phone.trim() || undefined,
+          password: formData.password,
+          apartmentId: formData.apartmentId,
+          type: formData.type,
+        });
+
+        setMessage("Sakin başarıyla oluşturuldu ve daireye bağlandı.");
+      }
+
+      await loadPageData();
+      closeForm();
+    } catch (error) {
+      setErrorMessage(error?.message ?? "Sakin kaydı kaydedilemedi.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleDelete(residentId) {
+    const isConfirmed = window.confirm(
+      "Bu sakinin daire bağlantısını kaldırmak istiyor musunuz?"
     );
+
+    if (!isConfirmed) {
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      setMessage("");
+      setErrorMessage("");
+
+      await deleteApartmentResident(residentId);
+      await loadPageData();
+
+      setMessage("Sakin daire bağlantısı başarıyla kaldırıldı.");
+    } catch (error) {
+      setErrorMessage(error?.message ?? "Sakin bağlantısı kaldırılamadı.");
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   return (
     <DashboardLayout
       roleTitle="Sakinler"
       roleBadge="Yönetici"
-      userName="Alaa"
+      userName={user?.fullName ?? "Yönetici"}
       navItems={navItems}
       theme="manager"
     >
       <div className="dashboard-page-header">
         <div>
           <span className="section-kicker">Sakin Yönetimi</span>
+
           <h2>Sakinler</h2>
+
           <p>
-            Kiracı ve ev sahibi kayıtlarını, daire bağlantılarını ve ödeme
-            özetlerini buradan takip edebilirsiniz.
+            Yetkili olduğunuz site veya blok kapsamındaki kiracı ve ev sahibi
+            kayıtlarını buradan görüntüleyebilir, ekleyebilir ve düzeltebilirsiniz.
           </p>
         </div>
 
         <button
           type="button"
           className="dashboard-action-button"
-          onClick={handleOpenForm}
+          onClick={openCreateForm}
+          disabled={isSaving}
         >
           <Plus size={18} />
           Yeni Sakin
         </button>
       </div>
 
+      {errorMessage && (
+        <div className="login-error-message">
+          <p>{errorMessage}</p>
+        </div>
+      )}
+
+      {message && (
+        <div className="login-success-message">
+          <p>{message}</p>
+        </div>
+      )}
+
       {showForm && (
         <ResidentForm
           formData={formData}
+          apartments={apartments}
           editingResident={editingResident}
           onInputChange={handleInputChange}
           onSubmit={handleSubmit}
-          onCancel={handleCancelForm}
+          onCancel={closeForm}
+          isSaving={isSaving}
         />
       )}
 
@@ -278,12 +392,18 @@ function ResidentsPage() {
         setStatusFilter={setStatusFilter}
       />
 
-      <ResidentTable
-        residents={filteredResidents}
-        onView={setSelectedResident}
-        onEdit={handleEdit}
-        onDelete={handleDelete}
-      />
+      {isLoading ? (
+        <div className="dashboard-panel">
+          <p>Sakin kayıtları yükleniyor...</p>
+        </div>
+      ) : (
+        <ResidentTable
+          residents={filteredResidents}
+          onView={setSelectedResident}
+          onEdit={openEditForm}
+          onDelete={handleDelete}
+        />
+      )}
 
       <ResidentDetailsModal
         resident={selectedResident}

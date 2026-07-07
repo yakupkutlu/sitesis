@@ -1,15 +1,28 @@
 ﻿import { apiRequest } from "./client";
 
-export async function getApartmentResidents(params = {}) {
+function buildQueryString(params = {}) {
   const searchParams = new URLSearchParams();
 
-  if (params.search) searchParams.set("search", params.search);
-  if (params.page) searchParams.set("page", String(params.page));
-  if (params.limit) searchParams.set("limit", String(params.limit));
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      searchParams.set(key, String(value));
+    }
+  });
 
   const queryString = searchParams.toString();
 
-  return apiRequest(`/apartment-residents${queryString ? `?${queryString}` : ""}`);
+  return queryString ? `?${queryString}` : "";
+}
+
+export async function getApartmentResidents(params = {}) {
+  return apiRequest(`/apartment-residents${buildQueryString(params)}`);
+}
+
+export async function createResidentAndAssignApartment(payload) {
+  return apiRequest("/apartment-residents/create-resident", {
+    method: "POST",
+    body: payload,
+  });
 }
 
 export async function createApartmentResident(payload) {

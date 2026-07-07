@@ -1,11 +1,13 @@
-import { X } from "lucide-react";
+﻿import { X } from "lucide-react";
 
 function ResidentForm({
   formData,
+  apartments = [],
   editingResident,
   onInputChange,
   onSubmit,
   onCancel,
+  isSaving = false,
 }) {
   return (
     <section className="resident-form-card">
@@ -20,8 +22,7 @@ function ResidentForm({
           </h3>
 
           <p>
-            Kiracı veya ev sahibi bilgilerini, daire bağlantısını ve iletişim
-            bilgilerini buradan yönetebilirsiniz.
+            Yönetici sadece kendi yetki alanındaki dairelere sakin ekleyebilir.
           </p>
         </div>
 
@@ -36,47 +37,45 @@ function ResidentForm({
             Ad Soyad
             <input
               type="text"
-              name="name"
-              value={formData.name}
+              name="fullName"
+              value={formData.fullName}
               onChange={onInputChange}
               placeholder="Örn: Ali Can"
               required
+              disabled={isSaving}
             />
           </label>
 
           <label>
             Rol
-            <select name="role" value={formData.role} onChange={onInputChange}>
-              <option>Kiracı</option>
-              <option>Ev Sahibi</option>
-            </select>
-          </label>
-
-          <label>
-            Blok / Apartman
             <select
-              name="block"
-              value={formData.block}
+              name="type"
+              value={formData.type}
               onChange={onInputChange}
+              disabled={isSaving}
             >
-              <option>A Blok</option>
-              <option>B Blok</option>
-              <option>C Blok</option>
+              <option value="TENANT">Kiracı</option>
+              <option value="OWNER">Ev Sahibi</option>
             </select>
           </label>
 
           <label>
             Daire
             <select
-              name="apartment"
-              value={formData.apartment}
+              name="apartmentId"
+              value={formData.apartmentId}
               onChange={onInputChange}
+              required
+              disabled={isSaving}
             >
-              <option>Daire 1</option>
-              <option>Daire 2</option>
-              <option>Daire 5</option>
-              <option>Daire 8</option>
-              <option>Daire 12</option>
+              <option value="">Daire seçiniz</option>
+
+              {apartments.map((apartment) => (
+                <option key={apartment.id} value={apartment.id}>
+                  {apartment.block?.site?.name ?? "Site"} /{" "}
+                  {apartment.block?.name ?? "Blok"} / Daire {apartment.number}
+                </option>
+              ))}
             </select>
           </label>
 
@@ -88,7 +87,7 @@ function ResidentForm({
               value={formData.phone}
               onChange={onInputChange}
               placeholder="Örn: 0555 000 00 00"
-              required
+              disabled={isSaving}
             />
           </label>
 
@@ -101,77 +100,20 @@ function ResidentForm({
               onChange={onInputChange}
               placeholder="Örn: ali@example.com"
               required
+              disabled={isSaving}
             />
           </label>
 
           <label>
-            Durum
-            <select
-              name="status"
-              value={formData.status}
-              onChange={onInputChange}
-            >
-              <option>Aktif</option>
-              <option>Pasif</option>
-              <option>Onay Bekliyor</option>
-            </select>
-          </label>
-
-          <label>
-            Aidat Durumu
-            <select
-              name="paymentStatus"
-              value={formData.paymentStatus}
-              onChange={onInputChange}
-            >
-              <option>Ödendi</option>
-              <option>Bekliyor</option>
-              <option>Gecikmiş</option>
-              <option>Kısmi Ödeme</option>
-            </select>
-          </label>
-
-          <label>
-            Toplam Borç
+            Geçici Şifre
             <input
-              type="text"
-              name="totalDebt"
-              value={formData.totalDebt}
+              type="password"
+              name="password"
+              value={formData.password}
               onChange={onInputChange}
-              placeholder="Örn: 2.500 TL"
-            />
-          </label>
-
-          <label>
-            Ödenen Tutar
-            <input
-              type="text"
-              name="paidAmount"
-              value={formData.paidAmount}
-              onChange={onInputChange}
-              placeholder="Örn: 1.250 TL"
-            />
-          </label>
-
-          <label>
-            Kalan Borç
-            <input
-              type="text"
-              name="remainingDebt"
-              value={formData.remainingDebt}
-              onChange={onInputChange}
-              placeholder="Örn: 1.250 TL"
-            />
-          </label>
-
-          <label>
-            Son Ödeme Tarihi
-            <input
-              type="text"
-              name="lastPaymentDate"
-              value={formData.lastPaymentDate}
-              onChange={onInputChange}
-              placeholder="Örn: 10.06.2026"
+              placeholder="En az 8 karakter"
+              required={!editingResident}
+              disabled={isSaving}
             />
           </label>
 
@@ -182,18 +124,28 @@ function ResidentForm({
               value={formData.note}
               onChange={onInputChange}
               rows="3"
-              placeholder="Sakin ile ilgili kısa not yazabilirsiniz."
+              placeholder="Bu not şimdilik sadece form içindir, backend'e kaydedilmeyecek."
+              disabled={isSaving}
             />
           </label>
         </div>
 
         <div className="form-actions">
-          <button type="button" className="secondary-form-button" onClick={onCancel}>
+          <button
+            type="button"
+            className="secondary-form-button"
+            onClick={onCancel}
+            disabled={isSaving}
+          >
             Vazgeç
           </button>
 
-          <button type="submit" className="dashboard-action-button">
-            {editingResident ? "Sakini Güncelle" : "Sakini Kaydet"}
+          <button
+            type="submit"
+            className="dashboard-action-button"
+            disabled={isSaving}
+          >
+            {isSaving ? "Kaydediliyor..." : editingResident ? "Sakini Güncelle" : "Sakini Kaydet"}
           </button>
         </div>
       </form>

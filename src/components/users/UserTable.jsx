@@ -1,4 +1,4 @@
-import { Eye } from "lucide-react";
+﻿import { Edit, Eye, Power, Trash2 } from "lucide-react";
 
 function getUserStatusClass(status) {
   if (status === "Aktif") {
@@ -12,7 +12,14 @@ function getUserStatusClass(status) {
   return "passive";
 }
 
-function UserTable({ users, onView }) {
+function UserTable({
+  users,
+  onView,
+  onEdit,
+  onToggleStatus,
+  onDelete,
+  isSaving = false,
+}) {
   const safeUsers = users || [];
 
   return (
@@ -86,15 +93,44 @@ function UserTable({ users, onView }) {
                     </td>
 
                     <td>
-                      <button
-                        type="button"
-                        className="table-action-button"
-                        onClick={() => onView(user)}
-                        aria-label={`${user.name || "Kullanıcı"} detayını görüntüle`}
-                      >
-                        <Eye size={16} />
-                        Detay
-                      </button>
+                      <div className="table-actions">
+                        <button
+                          type="button"
+                          onClick={() => onView(user)}
+                          aria-label={`${user.name || "Kullanıcı"} detayını görüntüle`}
+                          disabled={isSaving}
+                        >
+                          <Eye size={16} />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => onEdit(user)}
+                          aria-label={`${user.name || "Kullanıcı"} düzenle`}
+                          disabled={isSaving}
+                        >
+                          <Edit size={16} />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => onToggleStatus(user)}
+                          aria-label={`${user.name || "Kullanıcı"} durum değiştir`}
+                          disabled={isSaving}
+                        >
+                          <Power size={16} />
+                        </button>
+
+                        <button
+                          type="button"
+                          className="danger-table-button"
+                          onClick={() => onDelete(user)}
+                          aria-label={`${user.name || "Kullanıcı"} daire bağlantısını kaldır`}
+                          disabled={isSaving}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

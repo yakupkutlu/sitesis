@@ -1,6 +1,9 @@
-import { Edit, Eye, Trash2 } from "lucide-react";
+﻿import { Edit, Eye, Trash2 } from "lucide-react";
 
 function ResidentTable({ residents, onView, onEdit, onDelete }) {
+  const canEdit = typeof onEdit === "function";
+  const canDelete = typeof onDelete === "function";
+
   return (
     <section className="residents-table-card">
       <div className="residents-table-wrapper">
@@ -87,17 +90,21 @@ function ResidentTable({ residents, onView, onEdit, onDelete }) {
                           <Eye size={16} />
                         </button>
 
-                        <button type="button" onClick={() => onEdit(resident)}>
-                          <Edit size={16} />
-                        </button>
+                        {canEdit && (
+                          <button type="button" onClick={() => onEdit(resident)}>
+                            <Edit size={16} />
+                          </button>
+                        )}
 
-                        <button
-                          type="button"
-                          className="danger-table-button"
-                          onClick={() => onDelete(resident.id)}
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                        {canDelete && (
+                          <button
+                            type="button"
+                            className="danger-table-button"
+                            onClick={() => onDelete(resident.id)}
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   BarChart3,
@@ -18,6 +18,9 @@ import ManagerRequestViewModal from "../../components/manager-requests/ManagerRe
 import ManagerRequestEditModal from "../../components/manager-requests/ManagerRequestEditModal";
 import ManagerRequestHistoryModal from "../../components/manager-requests/ManagerRequestHistoryModal";
 
+import { getRequests, updateRequest } from "../../api/requestsApi";
+import { useAuth } from "../../context/AuthContext";
+
 const navItems = [
   { label: "Panel", path: "/manager/dashboard", icon: BarChart3 },
   { label: "Daireler", path: "/manager/apartments", icon: Home },
@@ -29,136 +32,109 @@ const navItems = [
   { label: "Ayarlar", path: "/manager/settings", icon: Settings },
 ];
 
-const managerManagedArea = {
-  type: "site",
-  name: "Mavi Site",
+const statusToLabel = {
+  OPEN: "Yeni",
+  IN_PROGRESS: "İnceleniyor",
+  DONE: "Çözüldü",
+  REJECTED: "Reddedildi",
 };
 
-const initialRequests = [
-  {
-    id: 1001,
-    title: "Asansör çalışmıyor",
-    residentName: "Ali Can",
-    phone: "0555 444 55 66",
-    apartmentLabel: "A Blok / Daire 5",
-    category: "Arıza",
-    priority: "Yüksek",
-    status: "Yeni",
-    description:
-      "A Blok asansörü sabah saatlerinden beri çalışmıyor. Kontrol edilmesini rica ederim.",
-    managerResponse: "",
-    fileName: "asansor-ariza.jpg",
-    history: [
-      {
-        id: 1,
-        date: "30.06.2026",
-        text: "Talep sakin tarafından oluşturuldu.",
-      },
-    ],
-    createdAt: "30.06.2026",
-    updatedAt: "30.06.2026",
-  },
-  {
-    id: 1002,
-    title: "Otopark ışığı yanmıyor",
-    residentName: "Ayşe Demir",
-    phone: "0555 777 88 99",
-    apartmentLabel: "A Blok / Daire 1",
-    category: "Bakım",
-    priority: "Orta",
-    status: "İnceleniyor",
-    description:
-      "Otopark girişindeki ışık çalışmıyor. Akşam saatlerinde görüş zorlaşıyor.",
-    managerResponse: "Elektrikçi ile görüşüldü, gün içinde kontrol edilecek.",
-    fileName: "otopark-isik.png",
-    history: [
-      {
-        id: 1,
-        date: "29.06.2026",
-        text: "Talep sakin tarafından oluşturuldu.",
-      },
-      {
-        id: 2,
-        date: "30.06.2026",
-        text: "Yönetici talebi incelemeye aldı.",
-      },
-    ],
-    createdAt: "29.06.2026",
-    updatedAt: "30.06.2026",
-  },
-  {
-    id: 1003,
-    title: "Gece gürültü şikayeti",
-    residentName: "Zeynep Aydın",
-    phone: "0555 333 44 55",
-    apartmentLabel: "C Blok / Daire 12",
-    category: "Şikayet",
-    priority: "Orta",
-    status: "Yeni",
-    description:
-      "Son birkaç gündür gece geç saatlerde yüksek ses oluyor. Bilgilendirme yapılmasını istiyorum.",
-    managerResponse: "",
-    fileName: "",
-    history: [
-      {
-        id: 1,
-        date: "28.06.2026",
-        text: "Talep sakin tarafından oluşturuldu.",
-      },
-    ],
-    createdAt: "28.06.2026",
-    updatedAt: "28.06.2026",
-  },
-  {
-    id: 1004,
-    title: "Kapı giriş kartı çalışmıyor",
-    residentName: "Mehmet Kaya",
-    phone: "0555 222 11 00",
-    apartmentLabel: "B Blok / Daire 8",
-    category: "Güvenlik",
-    priority: "Düşük",
-    status: "Çözüldü",
-    description:
-      "Bina giriş kartım çalışmıyor. Yeni kart tanımlanmasını rica ederim.",
-    managerResponse: "Yeni kart tanımlandı ve sakine teslim edildi.",
-    fileName: "",
-    history: [
-      {
-        id: 1,
-        date: "27.06.2026",
-        text: "Talep sakin tarafından oluşturuldu.",
-      },
-      {
-        id: 2,
-        date: "28.06.2026",
-        text: "Talep çözüldü olarak güncellendi.",
-      },
-    ],
-    createdAt: "27.06.2026",
-    updatedAt: "28.06.2026",
-  },
-];
+const labelToStatus = {
+  Yeni: "OPEN",
+  İnceleniyor: "IN_PROGRESS",
+  "İnceleniyor": "IN_PROGRESS",
+  Çözüldü: "DONE",
+  Reddedildi: "REJECTED",
+};
+
+const typeToLabel = {
+  MAINTENANCE: "Bakım",
+  COMPLAINT: "Şikayet",
+  SUGGESTION: "Öneri",
+  GENERAL: "Genel",
+};
 
 const emptyUpdateData = {
   status: "Yeni",
   managerResponse: "",
-  sendSms: "Gönder",
+  sendSms: "Gönderme",
   sendEmail: "Gönder",
 };
 
-function buildNotificationText(updateData) {
-  const shouldSendNotification =
-    updateData.sendSms === "Gönder" || updateData.sendEmail === "Gönder";
+function getDataArray(result) {
+  const data = result?.data ?? result;
 
-  if (!shouldSendNotification) {
-    return " Sakine bilgilendirme gönderilmeyecek.";
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.requests)) return data.requests;
+
+  return [];
+}
+
+function formatDate(value) {
+  if (!value) return "-";
+
+  try {
+    return new Date(value).toLocaleDateString("tr-TR");
+  } catch {
+    return "-";
   }
+}
 
-  return ` Bildirim tercihi: SMS ${updateData.sendSms}, E-posta ${updateData.sendEmail}.`;
+function getApartmentLabel(request) {
+  const siteName = request?.apartment?.block?.site?.name;
+  const blockName = request?.apartment?.block?.name;
+  const apartmentNumber = request?.apartment?.number;
+
+  return [siteName, blockName, apartmentNumber ? `Daire ${apartmentNumber}` : ""]
+    .filter(Boolean)
+    .join(" / ");
+}
+
+function mapRequestToViewModel(request) {
+  const createdAt = formatDate(request.createdAt);
+  const updatedAt = formatDate(request.updatedAt);
+
+  return {
+    id: request.id,
+    title: request.title,
+    residentName: request.createdByUser?.fullName ?? "-",
+    phone: request.createdByUser?.phone ?? "-",
+    apartmentLabel: getApartmentLabel(request),
+    category: typeToLabel[request.type] ?? request.type ?? "Genel",
+    priority: "Normal",
+    status: statusToLabel[request.status] ?? request.status ?? "Yeni",
+    description: request.description ?? "",
+    managerResponse: request.assignedToUser
+      ? `Atanan yönetici: ${request.assignedToUser.fullName}`
+      : "",
+    fileName: "",
+    history: [
+      {
+        id: `${request.id}-created`,
+        date: createdAt,
+        text: "Talep sakin tarafından oluşturuldu.",
+      },
+      ...(request.updatedAt && request.updatedAt !== request.createdAt
+        ? [
+            {
+              id: `${request.id}-updated`,
+              date: updatedAt,
+              text: `Talep durumu: ${statusToLabel[request.status] ?? request.status}`,
+            },
+          ]
+        : []),
+    ],
+    createdAt,
+    updatedAt,
+    raw: request,
+  };
 }
 
 function ManagerRequestsPage() {
-  const [requests, setRequests] = useState(initialRequests);
+  const { user } = useAuth();
+
+  const [requests, setRequests] = useState([]);
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [activeModal, setActiveModal] = useState(null);
   const [updateData, setUpdateData] = useState(emptyUpdateData);
@@ -167,6 +143,48 @@ function ManagerRequestsPage() {
   const [categoryFilter, setCategoryFilter] = useState("Tümü");
   const [priorityFilter, setPriorityFilter] = useState("Tümü");
   const [statusFilter, setStatusFilter] = useState("Tümü");
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  async function loadRequests() {
+    const result = await getRequests({
+      page: 1,
+      limit: 100,
+      search: searchTerm.trim(),
+    });
+
+    const requestItems = getDataArray(result).map(mapRequestToViewModel);
+    setRequests(requestItems);
+  }
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadInitialData() {
+      try {
+        setIsLoading(true);
+        setErrorMessage("");
+        await loadRequests();
+      } catch (error) {
+        if (isMounted) {
+          setErrorMessage(error?.message ?? "Talepler alınamadı.");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadInitialData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const summary = useMemo(() => {
     return {
@@ -227,7 +245,7 @@ function ManagerRequestsPage() {
     setUpdateData({
       status: request.status || "Yeni",
       managerResponse: request.managerResponse || "",
-      sendSms: "Gönder",
+      sendSms: "Gönderme",
       sendEmail: "Gönder",
     });
 
@@ -254,51 +272,45 @@ function ManagerRequestsPage() {
     }));
   }
 
-  function handleUpdateRequest(event) {
+  async function handleUpdateRequest(event) {
     event.preventDefault();
 
     if (!selectedRequest) {
       return;
     }
 
-    const updateDate = new Date().toLocaleDateString("tr-TR");
-    const notificationText = buildNotificationText(updateData);
+    const backendStatus = labelToStatus[updateData.status];
 
-    setRequests((currentRequests) =>
-      currentRequests.map((request) => {
-        if (request.id !== selectedRequest.id) {
-          return request;
-        }
+    if (!backendStatus) {
+      setErrorMessage("Geçerli bir talep durumu seçiniz.");
+      return;
+    }
 
-        const currentHistory = Array.isArray(request.history)
-          ? request.history
-          : [];
+    try {
+      setIsSaving(true);
+      setMessage("");
+      setErrorMessage("");
 
-        return {
-          ...request,
-          status: updateData.status,
-          managerResponse: updateData.managerResponse.trim(),
-          updatedAt: updateDate,
-          history: [
-            ...currentHistory,
-            {
-              id: Date.now(),
-              date: updateDate,
-              text: `Yönetici talebi "${updateData.status}" durumuna güncelledi.${notificationText}`,
-            },
-          ],
-        };
-      })
-    );
+      await updateRequest(selectedRequest.id, {
+        status: backendStatus,
+      });
 
-    closeModal();
+      await loadRequests();
+
+      setMessage("Talep durumu başarıyla güncellendi.");
+      closeModal();
+    } catch (error) {
+      setErrorMessage(error?.message ?? "Talep güncellenemedi.");
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   return (
     <DashboardLayout
       roleTitle="Talepler"
       roleBadge="Yönetici"
-      userName="Alaa"
+      userName={user?.fullName ?? "Yönetici"}
       navItems={navItems}
       theme="manager"
     >
@@ -309,12 +321,23 @@ function ManagerRequestsPage() {
           <h2>Talepler</h2>
 
           <p>
-            {managerManagedArea.name} kapsamındaki sakinlerden gelen talepleri
-            görüntüleyebilir, düzenleyebilir ve işlem geçmişini takip
-            edebilirsiniz.
+            Yetkili olduğunuz site veya blok kapsamındaki sakin taleplerini
+            görüntüleyebilir ve durumlarını güncelleyebilirsiniz.
           </p>
         </div>
       </div>
+
+      {errorMessage && (
+        <div className="login-error-message">
+          <p>{errorMessage}</p>
+        </div>
+      )}
+
+      {message && (
+        <div className="login-success-message">
+          <p>{message}</p>
+        </div>
+      )}
 
       <ManagerRequestSummaryCards summary={summary} />
 
@@ -329,12 +352,24 @@ function ManagerRequestsPage() {
         setStatusFilter={setStatusFilter}
       />
 
-      <ManagerRequestCards
-        requests={filteredRequests}
-        onView={openViewModal}
-        onEdit={openEditModal}
-        onHistory={openHistoryModal}
-      />
+      {isLoading ? (
+        <div className="dashboard-panel">
+          <p>Talepler yükleniyor...</p>
+        </div>
+      ) : (
+        <ManagerRequestCards
+          requests={filteredRequests}
+          onView={openViewModal}
+          onEdit={openEditModal}
+          onHistory={openHistoryModal}
+        />
+      )}
+
+      {isSaving && (
+        <div className="dashboard-panel">
+          <p>Talep güncelleniyor...</p>
+        </div>
+      )}
 
       <ManagerRequestViewModal
         request={activeModal === "view" ? selectedRequest : null}

@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+﻿import { X } from "lucide-react";
 
 function ResidentDetailsModal({ resident, onClose }) {
   if (!resident) {
@@ -28,6 +28,11 @@ function ResidentDetailsModal({ resident, onClose }) {
           <div>
             <span>Durum</span>
             <strong>{resident.status}</strong>
+          </div>
+
+          <div>
+            <span>Site</span>
+            <strong>{resident.site}</strong>
           </div>
 
           <div>

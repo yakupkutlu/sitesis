@@ -1,4 +1,5 @@
-import express, { type Request, type Response } from "express";
+﻿import express, { type Request, type Response } from "express";
+import bcrypt from "bcryptjs";
 import { z } from "zod";
 
 import prisma from "../db/prisma.js";
@@ -68,7 +69,7 @@ const updateApartmentResidentSchema = z
       return Object.values(data).some((value) => value !== undefined);
     },
     {
-      message: "En az bir alan gönderilmelidir.",
+      message: "En az bir alan gأ¶nderilmelidir.",
     }
   );
 
@@ -86,7 +87,7 @@ async function getManagerApartmentResidentFilter(managerId: string) {
   const managerScope = await getManagerScope(managerId);
 
   if (!hasManagerScope(managerScope)) {
-    throw new HttpError(403, "Bu yöneticiye atanmış bir site veya blok bulunamadı.");
+    throw new HttpError(403, "Bu yأ¶neticiye atanmؤ±إں bir site veya blok bulunamadؤ±.");
   }
 
   const filter: Prisma.ApartmentResidentWhereInput = {
@@ -124,7 +125,7 @@ async function ensureApartmentExists(apartmentId: string) {
   });
 
   if (!apartment) {
-    throw new HttpError(404, "Daire bulunamadı.");
+    throw new HttpError(404, "Daire bulunamadؤ±.");
   }
 }
 
@@ -141,15 +142,15 @@ async function ensureResidentUserCanBeAssigned(userId: string) {
   });
 
   if (!user) {
-    throw new HttpError(404, "Kullanıcı bulunamadı.");
+    throw new HttpError(404, "Kullanؤ±cؤ± bulunamadؤ±.");
   }
 
   if (user.role !== "RESIDENT") {
-    throw new HttpError(400, "Sadece RESIDENT rolündeki kullanıcılar daireye atanabilir.");
+    throw new HttpError(400, "Sadece RESIDENT rolأ¼ndeki kullanؤ±cؤ±lar daireye atanabilir.");
   }
 
   if (user.status !== "ACTIVE") {
-    throw new HttpError(400, "Pasif kullanıcı daireye atanamaz.");
+    throw new HttpError(400, "Pasif kullanؤ±cؤ± daireye atanamaz.");
   }
 }
 
@@ -173,7 +174,32 @@ async function ensureApartmentResidentUnique(params: {
   });
 
   if (existingApartmentResident && existingApartmentResident.id !== params.ignoreId) {
-    throw new HttpError(409, "Bu kullanıcı zaten bu daireye aynı rol ile atanmış.");
+    throw new HttpError(409, "Bu kullanؤ±cؤ± zaten bu daireye aynؤ± rol ile atanmؤ±إں.");
+  }
+}
+
+
+async function ensureApartmentResidentTypeAvailable(params: {
+  apartmentId: string;
+  type: "OWNER" | "TENANT";
+  ignoreId?: string;
+}) {
+  const existingApartmentResident = await prisma.apartmentResident.findFirst({
+    where: {
+      apartmentId: params.apartmentId,
+      ...(params.ignoreId ? { id: { not: params.ignoreId } } : {}),
+    },
+    select: {
+      id: true,
+      type: true,
+    },
+  });
+
+  if (existingApartmentResident) {
+    throw new HttpError(
+      409,
+      "Bu dairede zaten sakin kaydı bulunmaktadır. Yeni kiracı veya ev sahibi eklenemez."
+    );
   }
 }
 
@@ -184,13 +210,13 @@ router.get(
     const authenticatedRequest = request as AuthenticatedRequest;
 
     if (!authenticatedRequest.user) {
-      throw new HttpError(401, "Oturum bulunamadı.");
+      throw new HttpError(401, "Oturum bulunamadؤ±.");
     }
 
     const paginationParams = getPaginationParams(request.query);
 
     if (!paginationParams.success) {
-      throw new HttpError(400, "Sayfalama bilgileri geçersiz.", paginationParams.errors);
+      throw new HttpError(400, "Sayfalama bilgileri geأ§ersiz.", paginationParams.errors);
     }
 
     const searchCondition: Prisma.ApartmentResidentWhereInput = paginationParams.search
@@ -270,7 +296,7 @@ router.post(
     const authenticatedRequest = request as AuthenticatedRequest;
 
     if (!authenticatedRequest.user) {
-      throw new HttpError(401, "Oturum bulunamadı.");
+      throw new HttpError(401, "Oturum bulunamadؤ±.");
     }
 
     const validationResult = createApartmentResidentSchema.safeParse(request.body);
@@ -278,7 +304,7 @@ router.post(
     if (!validationResult.success) {
       throw new HttpError(
         400,
-        "Gönderilen daire sakini bilgileri geçersiz.",
+        "Gأ¶nderilen daire sakini bilgileri geأ§ersiz.",
         validationResult.error.flatten().fieldErrors
       );
     }
@@ -290,6 +316,11 @@ router.post(
     await ensureApartmentResidentUnique({
       apartmentId,
       userId,
+      type,
+    });
+
+    await ensureApartmentResidentTypeAvailable({
+      apartmentId,
       type,
     });
 
@@ -317,7 +348,7 @@ router.post(
 
     response.status(201).json({
       success: true,
-      message: "Kullanıcı daireye başarıyla atandı.",
+      message: "Kullanؤ±cؤ± daireye baإںarؤ±yla atandؤ±.",
       data: apartmentResident,
     });
   })
@@ -325,12 +356,12 @@ router.post(
 
 router.patch(
   "/:apartmentResidentId",
-  requireRole("SUPER_ADMIN"),
+  requireRole("SUPER_ADMIN", "MANAGER"),
   asyncHandler(async (request: Request, response: Response) => {
     const authenticatedRequest = request as AuthenticatedRequest;
 
     if (!authenticatedRequest.user) {
-      throw new HttpError(401, "Oturum bulunamadı.");
+      throw new HttpError(401, "Oturum bulunamadؤ±.");
     }
 
     const apartmentResidentId = getRequiredParam(request, "apartmentResidentId");
@@ -340,7 +371,7 @@ router.patch(
     if (!validationResult.success) {
       throw new HttpError(
         400,
-        "Gönderilen daire sakini güncelleme bilgileri geçersiz.",
+        "Gأ¶nderilen daire sakini gأ¼ncelleme bilgileri geأ§ersiz.",
         validationResult.error.flatten().fieldErrors
       );
     }
@@ -361,6 +392,14 @@ router.patch(
       throw new HttpError(404, "Daire sakini kaydı bulunamadı.");
     }
 
+    if (authenticatedRequest.user.role === "MANAGER") {
+      await ensureApartmentIsInsideUserScope({
+        userId: authenticatedRequest.user.id,
+        userRole: authenticatedRequest.user.role,
+        apartmentId: targetApartmentResident.apartmentId,
+      });
+    }
+
     const { apartmentId, userId, type } = validationResult.data;
 
     const nextApartmentId = apartmentId ?? targetApartmentResident.apartmentId;
@@ -378,6 +417,12 @@ router.patch(
     await ensureApartmentResidentUnique({
       apartmentId: nextApartmentId,
       userId: nextUserId,
+      type: nextType,
+      ignoreId: targetApartmentResident.id,
+    });
+
+    await ensureApartmentResidentTypeAvailable({
+      apartmentId: nextApartmentId,
       type: nextType,
       ignoreId: targetApartmentResident.id,
     });
@@ -430,7 +475,7 @@ router.patch(
 
     response.status(200).json({
       success: true,
-      message: "Daire sakini kaydı başarıyla güncellendi.",
+      message: "Daire sakini kaydؤ± baإںarؤ±yla gأ¼ncellendi.",
       data: updatedApartmentResident,
     });
   })
@@ -438,12 +483,12 @@ router.patch(
 
 router.delete(
   "/:apartmentResidentId",
-  requireRole("SUPER_ADMIN"),
+  requireRole("SUPER_ADMIN", "MANAGER"),
   asyncHandler(async (request: Request, response: Response) => {
     const authenticatedRequest = request as AuthenticatedRequest;
 
     if (!authenticatedRequest.user) {
-      throw new HttpError(401, "Oturum bulunamadı.");
+      throw new HttpError(401, "Oturum bulunamadؤ±.");
     }
 
     const apartmentResidentId = getRequiredParam(request, "apartmentResidentId");
@@ -462,6 +507,14 @@ router.delete(
 
     if (!targetApartmentResident) {
       throw new HttpError(404, "Daire sakini kaydı bulunamadı.");
+    }
+
+    if (authenticatedRequest.user.role === "MANAGER") {
+      await ensureApartmentIsInsideUserScope({
+        userId: authenticatedRequest.user.id,
+        userRole: authenticatedRequest.user.role,
+        apartmentId: targetApartmentResident.apartmentId,
+      });
     }
 
     await prisma.apartmentResident.delete({
@@ -485,9 +538,181 @@ router.delete(
 
     response.status(200).json({
       success: true,
-      message: "Daire sakini kaydı başarıyla kaldırıldı.",
+      message: "Daire sakini kaydؤ± baإںarؤ±yla kaldؤ±rؤ±ldؤ±.",
+    });
+  })
+);
+
+
+const createResidentAndAssignSchema = z.object({
+  fullName: z.string().trim().min(2),
+  email: z.string().trim().email(),
+  phone: z.string().trim().optional(),
+  password: z.string().min(8),
+  apartmentId: z.string().uuid(),
+  type: z.enum(["OWNER", "TENANT"]),
+});
+
+async function ensureApartmentIsInsideUserScope(params: {
+  userId: string;
+  userRole: "SUPER_ADMIN" | "MANAGER" | "RESIDENT";
+  apartmentId: string;
+}) {
+  const apartment = await prisma.apartment.findUnique({
+    where: {
+      id: params.apartmentId,
+    },
+    select: {
+      id: true,
+      blockId: true,
+      block: {
+        select: {
+          siteId: true,
+        },
+      },
+    },
+  });
+
+  if (!apartment) {
+    throw new HttpError(404, "Daire bulunamadı.");
+  }
+
+  if (params.userRole === "SUPER_ADMIN") {
+    return apartment;
+  }
+
+  const managerScope = await getManagerScope(params.userId);
+
+  if (!hasManagerScope(managerScope)) {
+    throw new HttpError(403, "Bu yöneticiye atanmış bir site veya blok bulunamadı.");
+  }
+
+  const canAccessApartment =
+    managerScope.blockIds.includes(apartment.blockId) ||
+    managerScope.siteIds.includes(apartment.block.siteId);
+
+  if (!canAccessApartment) {
+    throw new HttpError(403, "Bu daireye sakin ekleme yetkiniz yok.");
+  }
+
+  return apartment;
+}
+
+router.post(
+  "/create-resident",
+  requireRole("SUPER_ADMIN", "MANAGER"),
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    const validationResult = createResidentAndAssignSchema.safeParse(request.body);
+
+    if (!validationResult.success) {
+      throw new HttpError(
+        400,
+        "Gönderilen sakin bilgileri geçersiz.",
+        validationResult.error.flatten().fieldErrors
+      );
+    }
+
+    const { fullName, email, phone, password, apartmentId, type } =
+      validationResult.data;
+
+    await ensureApartmentIsInsideUserScope({
+      userId: authenticatedRequest.user.id,
+      userRole: authenticatedRequest.user.role,
+      apartmentId,
+    });
+
+    const normalizedEmail = email.toLowerCase();
+
+    const existingUser = await prisma.user.findUnique({
+      where: {
+        email: normalizedEmail,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (existingUser) {
+      throw new HttpError(409, "Bu e-posta adresi zaten kullanılıyor.");
+    }
+
+    await ensureApartmentResidentTypeAvailable({
+      apartmentId,
+      type,
+    });
+
+    const passwordHash = await bcrypt.hash(password, 12);
+
+    const result = await prisma.$transaction(async (transaction) => {
+      const user = await transaction.user.create({
+        data: {
+          fullName,
+          email: normalizedEmail,
+          phone: phone && phone.length > 0 ? phone : null,
+          passwordHash,
+          role: "RESIDENT",
+          status: "ACTIVE",
+        },
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          phone: true,
+          role: true,
+          status: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      const apartmentResident = await transaction.apartmentResident.create({
+        data: {
+          apartmentId,
+          userId: user.id,
+          type,
+        },
+        include: apartmentResidentInclude,
+      });
+
+      return {
+        user,
+        apartmentResident,
+      };
+    });
+
+    await createAuditLog({
+      request,
+      userId: authenticatedRequest.user.id,
+      action: "CREATE_RESIDENT_AND_ASSIGN_APARTMENT",
+      entityType: "ApartmentResident",
+      entityId: result.apartmentResident.id,
+      metadata: {
+        createdResidentEmail: result.user.email,
+        apartmentId,
+        type,
+      },
+    });
+
+    response.status(201).json({
+      success: true,
+      message: "Sakin başarıyla oluşturuldu ve daireye bağlandı.",
+      data: result.apartmentResident,
     });
   })
 );
 
 export default router;
+
+
+
+
+
+
+
+

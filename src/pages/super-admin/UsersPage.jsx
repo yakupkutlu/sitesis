@@ -19,11 +19,12 @@ import UserForm from "../../components/users/UserForm";
 
 import { getApartments } from "../../api/apartmentsApi";
 import {
-  createApartmentResident,
+  createResidentAndAssignApartment,
+  deleteApartmentResident,
   getApartmentResidents,
   updateApartmentResident,
 } from "../../api/apartmentResidentsApi";
-import { createUser, updateUser } from "../../api/usersApi";
+import { updateUser } from "../../api/usersApi";
 import { useAuth } from "../../context/AuthContext";
 
 const navItems = [
@@ -141,18 +142,7 @@ function UsersPage() {
         setIsLoading(true);
         setErrorMessage("");
 
-        const [residentsResult, apartmentsResult] = await Promise.all([
-          getApartmentResidents({ limit: 100 }),
-          getApartments({ limit: 100 }),
-        ]);
-
-        if (isMounted) {
-          const residents = getDataArray(residentsResult);
-          const apartmentList = getDataArray(apartmentsResult);
-
-          setUserList(residents.map(mapApartmentResidentToUser));
-          setApartments(apartmentList);
-        }
+        await loadUsersPageData();
       } catch (error) {
         if (isMounted) {
           setErrorMessage(error?.message ?? "Kullanıcı kayıtları alınamadı.");
@@ -207,6 +197,8 @@ function UsersPage() {
   function openCreateForm() {
     resetForm();
     setIsFormOpen(true);
+    setMessage("");
+    setErrorMessage("");
   }
 
   function closeForm() {
@@ -274,19 +266,12 @@ function UsersPage() {
           type: formData.residentType,
         });
       } else {
-        const userResult = await createUser({
+        await createResidentAndAssignApartment({
           fullName: formData.fullName.trim(),
           email: formData.email.trim(),
           phone: formData.phone.trim() || undefined,
           password: formData.password.trim(),
-          role: "RESIDENT",
-        });
-
-        const createdUser = userResult?.data ?? userResult;
-
-        await createApartmentResident({
           apartmentId: formData.apartmentId,
-          userId: createdUser.id,
           type: formData.residentType,
         });
       }
@@ -322,6 +307,8 @@ function UsersPage() {
     });
 
     setIsFormOpen(true);
+    setMessage("");
+    setErrorMessage("");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -342,6 +329,7 @@ function UsersPage() {
     try {
       setMessage("");
       setErrorMessage("");
+      setIsSaving(true);
 
       await updateUser(userRow.userId, {
         status: nextStatus,
@@ -356,6 +344,33 @@ function UsersPage() {
       );
     } catch (error) {
       setErrorMessage(error?.message ?? "Sakin durumu güncellenemedi.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleDeleteApartmentResident(userRow) {
+    const isConfirmed = window.confirm(
+      `${userRow.name} adlı sakinin daire bağlantısını kaldırmak istiyor musunuz?`
+    );
+
+    if (!isConfirmed) {
+      return;
+    }
+
+    try {
+      setMessage("");
+      setErrorMessage("");
+      setIsSaving(true);
+
+      await deleteApartmentResident(userRow.id);
+      await loadUsersPageData();
+
+      setMessage("Sakin daire bağlantısı başarıyla kaldırıldı.");
+    } catch (error) {
+      setErrorMessage(error?.message ?? "Sakin daire bağlantısı kaldırılamadı.");
+    } finally {
+      setIsSaving(false);
     }
   }
 
@@ -374,8 +389,8 @@ function UsersPage() {
           <h2>Kullanıcılar ve Sakinler</h2>
 
           <p>
-            Yöneticiler tarafından eklenen kiracı ve ev sahibi kayıtlarını,
-            daire bağlantılarını ve ödeme özetlerini buradan takip edebilirsiniz.
+            Kiracı ve ev sahibi kayıtlarını, daire bağlantılarını ve ödeme
+            özetlerini buradan takip edebilirsiniz.
           </p>
         </div>
 
@@ -433,6 +448,8 @@ function UsersPage() {
           onView={setSelectedUser}
           onEdit={handleEdit}
           onToggleStatus={handleToggleStatus}
+          onDelete={handleDeleteApartmentResident}
+          isSaving={isSaving}
         />
       )}
 
