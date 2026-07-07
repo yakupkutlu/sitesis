@@ -124,7 +124,7 @@ const updateBlockSchema = z
       return Object.values(data).some((value) => value !== undefined);
     },
     {
-      message: "En az bir alan gأ¶nderilmelidir.",
+      message: "En az bir alan gönderilmelidir.",
     }
   );
 
@@ -196,7 +196,7 @@ router.get(
     if (!queryResult.success) {
       throw new HttpError(
         400,
-        "Blok filtre bilgileri geأ§ersiz.",
+        "Blok filtre bilgileri geçersiz.",
         queryResult.error.flatten().fieldErrors
       );
     }
@@ -204,13 +204,13 @@ router.get(
     const authenticatedRequest = request as AuthenticatedRequest;
 
     if (!authenticatedRequest.user) {
-      throw new HttpError(401, "Oturum bulunamadؤ±.");
+      throw new HttpError(401, "Oturum bulunamadı.");
     }
 
     const paginationParams = getPaginationParams(request.query);
 
     if (!paginationParams.success) {
-      throw new HttpError(400, "Sayfalama bilgileri geأ§ersiz.", paginationParams.errors);
+      throw new HttpError(400, "Sayfalama bilgileri geçersiz.", paginationParams.errors);
     }
 
     const { siteId } = queryResult.data;
@@ -249,7 +249,7 @@ router.get(
       const managerScope = await getManagerScope(authenticatedRequest.user.id);
 
       if (!hasManagerScope(managerScope)) {
-        throw new HttpError(403, "Bu yأ¶neticiye atanmؤ±إں bir site veya blok bulunamadؤ±.");
+        throw new HttpError(403, "Bu yöneticiye atanmış bir site veya blok bulunamadı.");
       }
 
       const managerFilters: Prisma.BlockWhereInput[] = [];
@@ -327,7 +327,7 @@ router.post(
     const authenticatedRequest = request as AuthenticatedRequest;
 
     if (!authenticatedRequest.user) {
-      throw new HttpError(401, "Oturum bulunamadؤ±.");
+      throw new HttpError(401, "Oturum bulunamadı.");
     }
 
     const validationResult = createBlockSchema.safeParse(request.body);
@@ -335,7 +335,7 @@ router.post(
     if (!validationResult.success) {
       throw new HttpError(
         400,
-        "Gأ¶nderilen blok bilgileri geأ§ersiz.",
+        "Gönderilen blok bilgileri geçersiz.",
         validationResult.error.flatten().fieldErrors
       );
     }
@@ -352,7 +352,7 @@ router.post(
     });
 
     if (!site) {
-      throw new HttpError(404, "Site bulunamadؤ±.");
+      throw new HttpError(404, "Site bulunamadı.");
     }
 
     const block = await prisma.block.create({
@@ -387,7 +387,7 @@ router.post(
 
     response.status(201).json({
       success: true,
-      message: "Blok/Apartman baإںarؤ±yla oluإںturuldu.",
+      message: "Blok/Apartman başarıyla oluşturuldu.",
       data: block,
     });
   })
@@ -490,7 +490,7 @@ router.patch(
     const authenticatedRequest = request as AuthenticatedRequest;
 
     if (!authenticatedRequest.user) {
-      throw new HttpError(401, "Oturum bulunamadؤ±.");
+      throw new HttpError(401, "Oturum bulunamadı.");
     }
 
     const blockId = getRequiredParam(request, "blockId");
@@ -500,7 +500,7 @@ router.patch(
     if (!validationResult.success) {
       throw new HttpError(
         400,
-        "Gأ¶nderilen blok gأ¼ncelleme bilgileri geأ§ersiz.",
+        "Gönderilen blok güncelleme bilgileri geçersiz.",
         validationResult.error.flatten().fieldErrors
       );
     }
@@ -519,7 +519,7 @@ router.patch(
     });
 
     if (!targetBlock) {
-      throw new HttpError(404, "Blok/Apartman bulunamadؤ±.");
+      throw new HttpError(404, "Blok/Apartman bulunamadı.");
     }
 
     const { name, description, imageUrl, siteId } = validationResult.data;
@@ -535,7 +535,7 @@ router.patch(
       });
 
       if (!site) {
-        throw new HttpError(404, "Site bulunamadؤ±.");
+        throw new HttpError(404, "Site bulunamadı.");
       }
     }
 
@@ -602,11 +602,12 @@ router.patch(
 
     response.status(200).json({
       success: true,
-      message: "Blok/Apartman baإںarؤ±yla gأ¼ncellendi.",
+      message: "Blok/Apartman başarıyla güncellendi.",
       data: updatedBlock,
     });
   })
 );
 
 export default router;
+
 

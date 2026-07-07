@@ -88,3 +88,4 @@ export async function sendEmailWithActiveSmtp(
     providerMessageId: info.messageId,
   };
 }
+

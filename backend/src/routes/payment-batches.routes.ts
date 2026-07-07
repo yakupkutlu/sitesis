@@ -109,7 +109,7 @@ const updatePaymentBatchSchema = z
       return Object.values(data).some((value) => value !== undefined);
     },
     {
-      message: "En az bir alan gأ¶nderilmelidir.",
+      message: "En az bir alan gönderilmelidir.",
     }
   );
 
@@ -134,12 +134,12 @@ async function ensureManagerCanCreatePayment(params: {
   const managerScope = await getManagerScope(params.managerId);
 
   if (!hasManagerScope(managerScope)) {
-    throw new HttpError(403, "Bu yأ¶neticiye atanmؤ±إں bir site veya blok bulunamadؤ±.");
+    throw new HttpError(403, "Bu yöneticiye atanmış bir site veya blok bulunamadı.");
   }
 
   if (params.scopeType === "SITE") {
     if (!params.siteId || !managerScope.siteIds.includes(params.siteId)) {
-      throw new HttpError(403, "Bu site iأ§in أ¶deme oluإںturma yetkiniz yok.");
+      throw new HttpError(403, "Bu site için ödeme oluşturma yetkiniz yok.");
     }
   }
 
@@ -168,7 +168,7 @@ async function ensureManagerCanCreatePayment(params: {
   });
 
   if (inaccessibleApartment) {
-    throw new HttpError(403, "Bu أ¶deme kapsamؤ±ndaki bazؤ± daireler iأ§in yetkiniz yok.");
+    throw new HttpError(403, "Bu ödeme kapsamındaki bazı daireler için yetkiniz yok.");
   }
 }
 
@@ -198,7 +198,7 @@ async function getPaymentBatchForManagement(paymentBatchId: string, user: Authen
   });
 
   if (!paymentBatch) {
-    throw new HttpError(404, "أ–deme bulunamadؤ±.");
+    throw new HttpError(404, "Ödeme bulunamadı.");
   }
 
   if (user.role === "SUPER_ADMIN") {
@@ -208,7 +208,7 @@ async function getPaymentBatchForManagement(paymentBatchId: string, user: Authen
   const managerScope = await getManagerScope(user.id);
 
   if (!hasManagerScope(managerScope)) {
-    throw new HttpError(403, "Bu yأ¶neticiye atanmؤ±إں bir site veya blok bulunamadؤ±.");
+    throw new HttpError(403, "Bu yöneticiye atanmış bir site veya blok bulunamadı.");
   }
 
   const inaccessibleAllocation = paymentBatch.allocations.find((allocation) => {
@@ -219,7 +219,7 @@ async function getPaymentBatchForManagement(paymentBatchId: string, user: Authen
   });
 
   if (inaccessibleAllocation) {
-    throw new HttpError(403, "Bu أ¶deme أ¼zerinde iإںlem yapma yetkiniz yok.");
+    throw new HttpError(403, "Bu ödeme üzerinde işlem yapma yetkiniz yok.");
   }
 
   return paymentBatch;
@@ -466,13 +466,13 @@ router.get(
     const authenticatedRequest = request as AuthenticatedRequest;
 
     if (!authenticatedRequest.user) {
-      throw new HttpError(401, "Oturum bulunamadؤ±.");
+      throw new HttpError(401, "Oturum bulunamadı.");
     }
 
     const paginationParams = getPaginationParams(request.query);
 
     if (!paginationParams.success) {
-      throw new HttpError(400, "Sayfalama bilgileri geأ§ersiz.", paginationParams.errors);
+      throw new HttpError(400, "Sayfalama bilgileri geçersiz.", paginationParams.errors);
     }
 
     const searchCondition: Prisma.PaymentBatchWhereInput = paginationParams.search
@@ -500,7 +500,7 @@ router.get(
       const managerScope = await getManagerScope(authenticatedRequest.user.id);
 
       if (!hasManagerScope(managerScope)) {
-        throw new HttpError(403, "Bu yأ¶neticiye atanmؤ±إں bir site veya blok bulunamadؤ±.");
+        throw new HttpError(403, "Bu yöneticiye atanmış bir site veya blok bulunamadı.");
       }
 
       const accessibleAllocationFilter: Prisma.PaymentAllocationWhereInput = {
@@ -571,7 +571,7 @@ router.post(
     const authenticatedRequest = request as AuthenticatedRequest;
 
     if (!authenticatedRequest.user) {
-      throw new HttpError(401, "Oturum bulunamadؤ±.");
+      throw new HttpError(401, "Oturum bulunamadı.");
     }
 
     const validationResult = createPaymentBatchSchema.safeParse(request.body);
@@ -579,7 +579,7 @@ router.post(
     if (!validationResult.success) {
       throw new HttpError(
         400,
-        "Gأ¶nderilen أ¶deme bilgileri geأ§ersiz.",
+        "Gönderilen ödeme bilgileri geçersiz.",
         validationResult.error.flatten().fieldErrors
       );
     }
@@ -604,7 +604,7 @@ router.post(
 
     if (scopeType === "SITE") {
       if (!siteId) {
-        throw new HttpError(400, "Site seأ§imi zorunludur.");
+        throw new HttpError(400, "Site seçimi zorunludur.");
       }
 
       const site = await prisma.site.findUnique({
@@ -617,7 +617,7 @@ router.post(
       });
 
       if (!site) {
-        throw new HttpError(404, "Site bulunamadؤ±.");
+        throw new HttpError(404, "Site bulunamadı.");
       }
 
       const apartments = await prisma.apartment.findMany({
@@ -640,7 +640,7 @@ router.post(
 
     if (scopeType === "BLOCK") {
       if (!blockId) {
-        throw new HttpError(400, "Blok/Apartman seأ§imi zorunludur.");
+        throw new HttpError(400, "Blok/Apartman seçimi zorunludur.");
       }
 
       const block = await prisma.block.findUnique({
@@ -654,7 +654,7 @@ router.post(
       });
 
       if (!block) {
-        throw new HttpError(404, "Blok/Apartman bulunamadؤ±.");
+        throw new HttpError(404, "Blok/Apartman bulunamadı.");
       }
 
       const apartments = await prisma.apartment.findMany({
@@ -678,7 +678,7 @@ router.post(
       const uniqueApartmentIds = getUniqueIds(apartmentIds);
 
       if (uniqueApartmentIds.length === 0) {
-        throw new HttpError(400, "En az bir daire seأ§ilmelidir.");
+        throw new HttpError(400, "En az bir daire seçilmelidir.");
       }
 
       const apartments = await prisma.apartment.findMany({
@@ -693,14 +693,14 @@ router.post(
       });
 
       if (apartments.length !== uniqueApartmentIds.length) {
-        throw new HttpError(404, "Seأ§ilen dairelerden bazؤ±larؤ± bulunamadؤ±.");
+        throw new HttpError(404, "Seçilen dairelerden bazıları bulunamadı.");
       }
 
       scopedApartmentIds = apartments.map((apartment) => apartment.id);
     }
 
     if (scopedApartmentIds.length === 0) {
-      throw new HttpError(400, "أ–deme oluإںturulacak daire bulunamadؤ±.");
+      throw new HttpError(400, "Ödeme oluşturulacak daire bulunamadı.");
     }
 
     if (authenticatedRequest.user.role === "MANAGER") {
@@ -720,7 +720,7 @@ router.post(
     );
 
     if (invalidExemptApartmentIds.length > 0) {
-      throw new HttpError(400, "Muaf seأ§ilen daireler أ¶deme kapsamؤ± iأ§inde deؤںil.", {
+      throw new HttpError(400, "Muaf seçilen daireler ödeme kapsamı içinde değil.", {
         exemptApartmentIds: invalidExemptApartmentIds,
       });
     }
@@ -731,7 +731,7 @@ router.post(
     );
 
     if (payableApartmentIds.length === 0) {
-      throw new HttpError(400, "Muaf olmayan en az bir daire bulunmalؤ±dؤ±r.");
+      throw new HttpError(400, "Muaf olmayan en az bir daire bulunmalıdır.");
     }
 
     const distributions = distributeAmountToApartments(
@@ -803,7 +803,7 @@ router.post(
 
     response.status(201).json({
       success: true,
-      message: "أ–deme baإںarؤ±yla oluإںturuldu.",
+      message: "Ödeme başarıyla oluşturuldu.",
       data: paymentBatch,
     });
   })
@@ -816,13 +816,13 @@ router.patch(
     const authenticatedRequest = request as AuthenticatedRequest;
 
     if (!authenticatedRequest.user) {
-      throw new HttpError(401, "Oturum bulunamadؤ±.");
+      throw new HttpError(401, "Oturum bulunamadı.");
     }
 
     const paramsResult = paymentBatchParamsSchema.safeParse(request.params);
 
     if (!paramsResult.success) {
-      throw new HttpError(400, "أ–deme bilgisi geأ§ersiz.");
+      throw new HttpError(400, "Ödeme bilgisi geçersiz.");
     }
 
     const { paymentBatchId } = paramsResult.data;
@@ -832,7 +832,7 @@ router.patch(
     if (!validationResult.success) {
       throw new HttpError(
         400,
-        "Gأ¶nderilen أ¶deme gأ¼ncelleme bilgileri geأ§ersiz.",
+        "Gönderilen ödeme güncelleme bilgileri geçersiz.",
         validationResult.error.flatten().fieldErrors
       );
     }
@@ -888,7 +888,7 @@ router.patch(
 
     response.status(200).json({
       success: true,
-      message: "أ–deme baإںarؤ±yla gأ¼ncellendi.",
+      message: "Ödeme başarıyla güncellendi.",
       data: updatedPaymentBatch,
     });
   })
@@ -901,13 +901,13 @@ router.patch(
     const authenticatedRequest = request as AuthenticatedRequest;
 
     if (!authenticatedRequest.user) {
-      throw new HttpError(401, "Oturum bulunamadؤ±.");
+      throw new HttpError(401, "Oturum bulunamadı.");
     }
 
     const paramsResult = paymentBatchParamsSchema.safeParse(request.params);
 
     if (!paramsResult.success) {
-      throw new HttpError(400, "أ–deme bilgisi geأ§ersiz.");
+      throw new HttpError(400, "Ödeme bilgisi geçersiz.");
     }
 
     const { paymentBatchId } = paramsResult.data;
@@ -922,7 +922,7 @@ router.patch(
     });
 
     if (hasPaidAllocation) {
-      throw new HttpError(400, "ؤ°أ§inde أ¶denmiإں kayؤ±t olan أ¶deme toplu olarak iptal edilemez.");
+      throw new HttpError(400, "İçinde ödenmiş kayıt olan ödeme toplu olarak iptal edilemez.");
     }
 
     const pendingAllocationCount = targetPaymentBatch.allocations.filter((allocation) => {
@@ -930,7 +930,7 @@ router.patch(
     }).length;
 
     if (pendingAllocationCount === 0) {
-      throw new HttpError(409, "Bu أ¶deme zaten tamamen iptal edilmiإں.");
+      throw new HttpError(409, "Bu ödeme zaten tamamen iptal edilmiş.");
     }
 
     const updatedPaymentBatch = await prisma.$transaction(async (transaction) => {
@@ -966,7 +966,7 @@ router.patch(
 
     response.status(200).json({
       success: true,
-      message: "أ–deme baإںarؤ±yla iptal edildi.",
+      message: "Ödeme başarıyla iptal edildi.",
       data: updatedPaymentBatch,
     });
   })
@@ -979,13 +979,13 @@ router.patch(
     const authenticatedRequest = request as AuthenticatedRequest;
 
     if (!authenticatedRequest.user) {
-      throw new HttpError(401, "Oturum bulunamadؤ±.");
+      throw new HttpError(401, "Oturum bulunamadı.");
     }
 
     const paramsResult = allocationParamsSchema.safeParse(request.params);
 
     if (!paramsResult.success) {
-      throw new HttpError(400, "أ–deme kaydؤ± bilgisi geأ§ersiz.");
+      throw new HttpError(400, "Ödeme kaydı bilgisi geçersiz.");
     }
 
     const { allocationId } = paramsResult.data;
@@ -1001,15 +1001,15 @@ router.patch(
     });
 
     if (!allocation) {
-      throw new HttpError(404, "أ–deme kaydؤ± bulunamadؤ±.");
+      throw new HttpError(404, "Ödeme kaydı bulunamadı.");
     }
 
     if (allocation.status === "PAID") {
-      throw new HttpError(409, "Bu أ¶deme zaten أ¶denmiإں.");
+      throw new HttpError(409, "Bu ödeme zaten ödenmiş.");
     }
 
     if (allocation.status === "CANCELLED") {
-      throw new HttpError(400, "ؤ°ptal edilmiإں أ¶deme أ¶denmiإں olarak iإںaretlenemez.");
+      throw new HttpError(400, "İptal edilmiş ödeme ödenmiş olarak işaretlenemez.");
     }
 
     const updatedAllocation = await prisma.paymentAllocation.update({
@@ -1050,12 +1050,14 @@ router.patch(
 
     response.status(200).json({
       success: true,
-      message: "أ–deme أ¶denmiإں olarak iإںaretlendi.",
+      message: "Ödeme ödenmiş olarak işaretlendi.",
       data: updatedAllocation,
     });
   })
 );
 
 export default router;
+
+
 
 

@@ -1,4 +1,4 @@
-import express, { type Request, type Response } from "express";
+﻿import express, { type Request, type Response } from "express";
 
 import prisma from "../db/prisma.js";
 import { requireAuth, requireRole } from "../middlewares/auth.middleware.js";

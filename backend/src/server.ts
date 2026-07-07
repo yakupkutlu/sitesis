@@ -1,4 +1,4 @@
-import process from "node:process";
+﻿import process from "node:process";
 
 import app from "./app.js";
 import { env } from "./config/env.js";

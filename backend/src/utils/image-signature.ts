@@ -33,3 +33,4 @@ export async function isAllowedImageFile(filePath: string, mimeType: string) {
 
   return false;
 }
+

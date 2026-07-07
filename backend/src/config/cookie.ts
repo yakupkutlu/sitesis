@@ -21,3 +21,4 @@ export const clearAccessTokenCookieOptions: CookieOptions = {
   sameSite: env.COOKIE_SAME_SITE,
   path: "/",
 };
+

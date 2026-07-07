@@ -31,7 +31,7 @@ const forgotPasswordSchema = z.object({
 
 const resetPasswordSchema = z.object({
   token: z.string().trim().min(32),
-  password: z.string().min(8, "إ‍ifre en az 8 karakter olmalؤ±dؤ±r."),
+  password: z.string().min(8, "Şifre en az 8 karakter olmalıdır."),
 });
 
 const updateOwnProfileSchema = z
@@ -86,7 +86,7 @@ router.post(
     const validationResult = loginSchema.safeParse(request.body);
 
     if (!validationResult.success) {
-      throw new HttpError(400, "E-posta veya إںifre hatalؤ±.");
+      throw new HttpError(400, "E-posta veya şifre hatalı.");
     }
 
     const { email, password } = validationResult.data;
@@ -99,17 +99,17 @@ router.post(
     });
 
     if (!user) {
-      throw new HttpError(401, "E-posta veya إںifre hatalؤ±.");
+      throw new HttpError(401, "E-posta veya şifre hatalı.");
     }
 
     if (user.status !== "ACTIVE") {
-      throw new HttpError(403, "Bu kullanؤ±cؤ± hesabؤ± aktif deؤںildir.");
+      throw new HttpError(403, "Bu kullanıcı hesabı aktif değildir.");
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
 
     if (!isPasswordValid) {
-      throw new HttpError(401, "E-posta veya إںifre hatalؤ±.");
+      throw new HttpError(401, "E-posta veya şifre hatalı.");
     }
 
     const jwtExpiresIn = env.JWT_EXPIRES_IN as SignOptions["expiresIn"];
@@ -129,7 +129,7 @@ router.post(
 
     response.status(200).json({
       success: true,
-      message: "Giriإں baإںarؤ±lؤ±.",
+      message: "Giriş başarılı.",
       data: {
         user: {
           id: user.id,
@@ -155,7 +155,7 @@ router.post(
     if (!validationResult.success) {
       throw new HttpError(
         400,
-        "Gأ¶nderilen e-posta bilgisi geأ§ersiz.",
+        "Gönderilen e-posta bilgisi geçersiz.",
         validationResult.error.flatten().fieldErrors
       );
     }
@@ -164,7 +164,7 @@ router.post(
     const normalizedEmail = email.toLowerCase();
 
     const genericMessage =
-      "إ‍ifre sؤ±fؤ±rlama talebiniz alؤ±nmؤ±إںtؤ±r. Eؤںer e-posta sistemde kayؤ±tlؤ±ysa sؤ±fؤ±rlama baؤںlantؤ±sؤ± gأ¶nderilecektir.";
+      "Şifre sıfırlama talebiniz alınmıştır. Eğer e-posta sistemde kayıtlıysa sıfırlama bağlantısı gönderilecektir.";
 
     const user = await prisma.user.findFirst({
       where: {
@@ -209,8 +209,8 @@ router.post(
     await queueEmailNotification({
       recipientUserId: user.id,
       recipientEmail: user.email,
-      subject: "إ‍ifre sؤ±fؤ±rlama talebi",
-      message: `إ‍ifre sؤ±fؤ±rlama baؤںlantؤ±nؤ±z: ${resetUrl}`,
+      subject: "Şifre sıfırlama talebi",
+      message: `Şifre sıfırlama bağlantınız: ${resetUrl}`,
       sourceType: "SYSTEM",
       entityType: "PasswordResetToken",
       entityId: passwordResetToken.id,
@@ -244,7 +244,7 @@ router.post(
     if (!validationResult.success) {
       throw new HttpError(
         400,
-        "Gأ¶nderilen إںifre sؤ±fؤ±rlama bilgileri geأ§ersiz.",
+        "Gönderilen şifre sıfırlama bilgileri geçersiz.",
         validationResult.error.flatten().fieldErrors
       );
     }
@@ -274,7 +274,7 @@ router.post(
     if (!passwordResetToken || passwordResetToken.user.status !== "ACTIVE") {
       throw new HttpError(
         400,
-        "إ‍ifre sؤ±fؤ±rlama baؤںlantؤ±sؤ± geأ§ersiz veya sأ¼resi dolmuإں."
+        "Şifre sıfırlama bağlantısı geçersiz veya süresi dolmuş."
       );
     }
 
@@ -311,8 +311,8 @@ router.post(
     await queueEmailNotification({
       recipientUserId: passwordResetToken.user.id,
       recipientEmail: passwordResetToken.user.email,
-      subject: "إ‍ifreniz gأ¼ncellendi",
-      message: "Hesabؤ±nؤ±zؤ±n إںifresi baإںarؤ±yla gأ¼ncellendi.",
+      subject: "Şifreniz güncellendi",
+      message: "Hesabınızın şifresi başarıyla güncellendi.",
       sourceType: "SYSTEM",
       entityType: "User",
       entityId: passwordResetToken.user.id,
@@ -323,7 +323,7 @@ router.post(
 
     response.status(200).json({
       success: true,
-      message: "إ‍ifreniz baإںarؤ±yla gأ¼ncellendi.",
+      message: "Şifreniz başarıyla güncellendi.",
     });
   })
 );
@@ -480,8 +480,9 @@ router.post("/logout", (_request, response) => {
 
   response.status(200).json({
     success: true,
-    message: "أ‡ؤ±kؤ±إں baإںarؤ±lؤ±.",
+    message: "Çıkış başarılı.",
   });
 });
 
 export default router;
+

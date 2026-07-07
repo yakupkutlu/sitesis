@@ -1,4 +1,4 @@
-import fs from "node:fs/promises";
+﻿import fs from "node:fs/promises";
 
 const allowedSignatures = {
   pdf: [0x25, 0x50, 0x44, 0x46], // %PDF

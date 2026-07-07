@@ -37,3 +37,4 @@ export const resetPasswordLimiter = rateLimit({
     message: "Çok fazla şifre yenileme denemesi yapıldı. Lütfen daha sonra tekrar deneyin.",
   },
 });
+

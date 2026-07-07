@@ -69,7 +69,7 @@ const updateApartmentResidentSchema = z
       return Object.values(data).some((value) => value !== undefined);
     },
     {
-      message: "En az bir alan gأ¶nderilmelidir.",
+      message: "En az bir alan gönderilmelidir.",
     }
   );
 
@@ -87,7 +87,7 @@ async function getManagerApartmentResidentFilter(managerId: string) {
   const managerScope = await getManagerScope(managerId);
 
   if (!hasManagerScope(managerScope)) {
-    throw new HttpError(403, "Bu yأ¶neticiye atanmؤ±إں bir site veya blok bulunamadؤ±.");
+    throw new HttpError(403, "Bu yöneticiye atanmış bir site veya blok bulunamadı.");
   }
 
   const filter: Prisma.ApartmentResidentWhereInput = {
@@ -125,7 +125,7 @@ async function ensureApartmentExists(apartmentId: string) {
   });
 
   if (!apartment) {
-    throw new HttpError(404, "Daire bulunamadؤ±.");
+    throw new HttpError(404, "Daire bulunamadı.");
   }
 }
 
@@ -142,15 +142,15 @@ async function ensureResidentUserCanBeAssigned(userId: string) {
   });
 
   if (!user) {
-    throw new HttpError(404, "Kullanؤ±cؤ± bulunamadؤ±.");
+    throw new HttpError(404, "Kullanıcı bulunamadı.");
   }
 
   if (user.role !== "RESIDENT") {
-    throw new HttpError(400, "Sadece RESIDENT rolأ¼ndeki kullanؤ±cؤ±lar daireye atanabilir.");
+    throw new HttpError(400, "Sadece RESIDENT rolündeki kullanıcılar daireye atanabilir.");
   }
 
   if (user.status !== "ACTIVE") {
-    throw new HttpError(400, "Pasif kullanؤ±cؤ± daireye atanamaz.");
+    throw new HttpError(400, "Pasif kullanıcı daireye atanamaz.");
   }
 }
 
@@ -174,7 +174,7 @@ async function ensureApartmentResidentUnique(params: {
   });
 
   if (existingApartmentResident && existingApartmentResident.id !== params.ignoreId) {
-    throw new HttpError(409, "Bu kullanؤ±cؤ± zaten bu daireye aynؤ± rol ile atanmؤ±إں.");
+    throw new HttpError(409, "Bu kullanıcı zaten bu daireye aynı rol ile atanmış.");
   }
 }
 
@@ -210,13 +210,13 @@ router.get(
     const authenticatedRequest = request as AuthenticatedRequest;
 
     if (!authenticatedRequest.user) {
-      throw new HttpError(401, "Oturum bulunamadؤ±.");
+      throw new HttpError(401, "Oturum bulunamadı.");
     }
 
     const paginationParams = getPaginationParams(request.query);
 
     if (!paginationParams.success) {
-      throw new HttpError(400, "Sayfalama bilgileri geأ§ersiz.", paginationParams.errors);
+      throw new HttpError(400, "Sayfalama bilgileri geçersiz.", paginationParams.errors);
     }
 
     const searchCondition: Prisma.ApartmentResidentWhereInput = paginationParams.search
@@ -296,7 +296,7 @@ router.post(
     const authenticatedRequest = request as AuthenticatedRequest;
 
     if (!authenticatedRequest.user) {
-      throw new HttpError(401, "Oturum bulunamadؤ±.");
+      throw new HttpError(401, "Oturum bulunamadı.");
     }
 
     const validationResult = createApartmentResidentSchema.safeParse(request.body);
@@ -304,7 +304,7 @@ router.post(
     if (!validationResult.success) {
       throw new HttpError(
         400,
-        "Gأ¶nderilen daire sakini bilgileri geأ§ersiz.",
+        "Gönderilen daire sakini bilgileri geçersiz.",
         validationResult.error.flatten().fieldErrors
       );
     }
@@ -348,7 +348,7 @@ router.post(
 
     response.status(201).json({
       success: true,
-      message: "Kullanؤ±cؤ± daireye baإںarؤ±yla atandؤ±.",
+      message: "Kullanıcı daireye başarıyla atandı.",
       data: apartmentResident,
     });
   })
@@ -361,7 +361,7 @@ router.patch(
     const authenticatedRequest = request as AuthenticatedRequest;
 
     if (!authenticatedRequest.user) {
-      throw new HttpError(401, "Oturum bulunamadؤ±.");
+      throw new HttpError(401, "Oturum bulunamadı.");
     }
 
     const apartmentResidentId = getRequiredParam(request, "apartmentResidentId");
@@ -371,7 +371,7 @@ router.patch(
     if (!validationResult.success) {
       throw new HttpError(
         400,
-        "Gأ¶nderilen daire sakini gأ¼ncelleme bilgileri geأ§ersiz.",
+        "Gönderilen daire sakini güncelleme bilgileri geçersiz.",
         validationResult.error.flatten().fieldErrors
       );
     }
@@ -475,7 +475,7 @@ router.patch(
 
     response.status(200).json({
       success: true,
-      message: "Daire sakini kaydؤ± baإںarؤ±yla gأ¼ncellendi.",
+      message: "Daire sakini kaydı başarıyla güncellendi.",
       data: updatedApartmentResident,
     });
   })
@@ -488,7 +488,7 @@ router.delete(
     const authenticatedRequest = request as AuthenticatedRequest;
 
     if (!authenticatedRequest.user) {
-      throw new HttpError(401, "Oturum bulunamadؤ±.");
+      throw new HttpError(401, "Oturum bulunamadı.");
     }
 
     const apartmentResidentId = getRequiredParam(request, "apartmentResidentId");
@@ -538,7 +538,7 @@ router.delete(
 
     response.status(200).json({
       success: true,
-      message: "Daire sakini kaydؤ± baإںarؤ±yla kaldؤ±rؤ±ldؤ±.",
+      message: "Daire sakini kaydı başarıyla kaldırıldı.",
     });
   })
 );
@@ -799,6 +799,7 @@ router.patch(
 );
 
 export default router;
+
 
 
 

@@ -1,4 +1,4 @@
-export function distributeAmountToApartments(
+﻿export function distributeAmountToApartments(
   totalAmountKurus: number,
   apartmentIds: string[]
 ) {

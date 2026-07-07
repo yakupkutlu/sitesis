@@ -44,3 +44,4 @@ export const errorHandler: ErrorRequestHandler = (error, _request, response, _ne
     message: "Sunucuda beklenmeyen bir hata oluştu.",
   });
 };
+
