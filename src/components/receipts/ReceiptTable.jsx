@@ -1,4 +1,4 @@
-import { CheckCircle2, Eye, Trash2, XCircle } from "lucide-react";
+﻿import { CheckCircle2, Download, Eye, XCircle } from "lucide-react";
 
 function getReceiptStatusClass(status) {
   if (status === "Onaylandı") {
@@ -9,14 +9,17 @@ function getReceiptStatusClass(status) {
     return "rejected";
   }
 
-  if (status === "Eşleşme Bulunamadı") {
-    return "not-found";
-  }
-
   return "waiting";
 }
 
-function ReceiptTable({ receipts, onView, onApprove, onReject, onDelete }) {
+function ReceiptTable({
+  receipts,
+  onView,
+  onApprove,
+  onReject,
+  onDownload,
+  isSaving = false,
+}) {
   const safeReceipts = receipts || [];
 
   return (
@@ -25,9 +28,9 @@ function ReceiptTable({ receipts, onView, onApprove, onReject, onDelete }) {
         <table className="receipts-table">
           <thead>
             <tr>
-              <th>Ödeyen</th>
+              <th>Yükleyen</th>
               <th>Daire</th>
-              <th>Ödeme Tipi</th>
+              <th>Ödeme</th>
               <th>Tutar</th>
               <th>Dosya</th>
               <th>Durum</th>
@@ -46,14 +49,13 @@ function ReceiptTable({ receipts, onView, onApprove, onReject, onDelete }) {
                   <tr key={receipt.id}>
                     <td>
                       <div className="receipt-main-cell">
-                        <strong>{receipt.payerName || "Ödeyen bilgisi yok"}</strong>
-
-                        <span>{receipt.bankAccount || "Hesap bilgisi yok"}</span>
+                        <strong>{receipt.payerName || "Yükleyen yok"}</strong>
+                        <span>{receipt.payerEmail || "-"}</span>
                       </div>
                     </td>
 
                     <td>{receipt.apartmentLabel || "-"}</td>
-                    <td>{receipt.paymentOwnerType || "-"}</td>
+                    <td>{receipt.paymentTitle || "-"}</td>
                     <td>{receipt.amountText || "-"}</td>
                     <td>{receipt.fileName || "-"}</td>
 
@@ -70,9 +72,19 @@ function ReceiptTable({ receipts, onView, onApprove, onReject, onDelete }) {
                         <button
                           type="button"
                           onClick={() => onView(receipt)}
-                          aria-label={`${receipt.payerName || "Dekont"} detayını görüntüle`}
+                          aria-label={`${receipt.fileName || "Dekont"} detayını görüntüle`}
+                          disabled={isSaving}
                         >
                           <Eye size={16} />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => onDownload(receipt.id)}
+                          aria-label={`${receipt.fileName || "Dekont"} indir`}
+                          disabled={isSaving}
+                        >
+                          <Download size={16} />
                         </button>
 
                         {isWaitingApproval && (
@@ -80,7 +92,8 @@ function ReceiptTable({ receipts, onView, onApprove, onReject, onDelete }) {
                             type="button"
                             className="success-table-button"
                             onClick={() => onApprove(receipt.id)}
-                            aria-label={`${receipt.payerName || "Dekont"} onayla`}
+                            aria-label={`${receipt.fileName || "Dekont"} onayla`}
+                            disabled={isSaving}
                           >
                             <CheckCircle2 size={16} />
                           </button>
@@ -91,20 +104,12 @@ function ReceiptTable({ receipts, onView, onApprove, onReject, onDelete }) {
                             type="button"
                             className="warning-table-button"
                             onClick={() => onReject(receipt.id)}
-                            aria-label={`${receipt.payerName || "Dekont"} reddet`}
+                            aria-label={`${receipt.fileName || "Dekont"} reddet`}
+                            disabled={isSaving}
                           >
                             <XCircle size={16} />
                           </button>
                         )}
-
-                        <button
-                          type="button"
-                          className="danger-table-button"
-                          onClick={() => onDelete(receipt.id)}
-                          aria-label={`${receipt.payerName || "Dekont"} sil`}
-                        >
-                          <Trash2 size={16} />
-                        </button>
                       </div>
                     </td>
                   </tr>

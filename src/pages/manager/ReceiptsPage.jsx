@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   BarChart3,
@@ -6,16 +6,21 @@ import {
   CreditCard,
   Home,
   MessageSquareText,
-  Plus,
   Settings,
   UploadCloud,
   UserRound,
 } from "lucide-react";
 
 import ReceiptToolbar from "../../components/receipts/ReceiptToolbar";
-import ReceiptUploadForm from "../../components/receipts/ReceiptUploadForm";
 import ReceiptTable from "../../components/receipts/ReceiptTable";
 import ReceiptDetailsModal from "../../components/receipts/ReceiptDetailsModal";
+import {
+  approvePaymentReceipt,
+  getPaymentReceiptDownloadUrl,
+  getPaymentReceipts,
+  rejectPaymentReceipt,
+} from "../../api/paymentReceiptsApi";
+import { useAuth } from "../../context/AuthContext";
 
 const navItems = [
   { label: "Panel", path: "/manager/dashboard", icon: BarChart3 },
@@ -28,88 +33,45 @@ const navItems = [
   { label: "Ayarlar", path: "/manager/settings", icon: Settings },
 ];
 
-const managerManagedArea = {
-  type: "site",
-  name: "Mavi Site",
+const statusLabels = {
+  PENDING: "Onay Bekliyor",
+  APPROVED: "Onaylandı",
+  REJECTED: "Reddedildi",
 };
 
-const apartmentOptions = [
-  {
-    id: 1,
-    label: "A Blok / Daire 1",
-    apartmentNo: "Daire 1",
-    residentName: "Ayşe Demir",
-    residentRole: "Ev Sahibi",
-    expectedAmount: 1250,
-    expectedAmountText: "₺1.250,00",
-  },
-  {
-    id: 2,
-    label: "A Blok / Daire 5",
-    apartmentNo: "Daire 5",
-    residentName: "Ali Can",
-    residentRole: "Kiracı",
-    expectedAmount: 1250,
-    expectedAmountText: "₺1.250,00",
-  },
-  {
-    id: 3,
-    label: "B Blok / Daire 8",
-    apartmentNo: "Daire 8",
-    residentName: "Mehmet Kaya",
-    residentRole: "Kiracı",
-    expectedAmount: 1800,
-    expectedAmountText: "₺1.800,00",
-  },
-  {
-    id: 4,
-    label: "C Blok / Daire 12",
-    apartmentNo: "Daire 12",
-    residentName: "Zeynep Aydın",
-    residentRole: "Ev Sahibi",
-    expectedAmount: 1000,
-    expectedAmountText: "₺1.000,00",
-  },
-];
+function getDataArray(result) {
+  const data = result?.data ?? result;
 
-const allowedFileTypes = [
-  "application/pdf",
-  "image/png",
-  "image/jpeg",
-  "image/webp",
-];
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.receipts)) return data.receipts;
+  if (Array.isArray(data?.paymentReceipts)) return data.paymentReceipts;
 
-const allowedExtensions = ["pdf", "png", "jpg", "jpeg", "webp"];
-
-const maxFileSize = 10 * 1024 * 1024;
-
-const emptyFormData = {
-  payerName: "",
-  bankAccount: "",
-  amount: "",
-  paymentOwnerType: "Kiracı Ödemesi",
-  manualApartmentId: "",
-  description: "",
-  fileName: "",
-  fileType: "",
-  fileSize: 0,
-  fileSizeText: "",
-};
+  return [];
+}
 
 function formatCurrency(value) {
   return new Intl.NumberFormat("tr-TR", {
     style: "currency",
     currency: "TRY",
     minimumFractionDigits: 2,
-  }).format(value || 0);
+  }).format(Number(value) || 0);
+}
+
+function formatDate(value) {
+  if (!value) return "-";
+
+  try {
+    return new Date(value).toLocaleDateString("tr-TR");
+  } catch {
+    return "-";
+  }
 }
 
 function formatFileSize(size) {
-  if (!size) {
-    return "0 KB";
-  }
+  if (!size) return "0 KB";
 
-  const sizeInKb = size / 1024;
+  const sizeInKb = Number(size) / 1024;
 
   if (sizeInKb < 1024) {
     return `${sizeInKb.toFixed(1)} KB`;
@@ -118,135 +80,126 @@ function formatFileSize(size) {
   return `${(sizeInKb / 1024).toFixed(2)} MB`;
 }
 
-function getFileExtension(fileName) {
-  return fileName.split(".").pop()?.toLowerCase() || "";
+function normalizeText(value) {
+  return String(value ?? "").toLocaleLowerCase("tr-TR").trim();
 }
 
-function normalizeText(value) {
-  return value.toLocaleLowerCase("tr-TR").trim();
+function mapReceiptToViewModel(receipt) {
+  const allocation = receipt.paymentAllocation ?? {};
+  const apartment = allocation.apartment ?? {};
+  const block = apartment.block ?? {};
+  const site = block.site ?? {};
+  const batch = allocation.paymentBatch ?? {};
+
+  return {
+    id: receipt.id,
+    payerName: receipt.uploadedByUser?.fullName ?? "-",
+    payerEmail: receipt.uploadedByUser?.email ?? "-",
+    apartmentLabel: apartment.number
+      ? `${site.name ?? "Site"} / ${block.name ?? "Blok"} / Daire ${apartment.number}`
+      : "-",
+    paymentTitle: batch.title ?? "-",
+    dueDate: formatDate(batch.dueDate),
+    amount: allocation.amount ?? 0,
+    amountText: formatCurrency(allocation.amount),
+    description: receipt.note ?? "",
+    fileName: receipt.originalFileName ?? "-",
+    fileType: receipt.mimeType ?? "-",
+    fileSizeText: formatFileSize(receipt.sizeBytes),
+    status: statusLabels[receipt.status] ?? receipt.status,
+    rawStatus: receipt.status,
+    createdAt: formatDate(receipt.createdAt),
+    reviewedBy: receipt.reviewedByUser?.fullName ?? "-",
+    reviewNote: receipt.reviewNote ?? "",
+    raw: receipt,
+  };
 }
 
 function ReceiptsPage() {
-  const [receipts, setReceipts] = useState([
-    {
-      id: 1,
-      payerName: "Ali Can",
-      bankAccount: "TR00 0000 0000 0000",
-      apartmentLabel: "A Blok / Daire 5",
-      paymentOwnerType: "Kiracı Ödemesi",
-      amount: 1250,
-      amountText: formatCurrency(1250),
-      description: "Temmuz aidatı",
-      fileName: "ali-can-dekont.pdf",
-      fileType: "application/pdf",
-      fileSizeText: "420.0 KB",
-      status: "Onay Bekliyor",
-      matchMessage: "Ad soyad ve tutar bilgisine göre eşleşme bulundu.",
-      createdAt: "30.06.2026",
-    },
-    {
-      id: 2,
-      payerName: "Bilinmeyen Kişi",
-      bankAccount: "TR11 1111 1111 1111",
-      apartmentLabel: "",
-      paymentOwnerType: "Kiracı Ödemesi",
-      amount: 900,
-      amountText: formatCurrency(900),
-      description: "Aidat ödemesi",
-      fileName: "dekont-2.jpg",
-      fileType: "image/jpeg",
-      fileSizeText: "680.0 KB",
-      status: "Eşleşme Bulunamadı",
-      matchMessage:
-        "Dekont mevcut daire ve sakin kayıtları ile eşleşmedi. Yönetici manuel kontrol yapmalıdır.",
-      createdAt: "30.06.2026",
-    },
-  ]);
+  const { user } = useAuth();
 
-  const [formData, setFormData] = useState(emptyFormData);
-  const [fileError, setFileError] = useState("");
-  const [showForm, setShowForm] = useState(false);
+  const [receipts, setReceipts] = useState([]);
   const [selectedReceipt, setSelectedReceipt] = useState(null);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("Tümü");
 
-  const matchResult = useMemo(() => {
-    const amount = Number(formData.amount) || 0;
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
 
-    if (formData.manualApartmentId) {
-      const apartment = apartmentOptions.find(
-        (item) => item.id === Number(formData.manualApartmentId)
-      );
-
-      return {
-        status: apartment ? "Manuel Eşleşme" : "Eşleşme Bulunamadı",
-        message: apartment
-          ? "Daire yönetici tarafından manuel olarak seçildi."
-          : "Seçilen daire bulunamadı.",
-        apartment: apartment || null,
-      };
-    }
-
-    const payerValue = normalizeText(formData.payerName);
-    const descriptionValue = normalizeText(formData.description);
-
-    const matchedApartment = apartmentOptions.find((apartment) => {
-      const residentName = normalizeText(apartment.residentName);
-      const apartmentLabel = normalizeText(apartment.label);
-      const apartmentNo = normalizeText(apartment.apartmentNo);
-
-      const nameMatches =
-        payerValue.length > 1 &&
-        (residentName.includes(payerValue) || payerValue.includes(residentName));
-
-      const descriptionMatches =
-        descriptionValue.length > 1 &&
-        (descriptionValue.includes(apartmentLabel) ||
-          descriptionValue.includes(apartmentNo));
-
-      const amountMatches =
-        amount > 0 && Number(apartment.expectedAmount) === amount;
-
-      return (nameMatches || descriptionMatches) && amountMatches;
+  async function loadReceipts() {
+    const result = await getPaymentReceipts({
+      page: 1,
+      limit: 100,
+      search: searchTerm.trim(),
     });
 
-    if (matchedApartment) {
-      return {
-        status: "Eşleşti",
-        message:
-          "Ad soyad, açıklama veya tutar bilgilerine göre eşleşme bulundu. Onay verilmeden ödeme kaydına işlenmez.",
-        apartment: matchedApartment,
-      };
+    setReceipts(getDataArray(result).map(mapReceiptToViewModel));
+  }
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadInitialData() {
+      try {
+        setIsLoading(true);
+        setErrorMessage("");
+
+        const result = await getPaymentReceipts({
+          page: 1,
+          limit: 100,
+        });
+
+        if (isMounted) {
+          setReceipts(getDataArray(result).map(mapReceiptToViewModel));
+        }
+      } catch (error) {
+        if (isMounted) {
+          setErrorMessage(error?.message ?? "Dekontlar alınamadı.");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
     }
 
-    return {
-      status: "Eşleşme Bulunamadı",
-      message:
-        "Dekont bilgileri mevcut daire ve sakin kayıtları ile eşleşmedi. Gerekirse manuel daire seçimi yapılabilir.",
-      apartment: null,
+    loadInitialData();
+
+    return () => {
+      isMounted = false;
     };
-  }, [
-    formData.payerName,
-    formData.amount,
-    formData.description,
-    formData.manualApartmentId,
-  ]);
+  }, []);
+
+  const summary = useMemo(() => {
+    return {
+      total: receipts.length,
+      pending: receipts.filter((item) => item.rawStatus === "PENDING").length,
+      approved: receipts.filter((item) => item.rawStatus === "APPROVED").length,
+      rejected: receipts.filter((item) => item.rawStatus === "REJECTED").length,
+    };
+  }, [receipts]);
 
   const filteredReceipts = useMemo(() => {
     return receipts.filter((receipt) => {
       const searchValue = normalizeText(searchTerm);
 
-      const matchesSearch =
-        normalizeText(receipt.payerName).includes(searchValue) ||
-        normalizeText(receipt.bankAccount).includes(searchValue) ||
-        normalizeText(receipt.apartmentLabel).includes(searchValue) ||
-        normalizeText(receipt.paymentOwnerType).includes(searchValue) ||
-        normalizeText(receipt.amountText).includes(searchValue) ||
-        normalizeText(receipt.description).includes(searchValue) ||
-        normalizeText(receipt.status).includes(searchValue) ||
-        normalizeText(receipt.fileName).includes(searchValue);
+      const searchableText = [
+        receipt.payerName,
+        receipt.payerEmail,
+        receipt.apartmentLabel,
+        receipt.paymentTitle,
+        receipt.amountText,
+        receipt.description,
+        receipt.status,
+        receipt.fileName,
+      ]
+        .join(" ")
+        .toLocaleLowerCase("tr-TR");
 
+      const matchesSearch = searchableText.includes(searchValue);
       const matchesStatus =
         statusFilter === "Tümü" ? true : receipt.status === statusFilter;
 
@@ -254,196 +207,118 @@ function ReceiptsPage() {
     });
   }, [receipts, searchTerm, statusFilter]);
 
-  function handleInputChange(event) {
-    const { name, value } = event.target;
-
-    setFormData((currentData) => ({
-      ...currentData,
-      [name]: value,
-    }));
-  }
-
-  function handleFileChange(event) {
-    const selectedFile = event.target.files?.[0];
-
-    if (!selectedFile) {
-      setFormData((currentData) => ({
-        ...currentData,
-        fileName: "",
-        fileType: "",
-        fileSize: 0,
-        fileSizeText: "",
-      }));
-
-      setFileError("");
-      return;
-    }
-
-    const fileExtension = getFileExtension(selectedFile.name);
-    const isTypeAllowed = allowedFileTypes.includes(selectedFile.type);
-    const isExtensionAllowed = allowedExtensions.includes(fileExtension);
-    const isSizeAllowed = selectedFile.size <= maxFileSize;
-
-    if (!isExtensionAllowed || !isTypeAllowed) {
-      setFileError(
-        "Geçersiz dosya türü. Sadece PDF, PNG, JPG, JPEG veya WEBP yükleyebilirsiniz."
-      );
-    } else if (!isSizeAllowed) {
-      setFileError("Dekont dosyası en fazla 10 MB olabilir.");
-    } else {
-      setFileError("");
-    }
-
-    setFormData((currentData) => ({
-      ...currentData,
-      fileName: selectedFile.name,
-      fileType: selectedFile.type || fileExtension,
-      fileSize: selectedFile.size,
-      fileSizeText: formatFileSize(selectedFile.size),
-    }));
-  }
-
-  function handleOpenForm() {
-    setFormData(emptyFormData);
-    setFileError("");
-    setShowForm(true);
-  }
-
-  function handleCancelForm() {
-    setFormData(emptyFormData);
-    setFileError("");
-    setShowForm(false);
-  }
-
-  function handleSubmit(event) {
-    event.preventDefault();
-
-    if (fileError) {
-      alert("Lütfen dosya hatasını düzeltin.");
-      return;
-    }
-
-    if (!formData.fileName) {
-      alert("Lütfen dekont dosyası seçin.");
-      return;
-    }
-
-    const hasMatch = Boolean(matchResult.apartment);
-
-    const newReceipt = {
-      id: Date.now(),
-      payerName: formData.payerName,
-      bankAccount: formData.bankAccount,
-      apartmentLabel: hasMatch ? matchResult.apartment.label : "",
-      paymentOwnerType: formData.paymentOwnerType,
-      amount: Number(formData.amount) || 0,
-      amountText: formatCurrency(Number(formData.amount) || 0),
-      description: formData.description,
-      fileName: formData.fileName,
-      fileType: formData.fileType,
-      fileSizeText: formData.fileSizeText,
-      status: hasMatch ? "Onay Bekliyor" : "Eşleşme Bulunamadı",
-      matchMessage: matchResult.message,
-      createdAt: new Date().toLocaleDateString("tr-TR"),
-    };
-
-    setReceipts((currentReceipts) => [newReceipt, ...currentReceipts]);
-    handleCancelForm();
-  }
-
-  function handleApprove(receiptId) {
-    setReceipts((currentReceipts) =>
-      currentReceipts.map((receipt) => {
-        if (receipt.id !== receiptId) {
-          return receipt;
-        }
-
-        if (!receipt.apartmentLabel) {
-          return {
-            ...receipt,
-            status: "Eşleşme Bulunamadı",
-            matchMessage:
-              "Eşleşen daire olmadığı için dekont onaylanamadı. Önce manuel eşleştirme yapılmalıdır.",
-          };
-        }
-
-        return {
-          ...receipt,
-          status: "Onaylandı",
-          matchMessage:
-            "Dekont yönetici tarafından onaylandı. Ödeme kaydı ile ilişkilendirildi.",
-        };
-      })
+  async function handleApprove(receiptId) {
+    const reviewNote = window.prompt(
+      "Onay notu yazabilirsiniz. Boş bırakabilirsiniz."
     );
+
+    try {
+      setIsSaving(true);
+      setMessage("");
+      setErrorMessage("");
+
+      await approvePaymentReceipt(receiptId, {
+        reviewNote: reviewNote || undefined,
+      });
+
+      await loadReceipts();
+
+      setMessage("Dekont onaylandı ve ödeme ödenmiş olarak işaretlendi.");
+    } catch (error) {
+      setErrorMessage(error?.message ?? "Dekont onaylanamadı.");
+    } finally {
+      setIsSaving(false);
+    }
   }
 
-  function handleReject(receiptId) {
-    setReceipts((currentReceipts) =>
-      currentReceipts.map((receipt) =>
-        receipt.id === receiptId
-          ? {
-              ...receipt,
-              status: "Reddedildi",
-              matchMessage: "Dekont yönetici tarafından reddedildi.",
-            }
-          : receipt
-      )
+  async function handleReject(receiptId) {
+    const reviewNote = window.prompt(
+      "Red sebebini yazın. Boş bırakabilirsiniz."
     );
-  }
 
-  function handleDelete(receiptId) {
-    const confirmed = window.confirm("Bu dekont kaydını silmek istiyor musunuz?");
+    const isConfirmed = window.confirm("Bu dekontu reddetmek istiyor musunuz?");
 
-    if (!confirmed) {
+    if (!isConfirmed) {
       return;
     }
 
-    setReceipts((currentReceipts) =>
-      currentReceipts.filter((receipt) => receipt.id !== receiptId)
-    );
+    try {
+      setIsSaving(true);
+      setMessage("");
+      setErrorMessage("");
+
+      await rejectPaymentReceipt(receiptId, {
+        reviewNote: reviewNote || undefined,
+      });
+
+      await loadReceipts();
+
+      setMessage("Dekont reddedildi.");
+    } catch (error) {
+      setErrorMessage(error?.message ?? "Dekont reddedilemedi.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  function handleDownload(receiptId) {
+    window.open(getPaymentReceiptDownloadUrl(receiptId), "_blank", "noopener,noreferrer");
   }
 
   return (
     <DashboardLayout
       roleTitle="Dekontlar"
       roleBadge="Yönetici"
-      userName="Alaa"
+      userName={user?.fullName ?? "Yönetici"}
       navItems={navItems}
       theme="manager"
     >
       <div className="dashboard-page-header">
         <div>
           <span className="section-kicker">Dekont Yönetimi</span>
+
           <h2>Dekontlar</h2>
+
           <p>
-            {managerManagedArea.name} için yüklenen banka dekontlarını
-            eşleştirme sonucuna göre kontrol edebilir, yalnızca uygun kayıtları
-            onaylayabilirsiniz.
+            Yetki alanınızdaki ödeme dekontlarını görüntüleyebilir, uygun
+            dekontları onaylayabilir veya reddedebilirsiniz.
           </p>
         </div>
-
-        <button
-          type="button"
-          className="dashboard-action-button"
-          onClick={handleOpenForm}
-        >
-          <Plus size={18} />
-          Yeni Dekont
-        </button>
       </div>
 
-      {showForm && (
-        <ReceiptUploadForm
-          formData={formData}
-          apartmentOptions={apartmentOptions}
-          fileError={fileError}
-          matchResult={matchResult}
-          onInputChange={handleInputChange}
-          onFileChange={handleFileChange}
-          onSubmit={handleSubmit}
-          onCancel={handleCancelForm}
-        />
+      {errorMessage && (
+        <div className="login-error-message">
+          <p>{errorMessage}</p>
+        </div>
       )}
+
+      {message && (
+        <div className="login-success-message">
+          <p>{message}</p>
+        </div>
+      )}
+
+      <section className="dashboard-summary-grid">
+        <div className="summary-card">
+          <span>Toplam Dekont</span>
+          <strong>{summary.total}</strong>
+        </div>
+
+        <div className="summary-card">
+          <span>Onay Bekleyen</span>
+          <strong>{summary.pending}</strong>
+        </div>
+
+        <div className="summary-card">
+          <span>Onaylanan</span>
+          <strong>{summary.approved}</strong>
+        </div>
+
+        <div className="summary-card">
+          <span>Reddedilen</span>
+          <strong>{summary.rejected}</strong>
+        </div>
+      </section>
 
       <ReceiptToolbar
         searchTerm={searchTerm}
@@ -452,13 +327,20 @@ function ReceiptsPage() {
         setStatusFilter={setStatusFilter}
       />
 
-      <ReceiptTable
-        receipts={filteredReceipts}
-        onView={setSelectedReceipt}
-        onApprove={handleApprove}
-        onReject={handleReject}
-        onDelete={handleDelete}
-      />
+      {isLoading ? (
+        <div className="dashboard-panel">
+          <p>Dekontlar yükleniyor...</p>
+        </div>
+      ) : (
+        <ReceiptTable
+          receipts={filteredReceipts}
+          onView={setSelectedReceipt}
+          onApprove={handleApprove}
+          onReject={handleReject}
+          onDownload={handleDownload}
+          isSaving={isSaving}
+        />
+      )}
 
       <ReceiptDetailsModal
         receipt={selectedReceipt}

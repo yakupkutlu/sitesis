@@ -1,11 +1,10 @@
-import { Filter, Search } from "lucide-react";
+﻿import { Filter, Search } from "lucide-react";
 
 const statusOptions = [
   "Tümü",
   "Onay Bekliyor",
   "Onaylandı",
   "Reddedildi",
-  "Eşleşme Bulunamadı",
 ];
 
 function ReceiptToolbar({
@@ -21,7 +20,7 @@ function ReceiptToolbar({
 
         <input
           type="text"
-          placeholder="Ad soyad, daire, tutar, açıklama veya durum ara..."
+          placeholder="Yükleyen, dosya, ödeme başlığı veya daire ara..."
           value={searchTerm}
           onChange={(event) => setSearchTerm(event.target.value)}
         />

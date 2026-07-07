@@ -1,21 +1,28 @@
-import { useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   BarChart3,
   Bell,
   CreditCard,
+  Edit,
+  Eye,
   Home,
   MessageSquareText,
   Plus,
   Settings,
+  Trash2,
   UploadCloud,
   UserRound,
 } from "lucide-react";
 
-import PaymentToolbar from "../../components/payments/PaymentToolbar";
-import PaymentForm from "../../components/payments/PaymentForm";
-import PaymentTable from "../../components/payments/PaymentTable";
-import PaymentDetailsModal from "../../components/payments/PaymentDetailsModal";
+import { getApartments } from "../../api/apartmentsApi";
+import {
+  cancelPaymentBatch,
+  createPaymentBatch,
+  getPaymentBatches,
+  updatePaymentBatch,
+} from "../../api/paymentBatchesApi";
+import { useAuth } from "../../context/AuthContext";
 
 const navItems = [
   { label: "Panel", path: "/manager/dashboard", icon: BarChart3 },
@@ -28,186 +35,368 @@ const navItems = [
   { label: "Ayarlar", path: "/manager/settings", icon: Settings },
 ];
 
-const managerManagedArea = {
-  type: "site",
-  name: "Mavi Site",
-};
-
-const defaultScopeType =
-  managerManagedArea.type === "site" ? "Tüm Site" : "Tüm Apartman";
-
-const apartmentOptions = [
-  { id: 1, label: "A Blok / Daire 1", block: "A Blok" },
-  { id: 2, label: "A Blok / Daire 2", block: "A Blok" },
-  { id: 3, label: "A Blok / Daire 5", block: "A Blok" },
-  { id: 4, label: "B Blok / Daire 8", block: "B Blok" },
-  { id: 5, label: "B Blok / Daire 9", block: "B Blok" },
-  { id: 6, label: "C Blok / Daire 12", block: "C Blok" },
-];
-
 const emptyFormData = {
   title: "",
-  category: "Aidat",
-  amount: "",
-  dueDate: "",
-  scopeType: defaultScopeType,
-  block: "A Blok",
-  selectedApartmentIds: [],
-  exemptApartmentIds: [],
-  notifyResidents: "Gönder",
-  status: "Aktif",
   description: "",
+  totalAmount: "",
+  scopeType: "BLOCK",
+  siteId: "",
+  blockId: "",
+  apartmentIds: [],
+  exemptApartmentIds: [],
+  dueDate: "",
+  sendSms: false,
+  sendEmail: true,
 };
 
-function formatCurrency(value) {
+function getDataArray(result) {
+  const data = result?.data ?? result;
+
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.paymentBatches)) return data.paymentBatches;
+  if (Array.isArray(data?.apartments)) return data.apartments;
+
+  return [];
+}
+
+function formatCurrencyFromKurus(value) {
   return new Intl.NumberFormat("tr-TR", {
     style: "currency",
     currency: "TRY",
     minimumFractionDigits: 2,
-  }).format(value || 0);
+  }).format((Number(value) || 0) / 100);
 }
 
-function formatDate(dateValue) {
-  if (!dateValue) {
+function formatDate(value) {
+  if (!value) return "-";
+
+  try {
+    return new Date(value).toLocaleDateString("tr-TR");
+  } catch {
     return "-";
   }
+}
 
-  return new Date(dateValue).toLocaleDateString("tr-TR");
+function toInputDate(value) {
+  if (!value) return "";
+
+  try {
+    return new Date(value).toISOString().slice(0, 10);
+  } catch {
+    return "";
+  }
+}
+
+function normalizeText(value) {
+  return String(value ?? "").toLocaleLowerCase("tr-TR").trim();
+}
+
+function getUniqueSites(apartments) {
+  const siteMap = new Map();
+
+  for (const apartment of apartments) {
+    const site = apartment.block?.site;
+
+    if (site?.id) {
+      siteMap.set(site.id, {
+        id: site.id,
+        name: site.name,
+      });
+    }
+  }
+
+  return Array.from(siteMap.values());
+}
+
+function getUniqueBlocks(apartments) {
+  const blockMap = new Map();
+
+  for (const apartment of apartments) {
+    const block = apartment.block;
+
+    if (block?.id) {
+      blockMap.set(block.id, {
+        id: block.id,
+        name: block.name,
+        siteName: block.site?.name ?? "Site",
+        siteId: block.site?.id,
+      });
+    }
+  }
+
+  return Array.from(blockMap.values());
+}
+
+function getApartmentLabel(apartment) {
+  return `${apartment.block?.site?.name ?? "Site"} / ${
+    apartment.block?.name ?? "Blok"
+  } / Daire ${apartment.number}`;
+}
+
+function getScopeText(batch) {
+  if (batch.scopeType === "SITE") {
+    return batch.site?.name ?? "Site";
+  }
+
+  if (batch.scopeType === "BLOCK") {
+    return `${batch.block?.site?.name ?? "Site"} / ${batch.block?.name ?? "Blok"}`;
+  }
+
+  return "Seçili Daireler";
+}
+
+function getBatchStatus(batch) {
+  const allocations = Array.isArray(batch.allocations) ? batch.allocations : [];
+
+  const paidCount = allocations.filter((item) => item.status === "PAID").length;
+  const pendingCount = allocations.filter((item) => item.status === "PENDING").length;
+  const cancelledCount = allocations.filter(
+    (item) => item.status === "CANCELLED"
+  ).length;
+
+  if (allocations.length === 0) {
+    return "Kayıt Yok";
+  }
+
+  if (paidCount === allocations.length) {
+    return "Tamamı Ödendi";
+  }
+
+  if (cancelledCount === allocations.length) {
+    return "İptal Edildi";
+  }
+
+  if (paidCount > 0) {
+    return "Kısmi Ödendi";
+  }
+
+  if (pendingCount > 0) {
+    return "Bekliyor";
+  }
+
+  return "Bilinmiyor";
+}
+
+function mapBatchToViewModel(batch) {
+  const allocations = Array.isArray(batch.allocations) ? batch.allocations : [];
+  const exemptions = Array.isArray(batch.exemptions) ? batch.exemptions : [];
+
+  return {
+    id: batch.id,
+    title: batch.title,
+    description: batch.description ?? "",
+    totalAmountKurus: batch.totalAmountKurus,
+    totalAmountText: formatCurrencyFromKurus(batch.totalAmountKurus),
+    scopeType: batch.scopeType,
+    scopeText: getScopeText(batch),
+    dueDate: formatDate(batch.dueDate),
+    dueDateInput: toInputDate(batch.dueDate),
+    allocationCount: allocations.length,
+    exemptCount: exemptions.length,
+    status: getBatchStatus(batch),
+    createdAt: formatDate(batch.createdAt),
+    allocations,
+    exemptions,
+    raw: batch,
+  };
 }
 
 function PaymentsPage() {
-  const [payments, setPayments] = useState([
-    {
-      id: 1,
-      title: "Temmuz Aidatı",
-      category: "Aidat",
-      scopeText: defaultScopeType,
-      totalAmount: 12000,
-      totalAmountText: formatCurrency(12000),
-      unitAmountText: formatCurrency(2000),
-      chargedCount: 6,
-      exemptCount: 0,
-      chargedApartments: apartmentOptions,
-      exemptApartments: [],
-      dueDateText: "15.07.2026",
-      status: "Aktif",
-      description: `${managerManagedArea.name} için Temmuz ayı genel aidat borçlandırması.`,
-    },
-  ]);
+  const { user } = useAuth();
+
+  const [paymentBatches, setPaymentBatches] = useState([]);
+  const [apartments, setApartments] = useState([]);
 
   const [formData, setFormData] = useState(emptyFormData);
-  const [showForm, setShowForm] = useState(false);
+  const [editingPayment, setEditingPayment] = useState(null);
   const [selectedPayment, setSelectedPayment] = useState(null);
+  const [showForm, setShowForm] = useState(false);
 
   const [searchTerm, setSearchTerm] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("Tümü");
   const [statusFilter, setStatusFilter] = useState("Tümü");
 
-  const availableTargetApartments = useMemo(() => {
-    if (
-      managerManagedArea.type === "site" &&
-      formData.scopeType === "Belirli Blok"
-    ) {
-      return apartmentOptions.filter(
-        (apartment) => apartment.block === formData.block
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const siteOptions = useMemo(() => getUniqueSites(apartments), [apartments]);
+  const blockOptions = useMemo(() => getUniqueBlocks(apartments), [apartments]);
+
+  const scopedApartments = useMemo(() => {
+    if (formData.scopeType === "SITE") {
+      return apartments.filter(
+        (apartment) => apartment.block?.site?.id === formData.siteId
       );
     }
 
-    if (formData.scopeType === "Belirli Daireler") {
-      return apartmentOptions.filter((apartment) =>
-        formData.selectedApartmentIds.includes(apartment.id)
+    if (formData.scopeType === "BLOCK") {
+      return apartments.filter(
+        (apartment) => apartment.block?.id === formData.blockId
       );
     }
 
-    return apartmentOptions;
-  }, [formData.scopeType, formData.block, formData.selectedApartmentIds]);
+    if (formData.scopeType === "APARTMENTS") {
+      return apartments.filter((apartment) =>
+        formData.apartmentIds.includes(apartment.id)
+      );
+    }
 
-  const calculation = useMemo(() => {
-    const totalAmount = Number(formData.amount) || 0;
+    return [];
+  }, [apartments, formData.scopeType, formData.siteId, formData.blockId, formData.apartmentIds]);
 
-    const exemptApartments = availableTargetApartments.filter((apartment) =>
-      formData.exemptApartmentIds.includes(apartment.id)
-    );
+  async function loadPageData() {
+    const [paymentResult, apartmentResult] = await Promise.all([
+      getPaymentBatches({ page: 1, limit: 100 }),
+      getApartments({ page: 1, limit: 100 }),
+    ]);
 
-    const chargedApartments = availableTargetApartments.filter(
-      (apartment) => !formData.exemptApartmentIds.includes(apartment.id)
-    );
-
-    const chargedCount = chargedApartments.length;
-    const unitAmount = chargedCount > 0 ? totalAmount / chargedCount : 0;
-
-    return {
-      totalAmount,
-      totalAmountText: formatCurrency(totalAmount),
-      targetCount: availableTargetApartments.length,
-      exemptCount: exemptApartments.length,
-      chargedCount,
-      unitAmount,
-      unitAmountText: formatCurrency(unitAmount),
-      chargedApartments,
-      exemptApartments,
-    };
-  }, [formData.amount, formData.exemptApartmentIds, availableTargetApartments]);
-
-  const filteredPayments = useMemo(() => {
-    return payments.filter((payment) => {
-      const searchValue = searchTerm.toLowerCase();
-
-      const matchesSearch =
-        payment.title.toLowerCase().includes(searchValue) ||
-        payment.category.toLowerCase().includes(searchValue) ||
-        payment.scopeText.toLowerCase().includes(searchValue) ||
-        payment.description.toLowerCase().includes(searchValue);
-
-      const matchesCategory =
-        categoryFilter === "Tümü" ? true : payment.category === categoryFilter;
-
-      const matchesStatus =
-        statusFilter === "Tümü" ? true : payment.status === statusFilter;
-
-      return matchesSearch && matchesCategory && matchesStatus;
-    });
-  }, [payments, searchTerm, categoryFilter, statusFilter]);
-
-  function handleInputChange(event) {
-    const { name, value } = event.target;
-
-    setFormData((currentData) => {
-      const updatedData = {
-        ...currentData,
-        [name]: value,
-      };
-
-      if (name === "scopeType" || name === "block") {
-        updatedData.selectedApartmentIds = [];
-        updatedData.exemptApartmentIds = [];
-      }
-
-      return updatedData;
-    });
+    setPaymentBatches(getDataArray(paymentResult).map(mapBatchToViewModel));
+    setApartments(getDataArray(apartmentResult));
   }
 
-  function handleApartmentSelectionChange(apartmentId) {
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadInitialData() {
+      try {
+        setIsLoading(true);
+        setErrorMessage("");
+
+        const [paymentResult, apartmentResult] = await Promise.all([
+          getPaymentBatches({ page: 1, limit: 100 }),
+          getApartments({ page: 1, limit: 100 }),
+        ]);
+
+        if (isMounted) {
+          setPaymentBatches(getDataArray(paymentResult).map(mapBatchToViewModel));
+          setApartments(getDataArray(apartmentResult));
+        }
+      } catch (error) {
+        if (isMounted) {
+          setErrorMessage(error?.message ?? "Ödeme kayıtları alınamadı.");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadInitialData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const summary = useMemo(() => {
+    return {
+      total: paymentBatches.length,
+      waiting: paymentBatches.filter((item) => item.status === "Bekliyor").length,
+      partial: paymentBatches.filter((item) => item.status === "Kısmi Ödendi").length,
+      paid: paymentBatches.filter((item) => item.status === "Tamamı Ödendi").length,
+    };
+  }, [paymentBatches]);
+
+  const filteredPayments = useMemo(() => {
+    const searchValue = normalizeText(searchTerm);
+
+    return paymentBatches.filter((payment) => {
+      const searchableText = [
+        payment.title,
+        payment.description,
+        payment.totalAmountText,
+        payment.scopeText,
+        payment.status,
+        payment.dueDate,
+      ]
+        .join(" ")
+        .toLocaleLowerCase("tr-TR");
+
+      const matchesSearch = searchableText.includes(searchValue);
+      const matchesStatus =
+        statusFilter === "Tümü"
+          ? payment.status !== "İptal Edildi"
+          : payment.status === statusFilter;
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [paymentBatches, searchTerm, statusFilter]);
+
+  function resetForm() {
+    setEditingPayment(null);
+    setFormData(emptyFormData);
+  }
+
+  function openCreateForm() {
+    resetForm();
+    setShowForm(true);
+    setMessage("");
+    setErrorMessage("");
+  }
+
+  function closeForm() {
+    resetForm();
+    setShowForm(false);
+  }
+
+  function handleInputChange(event) {
+    const { name, value, type, checked } = event.target;
+
     setFormData((currentData) => {
-      const isSelected = currentData.selectedApartmentIds.includes(apartmentId);
+      if (type === "checkbox" && (name === "sendSms" || name === "sendEmail")) {
+        return {
+          ...currentData,
+          [name]: checked,
+        };
+      }
 
-      const selectedApartmentIds = isSelected
-        ? currentData.selectedApartmentIds.filter((id) => id !== apartmentId)
-        : [...currentData.selectedApartmentIds, apartmentId];
+      if (name === "scopeType") {
+        return {
+          ...currentData,
+          scopeType: value,
+          siteId: "",
+          blockId: "",
+          apartmentIds: [],
+          exemptApartmentIds: [],
+        };
+      }
 
-      const exemptApartmentIds = currentData.exemptApartmentIds.filter((id) =>
-        selectedApartmentIds.includes(id)
-      );
+      if (name === "siteId" || name === "blockId") {
+        return {
+          ...currentData,
+          [name]: value,
+          exemptApartmentIds: [],
+        };
+      }
 
       return {
         ...currentData,
-        selectedApartmentIds,
-        exemptApartmentIds,
+        [name]: value,
       };
     });
   }
 
-  function handleExemptSelectionChange(apartmentId) {
+  function toggleApartmentSelection(apartmentId) {
+    setFormData((currentData) => {
+      const isSelected = currentData.apartmentIds.includes(apartmentId);
+      const nextApartmentIds = isSelected
+        ? currentData.apartmentIds.filter((id) => id !== apartmentId)
+        : [...currentData.apartmentIds, apartmentId];
+
+      return {
+        ...currentData,
+        apartmentIds: nextApartmentIds,
+        exemptApartmentIds: currentData.exemptApartmentIds.filter((id) =>
+          nextApartmentIds.includes(id)
+        ),
+      };
+    });
+  }
+
+  function toggleExemptApartment(apartmentId) {
     setFormData((currentData) => {
       const isSelected = currentData.exemptApartmentIds.includes(apartmentId);
 
@@ -220,134 +409,640 @@ function PaymentsPage() {
     });
   }
 
-  function handleOpenForm() {
-    setFormData(emptyFormData);
+  function handleEdit(payment) {
+    setEditingPayment(payment);
+
+    setFormData({
+      ...emptyFormData,
+      title: payment.title ?? "",
+      description: payment.description ?? "",
+      dueDate: payment.dueDateInput ?? "",
+    });
+
     setShowForm(true);
+    setMessage("");
+    setErrorMessage("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function handleCancelForm() {
-    setFormData(emptyFormData);
-    setShowForm(false);
-  }
-
-  function getScopeText() {
-    if (formData.scopeType === "Belirli Blok") {
-      return formData.block;
-    }
-
-    if (formData.scopeType === "Belirli Daireler") {
-      return `${calculation.targetCount} seçili daire`;
-    }
-
-    return formData.scopeType;
-  }
-
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
 
-    if (calculation.chargedCount === 0) {
-      alert("Borçlandırılacak daire bulunamadı.");
+    if (!formData.title.trim()) {
+      setErrorMessage("Başlık zorunludur.");
       return;
     }
 
-    const newPayment = {
-      id: Date.now(),
-      title: formData.title,
-      category: formData.category,
-      scopeText: getScopeText(),
-      totalAmount: calculation.totalAmount,
-      totalAmountText: calculation.totalAmountText,
-      unitAmountText: calculation.unitAmountText,
-      chargedCount: calculation.chargedCount,
-      exemptCount: calculation.exemptCount,
-      chargedApartments: calculation.chargedApartments,
-      exemptApartments: calculation.exemptApartments,
-      dueDateText: formatDate(formData.dueDate),
-      status: formData.status,
-      description: formData.description,
-    };
-
-    setPayments((currentPayments) => [newPayment, ...currentPayments]);
-    handleCancelForm();
-  }
-
-  function handleDelete(paymentId) {
-    const confirmed = window.confirm(
-      "Bu ödeme kaydını silmek istiyor musunuz?"
-    );
-
-    if (!confirmed) {
+    if (!formData.dueDate) {
+      setErrorMessage("Son ödeme tarihi zorunludur.");
       return;
     }
 
-    setPayments((currentPayments) =>
-      currentPayments.filter((payment) => payment.id !== paymentId)
-    );
+    if (!editingPayment) {
+      const amount = Number(formData.totalAmount);
+
+      if (!amount || amount <= 0) {
+        setErrorMessage("Toplam tutar pozitif olmalıdır.");
+        return;
+      }
+
+      if (formData.scopeType === "SITE" && !formData.siteId) {
+        setErrorMessage("Site seçimi zorunludur.");
+        return;
+      }
+
+      if (formData.scopeType === "BLOCK" && !formData.blockId) {
+        setErrorMessage("Blok seçimi zorunludur.");
+        return;
+      }
+
+      if (formData.scopeType === "APARTMENTS" && formData.apartmentIds.length === 0) {
+        setErrorMessage("En az bir daire seçilmelidir.");
+        return;
+      }
+
+      const payableCount = scopedApartments.filter(
+        (apartment) => !formData.exemptApartmentIds.includes(apartment.id)
+      ).length;
+
+      if (payableCount === 0) {
+        setErrorMessage("Muaf olmayan en az bir daire kalmalıdır.");
+        return;
+      }
+    }
+
+    try {
+      setIsSaving(true);
+      setMessage("");
+      setErrorMessage("");
+
+      if (editingPayment) {
+        await updatePaymentBatch(editingPayment.id, {
+          title: formData.title.trim(),
+          description: formData.description.trim() || null,
+          dueDate: formData.dueDate,
+        });
+
+        setMessage("Ödeme başarıyla güncellendi.");
+      } else {
+        await createPaymentBatch({
+          title: formData.title.trim(),
+          description: formData.description.trim() || undefined,
+          totalAmountKurus: Math.round(Number(formData.totalAmount) * 100),
+          scopeType: formData.scopeType,
+          ...(formData.scopeType === "SITE" ? { siteId: formData.siteId } : {}),
+          ...(formData.scopeType === "BLOCK" ? { blockId: formData.blockId } : {}),
+          ...(formData.scopeType === "APARTMENTS"
+            ? { apartmentIds: formData.apartmentIds }
+            : {}),
+          exemptApartmentIds: formData.exemptApartmentIds,
+          dueDate: formData.dueDate,
+          sendSms: Boolean(formData.sendSms),
+          sendEmail: Boolean(formData.sendEmail),
+        });
+
+        setMessage("Ödeme başarıyla oluşturuldu.");
+      }
+
+      await loadPageData();
+      closeForm();
+    } catch {
+      setErrorMessage(
+        editingPayment
+          ? "Ödeme güncellenemedi. Bilgileri kontrol edin."
+          : "Ödeme oluşturulamadı. Bu kapsam için yetkiniz olmayabilir veya seçimler hatalı olabilir."
+      );
+    } finally {
+      setIsSaving(false);
+    }
   }
 
+  async function handleCancelPayment(payment) {
+    const isConfirmed = window.confirm(
+      `${payment.title} ödemesini iptal etmek istiyor musunuz?`
+    );
+
+    if (!isConfirmed) {
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      setMessage("");
+      setErrorMessage("");
+
+      await cancelPaymentBatch(payment.id);
+      await loadPageData();
+
+      setMessage("Ödeme başarıyla iptal edildi.");
+    } catch {
+      setErrorMessage(
+        "Ödeme iptal edilemedi. İçinde ödenmiş kayıt olabilir veya yetkiniz olmayabilir."
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }
   return (
     <DashboardLayout
       roleTitle="Aidat ve Ödemeler"
       roleBadge="Yönetici"
-      userName="Alaa"
+      userName={user?.fullName ?? "Yönetici"}
       navItems={navItems}
       theme="manager"
     >
       <div className="dashboard-page-header">
         <div>
           <span className="section-kicker">Ödeme Yönetimi</span>
+
           <h2>Aidat ve Ödemeler</h2>
+
           <p>
-            Aidat ve ortak gider kayıtlarını sorumlu olduğunuz site veya apartman
-            kapsamında oluşturabilir, muaf daireleri seçerek dağıtım hesabını
-            görebilirsiniz.
+            Yetki alanınızdaki site, blok veya seçili daireler için ödeme
+            oluşturabilir, muaf daireleri seçebilir ve ödeme durumlarını takip
+            edebilirsiniz.
           </p>
         </div>
 
         <button
           type="button"
           className="dashboard-action-button"
-          onClick={handleOpenForm}
+          onClick={openCreateForm}
+          disabled={isSaving}
         >
           <Plus size={18} />
-          Yeni Aidat / Gider
+          Yeni Ödeme
         </button>
       </div>
 
-      {showForm && (
-        <PaymentForm
-          formData={formData}
-          apartmentOptions={apartmentOptions}
-          availableTargetApartments={availableTargetApartments}
-          calculation={calculation}
-          managerManagedArea={managerManagedArea}
-          onInputChange={handleInputChange}
-          onApartmentSelectionChange={handleApartmentSelectionChange}
-          onExemptSelectionChange={handleExemptSelectionChange}
-          onSubmit={handleSubmit}
-          onCancel={handleCancelForm}
-        />
+      {errorMessage && (
+        <div className="login-error-message">
+          <p>{errorMessage}</p>
+        </div>
       )}
 
-      <PaymentToolbar
-        searchTerm={searchTerm}
-        setSearchTerm={setSearchTerm}
-        categoryFilter={categoryFilter}
-        setCategoryFilter={setCategoryFilter}
-        statusFilter={statusFilter}
-        setStatusFilter={setStatusFilter}
-      />
+      {message && (
+        <div className="login-success-message">
+          <p>{message}</p>
+        </div>
+      )}
 
-      <PaymentTable
-        payments={filteredPayments}
-        onView={setSelectedPayment}
-        onDelete={handleDelete}
-      />
+      <section className="dashboard-summary-grid">
+        <div className="summary-card">
+          <span>Toplam Ödeme</span>
+          <strong>{summary.total}</strong>
+        </div>
 
-      <PaymentDetailsModal
-        payment={selectedPayment}
-        onClose={() => setSelectedPayment(null)}
-      />
+        <div className="summary-card">
+          <span>Bekleyen</span>
+          <strong>{summary.waiting}</strong>
+        </div>
+
+        <div className="summary-card">
+          <span>Kısmi Ödendi</span>
+          <strong>{summary.partial}</strong>
+        </div>
+
+        <div className="summary-card">
+          <span>Tamamı Ödendi</span>
+          <strong>{summary.paid}</strong>
+        </div>
+      </section>
+
+      {showForm && (
+        <section className="dashboard-panel">
+          <div className="manager-form-header">
+            <div>
+              <span className="section-kicker">
+                {editingPayment ? "Ödeme Düzenleme" : "Yeni Ödeme"}
+              </span>
+
+              <h3>
+                {editingPayment ? "Ödeme Bilgilerini Güncelle" : "Ödeme Oluştur"}
+              </h3>
+
+              <p>
+                {editingPayment
+                  ? "Bu ekranda ödeme başlığı, açıklaması ve son ödeme tarihi güncellenir."
+                  : "Yeni ödeme oluştururken toplam tutar muaf olmayan dairelere otomatik bölüştürülür."}
+              </p>
+            </div>
+          </div>
+
+          <form className="manager-form" onSubmit={handleSubmit}>
+            <div className="form-grid">
+              <label>
+                Başlık
+                <input
+                  type="text"
+                  name="title"
+                  value={formData.title}
+                  onChange={handleInputChange}
+                  placeholder="Örn: Temmuz Aidatı"
+                  disabled={isSaving}
+                  required
+                />
+              </label>
+
+              <label>
+                Son Ödeme Tarihi
+                <input
+                  type="date"
+                  name="dueDate"
+                  value={formData.dueDate}
+                  onChange={handleInputChange}
+                  disabled={isSaving}
+                  required
+                />
+              </label>
+
+              {!editingPayment && (
+                <>
+                  <label>
+                    Toplam Tutar
+                    <input
+                      type="number"
+                      name="totalAmount"
+                      value={formData.totalAmount}
+                      onChange={handleInputChange}
+                      placeholder="Örn: 12000"
+                      min="1"
+                      disabled={isSaving}
+                      required
+                    />
+                  </label>
+
+                  <label>
+                    Kapsam
+                    <select
+                      name="scopeType"
+                      value={formData.scopeType}
+                      onChange={handleInputChange}
+                      disabled={isSaving}
+                    >
+                      <option value="BLOCK">Blok / Apartman</option>
+                      <option value="SITE">Tüm Site</option>
+                      <option value="APARTMENTS">Belirli Daireler</option>
+                    </select>
+                  </label>
+
+                  {formData.scopeType === "SITE" && (
+                    <label>
+                      Site Seç
+                      <select
+                        name="siteId"
+                        value={formData.siteId}
+                        onChange={handleInputChange}
+                        disabled={isSaving}
+                        required
+                      >
+                        <option value="">Site seçiniz</option>
+
+                        {siteOptions.map((site) => (
+                          <option key={site.id} value={site.id}>
+                            {site.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+
+                  {formData.scopeType === "BLOCK" && (
+                    <label>
+                      Blok Seç
+                      <select
+                        name="blockId"
+                        value={formData.blockId}
+                        onChange={handleInputChange}
+                        disabled={isSaving}
+                        required
+                      >
+                        <option value="">Blok seçiniz</option>
+
+                        {blockOptions.map((block) => (
+                          <option key={block.id} value={block.id}>
+                            {block.siteName} / {block.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </>
+              )}
+
+              <label className="full-width">
+                Açıklama
+                <textarea
+                  name="description"
+                  value={formData.description}
+                  onChange={handleInputChange}
+                  rows="3"
+                  placeholder="Ödeme ile ilgili açıklama yazın..."
+                  disabled={isSaving}
+                />
+              </label>
+            </div>
+
+            {!editingPayment && formData.scopeType === "APARTMENTS" && (
+              <div className="dashboard-panel">
+                <span className="section-kicker">Daire Seçimi</span>
+
+                <div className="checkbox-grid">
+                  {apartments.map((apartment) => (
+                    <label key={apartment.id} className="remember-me">
+                      <input
+                        type="checkbox"
+                        checked={formData.apartmentIds.includes(apartment.id)}
+                        onChange={() => toggleApartmentSelection(apartment.id)}
+                        disabled={isSaving}
+                      />
+                      {getApartmentLabel(apartment)}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {!editingPayment && scopedApartments.length > 0 && (
+              <div className="dashboard-panel">
+                <span className="section-kicker">Muaf Daireler</span>
+
+                <p>
+                  Seçilen daireler ödeme hesabına dahil edilmez. Tutar kalan
+                  dairelere bölüştürülür.
+                </p>
+
+                <div className="checkbox-grid">
+                  {scopedApartments.map((apartment) => (
+                    <label key={apartment.id} className="remember-me">
+                      <input
+                        type="checkbox"
+                        checked={formData.exemptApartmentIds.includes(apartment.id)}
+                        onChange={() => toggleExemptApartment(apartment.id)}
+                        disabled={isSaving}
+                      />
+                      {getApartmentLabel(apartment)}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {!editingPayment && (
+              <div className="dashboard-panel">
+                <span className="section-kicker">Bildirim</span>
+
+                <label className="remember-me">
+                  <input
+                    type="checkbox"
+                    name="sendEmail"
+                    checked={formData.sendEmail}
+                    onChange={handleInputChange}
+                    disabled={isSaving}
+                  />
+                  E-posta bildirimi gönder
+                </label>
+
+                <label className="remember-me">
+                  <input
+                    type="checkbox"
+                    name="sendSms"
+                    checked={formData.sendSms}
+                    onChange={handleInputChange}
+                    disabled={isSaving}
+                  />
+                  SMS bildirimi gönder
+                </label>
+              </div>
+            )}
+
+            <div className="form-actions">
+              <button
+                type="button"
+                className="secondary-form-button"
+                onClick={closeForm}
+                disabled={isSaving}
+              >
+                Vazgeç
+              </button>
+
+              <button
+                type="submit"
+                className="dashboard-action-button"
+                disabled={isSaving}
+              >
+                {isSaving
+                  ? "Kaydediliyor..."
+                  : editingPayment
+                    ? "Değişiklikleri Kaydet"
+                    : "Ödeme Oluştur"}
+              </button>
+            </div>
+          </form>
+        </section>
+      )}
+
+      <section className="resident-toolbar">
+        <div className="resident-search">
+          <input
+            type="text"
+            placeholder="Başlık, açıklama, kapsam veya tutar ara..."
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+          />
+        </div>
+
+        <div className="resident-filter">
+          <select
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value)}
+          >
+            <option>Tümü</option>
+            <option>Bekliyor</option>
+            <option>Kısmi Ödendi</option>
+            <option>Tamamı Ödendi</option>
+            <option>İptal Edildi</option>
+          </select>
+        </div>
+      </section>
+
+      {isLoading ? (
+        <div className="dashboard-panel">
+          <p>Ödeme kayıtları yükleniyor...</p>
+        </div>
+      ) : (
+        <section className="users-table-card">
+          <div className="users-table-wrapper">
+            <table className="users-table">
+              <thead>
+                <tr>
+                  <th>Başlık</th>
+                  <th>Kapsam</th>
+                  <th>Tutar</th>
+                  <th>Daire</th>
+                  <th>Muaf</th>
+                  <th>Son Tarih</th>
+                  <th>Durum</th>
+                  <th>İşlem</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {filteredPayments.length > 0 ? (
+                  filteredPayments.map((payment) => (
+                    <tr key={payment.id}>
+                      <td>
+                        <div className="table-user-main">
+                          <strong>{payment.title}</strong>
+                          <span>{payment.description || "Açıklama yok"}</span>
+                        </div>
+                      </td>
+
+                      <td>{payment.scopeText}</td>
+                      <td>{payment.totalAmountText}</td>
+                      <td>{payment.allocationCount}</td>
+                      <td>{payment.exemptCount}</td>
+                      <td>{payment.dueDate}</td>
+                      <td>{payment.status}</td>
+
+                      <td>
+                        <div className="table-actions">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedPayment(payment)}
+                            disabled={isSaving}
+                          >
+                            <Eye size={16} />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleEdit(payment)}
+                            disabled={isSaving}
+                          >
+                            <Edit size={16} />
+                          </button>
+
+                          {payment.status !== "İptal Edildi" &&
+                            payment.status !== "Tamamı Ödendi" && (
+                              <button
+                                type="button"
+                                className="danger-table-button"
+                                onClick={() => handleCancelPayment(payment)}
+                                disabled={isSaving}
+                              >
+                                <Trash2 size={16} />
+                                İptal Et
+                              </button>
+                            )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="8" className="empty-table-message">
+                      Arama kriterlerine uygun ödeme bulunamadı.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {selectedPayment && (
+        <div className="modal-overlay">
+          <section className="details-modal">
+            <div className="modal-header">
+              <div>
+                <span className="section-kicker">Ödeme Detayı</span>
+                <h3>{selectedPayment.title}</h3>
+              </div>
+
+              <button
+                type="button"
+                className="modal-close-button"
+                onClick={() => setSelectedPayment(null)}
+              >
+                Kapat
+              </button>
+            </div>
+
+            <div className="details-list">
+              <div>
+                <span>Kapsam</span>
+                <strong>{selectedPayment.scopeText}</strong>
+              </div>
+
+              <div>
+                <span>Toplam Tutar</span>
+                <strong>{selectedPayment.totalAmountText}</strong>
+              </div>
+
+              <div>
+                <span>Dağıtılan Daire</span>
+                <strong>{selectedPayment.allocationCount}</strong>
+              </div>
+
+              <div>
+                <span>Muaf Daire</span>
+                <strong>{selectedPayment.exemptCount}</strong>
+              </div>
+
+              <div>
+                <span>Son Ödeme</span>
+                <strong>{selectedPayment.dueDate}</strong>
+              </div>
+
+              <div>
+                <span>Durum</span>
+                <strong>{selectedPayment.status}</strong>
+              </div>
+            </div>
+
+            <div className="details-description">
+              <span>Açıklama</span>
+              <p>{selectedPayment.description || "Açıklama yok."}</p>
+            </div>
+
+            <div className="details-description">
+              <span>Daire Bazlı Dağılım</span>
+
+              {selectedPayment.allocations.length > 0 ? (
+                <div className="users-table-wrapper">
+                  <table className="users-table">
+                    <thead>
+                      <tr>
+                        <th>Daire</th>
+                        <th>Tutar</th>
+                        <th>Durum</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {selectedPayment.allocations.map((allocation) => (
+                        <tr key={allocation.id}>
+                          <td>
+                            {allocation.apartment?.block?.site?.name ?? "Site"} /{" "}
+                            {allocation.apartment?.block?.name ?? "Blok"} / Daire{" "}
+                            {allocation.apartment?.number ?? "-"}
+                          </td>
+                          <td>{formatCurrencyFromKurus(allocation.amountKurus)}</td>
+                          <td>{allocation.status}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p>Daire dağılımı bulunmuyor.</p>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
     </DashboardLayout>
   );
 }

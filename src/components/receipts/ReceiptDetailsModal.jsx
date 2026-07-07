@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+﻿import { X } from "lucide-react";
 
 function ReceiptDetailsModal({ receipt, onClose }) {
   if (!receipt) {
@@ -11,8 +11,7 @@ function ReceiptDetailsModal({ receipt, onClose }) {
         <div className="modal-header">
           <div>
             <span className="section-kicker">Dekont Detayı</span>
-
-            <h3>{receipt.payerName || "Dekont Bilgisi"}</h3>
+            <h3>{receipt.fileName || "Dekont Bilgisi"}</h3>
           </div>
 
           <button
@@ -27,27 +26,32 @@ function ReceiptDetailsModal({ receipt, onClose }) {
 
         <div className="details-list receipt-details-list">
           <div>
-            <span>Ödeyen</span>
+            <span>Yükleyen</span>
             <strong>{receipt.payerName || "-"}</strong>
           </div>
 
           <div>
-            <span>Banka Hesap No / IBAN</span>
-            <strong>{receipt.bankAccount || "-"}</strong>
+            <span>E-posta</span>
+            <strong>{receipt.payerEmail || "-"}</strong>
           </div>
 
           <div>
-            <span>Eşleşen Daire</span>
+            <span>Daire</span>
             <strong>{receipt.apartmentLabel || "-"}</strong>
           </div>
 
           <div>
-            <span>Ödeme Tipi</span>
-            <strong>{receipt.paymentOwnerType || "-"}</strong>
+            <span>Ödeme Başlığı</span>
+            <strong>{receipt.paymentTitle || "-"}</strong>
           </div>
 
           <div>
-            <span>Ödenen Tutar</span>
+            <span>Son Ödeme Tarihi</span>
+            <strong>{receipt.dueDate || "-"}</strong>
+          </div>
+
+          <div>
+            <span>Tutar</span>
             <strong>{receipt.amountText || "-"}</strong>
           </div>
 
@@ -75,18 +79,21 @@ function ReceiptDetailsModal({ receipt, onClose }) {
             <span>Yükleme Tarihi</span>
             <strong>{receipt.createdAt || "-"}</strong>
           </div>
+
+          <div>
+            <span>İnceleyen</span>
+            <strong>{receipt.reviewedBy || "-"}</strong>
+          </div>
         </div>
 
         <div className="details-description">
-          <span>Eşleştirme Notu</span>
-
-          <p>{receipt.matchMessage || "Eşleştirme notu bulunmuyor."}</p>
-        </div>
-
-        <div className="details-description">
-          <span>Açıklama</span>
-
+          <span>Dekont Notu</span>
           <p>{receipt.description || "Bu dekont için açıklama bulunmuyor."}</p>
+        </div>
+
+        <div className="details-description">
+          <span>İnceleme Notu</span>
+          <p>{receipt.reviewNote || "İnceleme notu bulunmuyor."}</p>
         </div>
       </section>
     </div>
