@@ -14,6 +14,7 @@ import prisma from "../db/prisma.js";
 import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth.middleware.js";
 import { forgotPasswordLimiter, loginLimiter, resetPasswordLimiter } from "../middlewares/rate-limit.middleware.js";
 import { queueEmailNotification } from "../services/notification.service.js";
+import { createAuditLog } from "../services/audit-log.service.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
 
@@ -32,6 +33,33 @@ const resetPasswordSchema = z.object({
   token: z.string().trim().min(32),
   password: z.string().min(8, "إ‍ifre en az 8 karakter olmalؤ±dؤ±r."),
 });
+
+const updateOwnProfileSchema = z
+  .object({
+    fullName: z.string().trim().min(2).optional(),
+    phone: z.string().trim().nullable().optional(),
+  })
+  .strict()
+  .refine((data) => Object.values(data).some((value) => value !== undefined), {
+    message: "En az bir alan gönderilmelidir.",
+  });
+
+const changeOwnPasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(8),
+});
+
+const ownUserSelectFields = {
+  id: true,
+  fullName: true,
+  email: true,
+  phone: true,
+  role: true,
+  status: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
 
 function createPasswordResetToken() {
   const plainToken = crypto.randomBytes(32).toString("hex");
@@ -300,6 +328,144 @@ router.post(
   })
 );
 
+
+router.patch(
+  "/me",
+  requireAuth,
+  asyncHandler(async (request: AuthenticatedRequest, response: Response) => {
+    if (!request.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    const validationResult = updateOwnProfileSchema.safeParse(request.body);
+
+    if (!validationResult.success) {
+      throw new HttpError(
+        400,
+        "Profil bilgileri geçersiz.",
+        validationResult.error.flatten().fieldErrors
+      );
+    }
+
+    const { fullName, phone } = validationResult.data;
+
+    const updateData: {
+      fullName?: string;
+      phone?: string | null;
+    } = {};
+
+    if (fullName !== undefined) {
+      updateData.fullName = fullName;
+    }
+
+    if (phone !== undefined) {
+      updateData.phone = phone && phone.length > 0 ? phone : null;
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: {
+        id: request.user.id,
+      },
+      data: updateData,
+      select: ownUserSelectFields,
+    });
+
+    await createAuditLog({
+      request,
+      userId: request.user.id,
+      action: "UPDATE_OWN_PROFILE",
+      entityType: "User",
+      entityId: updatedUser.id,
+      metadata: {
+        fullNameChanged: fullName !== undefined,
+        phoneChanged: phone !== undefined,
+      },
+    });
+
+    response.status(200).json({
+      success: true,
+      message: "Profil bilgileri başarıyla güncellendi.",
+      data: {
+        user: updatedUser,
+      },
+    });
+  })
+);
+
+router.patch(
+  "/change-password",
+  requireAuth,
+  asyncHandler(async (request: AuthenticatedRequest, response: Response) => {
+    if (!request.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    const validationResult = changeOwnPasswordSchema.safeParse(request.body);
+
+    if (!validationResult.success) {
+      throw new HttpError(
+        400,
+        "Şifre bilgileri geçersiz.",
+        validationResult.error.flatten().fieldErrors
+      );
+    }
+
+    const { currentPassword, newPassword } = validationResult.data;
+
+    const user = await prisma.user.findUnique({
+      where: {
+        id: request.user.id,
+      },
+      select: {
+        id: true,
+        email: true,
+        passwordHash: true,
+        status: true,
+      },
+    });
+
+    if (!user || user.status !== "ACTIVE") {
+      throw new HttpError(404, "Kullanıcı bulunamadı.");
+    }
+
+    const isCurrentPasswordValid = await bcrypt.compare(
+      currentPassword,
+      user.passwordHash
+    );
+
+    if (!isCurrentPasswordValid) {
+      throw new HttpError(400, "Mevcut şifre hatalı.");
+    }
+
+    const nextPasswordHash = await bcrypt.hash(newPassword, 12);
+
+    await prisma.user.update({
+      where: {
+        id: user.id,
+      },
+      data: {
+        passwordHash: nextPasswordHash,
+      },
+    });
+
+    await createAuditLog({
+      request,
+      userId: request.user.id,
+      action: "CHANGE_OWN_PASSWORD",
+      entityType: "User",
+      entityId: user.id,
+      metadata: {
+        passwordChanged: true,
+      },
+    });
+
+    response.status(200).json({
+      success: true,
+      message: "Şifre başarıyla güncellendi.",
+    });
+  })
+);
+
 router.get("/me", requireAuth, (request: AuthenticatedRequest, response: Response) => {
   response.status(200).json({
     success: true,
@@ -319,4 +485,3 @@ router.post("/logout", (_request, response) => {
 });
 
 export default router;
-

@@ -42,3 +42,17 @@ export async function resetPassword({ token, password }) {
     },
   });
 }
+
+export async function updateOwnProfile(payload) {
+  return apiRequest("/auth/me", {
+    method: "PATCH",
+    body: payload,
+  });
+}
+
+export async function changeOwnPassword(payload) {
+  return apiRequest("/auth/change-password", {
+    method: "PATCH",
+    body: payload,
+  });
+}

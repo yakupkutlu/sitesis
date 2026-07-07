@@ -11039,3 +11039,51 @@ input:focus-visible {
 .dashboard-layout.dark-mode .danger-table-button:hover {
   background: rgba(239, 68, 68, 0.28);
 }
+
+.dashboard-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 20px 0;
+}
+
+.summary-card {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 18px;
+  padding: 18px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+}
+
+.summary-card span {
+  display: block;
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.summary-card strong {
+  color: #0f172a;
+  font-size: 28px;
+  font-weight: 900;
+}
+
+.dashboard-layout.dark-mode .summary-card {
+  background: rgba(15, 23, 42, 0.9);
+  border-color: rgba(148, 163, 184, 0.22);
+}
+
+.dashboard-layout.dark-mode .summary-card span {
+  color: #cbd5e1;
+}
+
+.dashboard-layout.dark-mode .summary-card strong {
+  color: #f8fafc;
+}
+
+@media (max-width: 768px) {
+  .dashboard-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}
