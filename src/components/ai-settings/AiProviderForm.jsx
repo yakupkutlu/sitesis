@@ -124,6 +124,7 @@ function AiProviderForm({
             <div className="secret-input-wrapper">
               <input
                 name="apiKey"
+                autoComplete="new-password"
                 type={showApiKey ? "text" : "password"}
                 placeholder={
                   formData.hasApiKey
@@ -177,3 +178,4 @@ function AiProviderForm({
 }
 
 export default AiProviderForm;
+

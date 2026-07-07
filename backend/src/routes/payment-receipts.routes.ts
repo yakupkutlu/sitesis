@@ -9,6 +9,10 @@ import prisma from "../db/prisma.js";
 import { type Prisma } from "../generated/prisma/client.js";
 import {requireAuth,requireRole,type AuthenticatedRequest,} from "../middlewares/auth.middleware.js";
 import { createAuditLog } from "../services/audit-log.service.js";
+import {
+  analyzeReceiptWithAiFallback,
+  type ReceiptAiAnalyzeResult,
+} from "../services/receipt-ai.service.js";
 import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
 import { receiptUpload } from "../uploads/receipt-upload.js";
 import { asyncHandler } from "../utils/async-handler.js";
@@ -37,7 +41,10 @@ const uploadReceiptSchema = z.object({
 const analyzeReceiptSchema = z.object({
   payerName: z.string().trim().optional(),
   bankAccount: z.string().trim().optional(),
-  amount: z.coerce.number().positive(),
+  amount: z.preprocess(
+    (value) => (value === "" || value === null ? undefined : value),
+    z.coerce.number().positive().optional()
+  ),
   paymentOwnerType: z.string().trim().optional(),
   manualApartmentId: z.preprocess(
     (value) => (value === "" ? undefined : value),
@@ -54,6 +61,14 @@ const reviewReceiptSchema = z.object({
 });
 
 
+
+function buildAiAnalyzeMessage(aiResult: ReceiptAiAnalyzeResult) {
+  if (!aiResult.provider) {
+    return "AI bilgisi bulunamadı. Manuel bilgilerle eşleştirme yapıldı.";
+  }
+
+  return `${aiResult.provider} ile dekont bilgileri okundu.`;
+}
 function formatKurusAsTry(amountKurus: number) {
   return (amountKurus / 100).toLocaleString("tr-TR", {
     minimumFractionDigits: 2,
@@ -264,7 +279,36 @@ router.post(
         description,
       } = validationResult.data;
 
-      const amountKurus = Math.round(amount * 100);
+      const aiResult = await analyzeReceiptWithAiFallback({
+        filePath: uploadedFile.path,
+        mimeType: uploadedFile.mimetype,
+        originalFileName: uploadedFile.originalname,
+      });
+
+      const effectiveAmount = amount ?? aiResult.amount;
+
+      if (effectiveAmount === null || effectiveAmount === undefined) {
+        response.status(200).json({
+          success: true,
+          message:
+            "AI dekont tutarını okuyamadı. Lütfen tutarı manuel girip tekrar deneyin.",
+          data: {
+            status: "Eşleşme bulunamadı",
+            message:
+              "Dekont tutarı okunamadığı için ödeme eşleştirmesi yapılamadı.",
+            apartment: null,
+            suggestions: [],
+            ai: {
+              ...aiResult,
+              message: buildAiAnalyzeMessage(aiResult),
+            },
+          },
+        });
+
+        return;
+      }
+
+      const amountKurus = Math.round(effectiveAmount * 100);
 
       let managerAccessFilter: Prisma.PaymentAllocationWhereInput = {};
 
@@ -1034,7 +1078,36 @@ router.post(
       }
 
       if (amount !== undefined) {
-        const amountKurus = Math.round(amount * 100);
+        const aiResult = await analyzeReceiptWithAiFallback({
+        filePath: uploadedFile.path,
+        mimeType: uploadedFile.mimetype,
+        originalFileName: uploadedFile.originalname,
+      });
+
+      const effectiveAmount = amount ?? aiResult.amount;
+
+      if (effectiveAmount === null || effectiveAmount === undefined) {
+        response.status(200).json({
+          success: true,
+          message:
+            "AI dekont tutarını okuyamadı. Lütfen tutarı manuel girip tekrar deneyin.",
+          data: {
+            status: "Eşleşme bulunamadı",
+            message:
+              "Dekont tutarı okunamadığı için ödeme eşleştirmesi yapılamadı.",
+            apartment: null,
+            suggestions: [],
+            ai: {
+              ...aiResult,
+              message: buildAiAnalyzeMessage(aiResult),
+            },
+          },
+        });
+
+        return;
+      }
+
+      const amountKurus = Math.round(effectiveAmount * 100);
 
         if (amountKurus !== allocation.amountKurus) {
           throw new HttpError(
@@ -1134,6 +1207,9 @@ router.post(
 );
 
 export default router;
+
+
+
 
 
 

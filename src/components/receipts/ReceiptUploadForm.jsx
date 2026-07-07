@@ -93,7 +93,6 @@ function ReceiptUploadForm({
               placeholder="Örn: 1250"
               min="0"
               disabled={isSaving}
-              required
             />
           </label>
 
@@ -204,4 +203,5 @@ function ReceiptUploadForm({
 }
 
 export default ReceiptUploadForm;
+
 
