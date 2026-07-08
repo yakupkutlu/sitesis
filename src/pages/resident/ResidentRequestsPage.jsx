@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   Bell,
@@ -14,6 +14,8 @@ import ResidentRequestForm from "../../components/resident-requests/ResidentRequ
 import ResidentRequestCards from "../../components/resident-requests/ResidentRequestCards";
 import ResidentRequestDetailsModal from "../../components/resident-requests/ResidentRequestDetailsModal";
 import ResidentRequestToolbar from "../../components/resident-requests/ResidentRequestToolbar";
+import { createRequest, getRequests } from "../../api/requestsApi";
+import { useAuth } from "../../context/AuthContext";
 
 const navItems = [
   { label: "Panel", path: "/resident/dashboard", icon: Home },
@@ -23,12 +25,6 @@ const navItems = [
   { label: "Talepler", path: "/resident/requests", icon: MessageSquareText },
   { label: "Ayarlar", path: "/resident/settings", icon: Settings },
 ];
-
-const residentInfo = {
-  fullName: "Ali Can",
-  siteName: "Mavi Site",
-  apartment: "A Blok / Daire 5",
-};
 
 const allowedRequestFileTypes = [
   "application/pdf",
@@ -48,55 +44,47 @@ const emptyFormData = {
   description: "",
 };
 
-const initialRequests = [
-  {
-    id: 1,
-    requestNo: "TLP-1001",
-    title: "Asansör çalışmıyor",
-    category: "Arıza",
-    priority: "Acil",
-    status: "İnceleniyor",
-    apartment: "A Blok / Daire 5",
-    createdAt: "30.06.2026",
-    fileName: "asansor-ariza.jpg",
-    contactPreference: "SMS ile bilgilendir",
-    description:
-      "A Blok asansörü sabah saatlerinden beri çalışmıyor. Katlarda bekleyen sakinler var.",
-    managerResponse:
-      "Teknik servis yönlendirildi. Gün içinde kontrol sağlanacaktır.",
-  },
-  {
-    id: 2,
-    requestNo: "TLP-1002",
-    title: "Otopark ışığı yanmıyor",
-    category: "Otopark",
-    priority: "Normal",
-    status: "Yeni",
-    apartment: "A Blok / Daire 5",
-    createdAt: "29.06.2026",
-    fileName: "",
-    contactPreference: "Uygulama üzerinden",
-    description:
-      "A Blok otopark girişindeki ışık çalışmıyor. Akşam saatlerinde alan karanlık kalıyor.",
-    managerResponse: "Talebiniz yönetime iletildi. İnceleme bekleniyor.",
-  },
-  {
-    id: 3,
-    requestNo: "TLP-0988",
-    title: "Merdiven temizliği",
-    category: "Temizlik",
-    priority: "Önemli",
-    status: "Çözüldü",
-    apartment: "A Blok / Daire 5",
-    createdAt: "20.06.2026",
-    fileName: "",
-    contactPreference: "E-posta ile bilgilendir",
-    description: "A Blok 3. kat merdiven alanında temizlik gerekiyor.",
-    managerResponse: "Temizlik ekibi yönlendirildi ve işlem tamamlandı.",
-  },
-];
+const statusMap = {
+  OPEN: "Yeni",
+  IN_PROGRESS: "İnceleniyor",
+  DONE: "Çözüldü",
+  REJECTED: "Reddedildi",
+};
+
+const typeMap = {
+  MAINTENANCE: "Bakım",
+  COMPLAINT: "Şikayet",
+  SUGGESTION: "Öneri",
+  GENERAL: "Genel",
+};
+
+function getDataArray(result) {
+  const data = result?.data ?? result;
+
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.requests)) return data.requests;
+
+  return [];
+}
+
+function formatDate(value) {
+  if (!value) {
+    return "-";
+  }
+
+  try {
+    return new Date(value).toLocaleDateString("tr-TR");
+  } catch {
+    return "-";
+  }
+}
 
 function formatFileSize(size) {
+  if (!size) {
+    return "-";
+  }
+
   if (size < 1024 * 1024) {
     return `${Math.round(size / 1024)} KB`;
   }
@@ -104,8 +92,97 @@ function formatFileSize(size) {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function normalizeText(value) {
+  return String(value ?? "").toLocaleLowerCase("tr-TR").trim();
+}
+
+function mapCategoryToRequestType(category) {
+  const value = normalizeText(category);
+
+  if (value.includes("şikayet")) return "COMPLAINT";
+  if (value.includes("öneri")) return "SUGGESTION";
+
+  if (
+    value.includes("arıza") ||
+    value.includes("bakım") ||
+    value.includes("asansör") ||
+    value.includes("elektrik") ||
+    value.includes("su") ||
+    value.includes("temizlik") ||
+    value.includes("güvenlik") ||
+    value.includes("otopark")
+  ) {
+    return "MAINTENANCE";
+  }
+
+  return "GENERAL";
+}
+
+function buildDescriptionWithFormInfo(formData) {
+  const description = formData.description.trim();
+
+  return [
+    description,
+    "",
+    `Öncelik: ${formData.priority}`,
+    `İletişim tercihi: ${formData.contactPreference}`,
+  ].join("\n");
+}
+
+function getApartmentText(request) {
+  const apartment = request.apartment;
+
+  if (!apartment) {
+    return "-";
+  }
+
+  const siteName = apartment.block?.site?.name;
+  const blockName = apartment.block?.name;
+  const apartmentNo = apartment.number ? `Daire ${apartment.number}` : null;
+
+  return [siteName, blockName, apartmentNo].filter(Boolean).join(" / ") || "-";
+}
+
+function getManagerResponse(request) {
+  if (request.status === "DONE") {
+    return "Talebiniz çözüldü olarak işaretlendi.";
+  }
+
+  if (request.status === "IN_PROGRESS") {
+    return "Talebiniz yönetim tarafından inceleniyor.";
+  }
+
+  if (request.status === "REJECTED") {
+    return "Talebiniz yönetim tarafından reddedildi.";
+  }
+
+  return "Talebiniz yönetime iletildi. İnceleme bekleniyor.";
+}
+
+function mapRequestToViewModel(request) {
+  return {
+    id: request.id,
+    requestNo: `TLP-${String(request.id).slice(0, 6).toUpperCase()}`,
+    title: request.title ?? "-",
+    category: typeMap[request.type] ?? "Genel",
+    priority: "Normal",
+    status: statusMap[request.status] ?? request.status ?? "-",
+    apartment: getApartmentText(request),
+    createdAt: formatDate(request.createdAt),
+    fileName: request.attachmentOriginalFileName || "",
+    fileSizeText: formatFileSize(request.attachmentSizeBytes),
+    fileType: request.attachmentMimeType || "",
+    contactPreference: "Uygulama üzerinden",
+    description: request.description ?? "",
+    managerResponse: getManagerResponse(request),
+    raw: request,
+  };
+}
+
 function ResidentRequestsPage() {
-  const [requests, setRequests] = useState(initialRequests);
+  const { user } = useAuth();
+
+  const [requests, setRequests] = useState([]);
   const [formData, setFormData] = useState(emptyFormData);
   const [selectedFile, setSelectedFile] = useState(null);
   const [fileError, setFileError] = useState("");
@@ -114,6 +191,58 @@ function ResidentRequestsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("Tümü");
   const [categoryFilter, setCategoryFilter] = useState("Tümü");
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
+
+const loadRequests = useCallback(async () => {
+  try {
+    setIsLoading(true);
+
+    const result = await getRequests({
+      page: 1,
+      limit: 100,
+    });
+
+    setRequests(getDataArray(result).map(mapRequestToViewModel));
+    setErrorMessage("");
+  } catch (error) {
+    setErrorMessage(error?.message ?? "Talepler alınamadı.");
+  } finally {
+    setIsLoading(false);
+  }
+}, []);
+
+useEffect(() => {
+  let isMounted = true;
+
+  getRequests({
+    page: 1,
+    limit: 100,
+  })
+    .then((result) => {
+      if (!isMounted) return;
+
+      setRequests(getDataArray(result).map(mapRequestToViewModel));
+      setErrorMessage("");
+    })
+    .catch((error) => {
+      if (!isMounted) return;
+
+      setErrorMessage(error?.message ?? "Talepler alınamadı.");
+    })
+    .finally(() => {
+      if (!isMounted) return;
+
+      setIsLoading(false);
+    });
+
+  return () => {
+    isMounted = false;
+  };
+}, []);
 
   const summary = useMemo(() => {
     return {
@@ -127,7 +256,7 @@ function ResidentRequestsPage() {
   }, [requests]);
 
   const filteredRequests = useMemo(() => {
-    const searchValue = searchTerm.trim().toLowerCase();
+    const searchValue = normalizeText(searchTerm);
 
     return requests.filter((request) => {
       const searchableText = [
@@ -143,7 +272,7 @@ function ResidentRequestsPage() {
         request.fileName,
       ]
         .join(" ")
-        .toLowerCase();
+        .toLocaleLowerCase("tr-TR");
 
       const matchesSearch = searchableText.includes(searchValue);
 
@@ -201,49 +330,69 @@ function ResidentRequestsPage() {
     });
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
 
-    const newRequest = {
-      id: Date.now(),
-      requestNo: `TLP-${Date.now().toString().slice(-4)}`,
-      title: formData.title.trim(),
-      category: formData.category,
-      priority: formData.priority,
-      status: "Yeni",
-      apartment: residentInfo.apartment,
-      createdAt: new Date().toLocaleDateString("tr-TR"),
-      fileName: selectedFile?.name || "",
-      contactPreference: formData.contactPreference,
-      description: formData.description.trim(),
-      managerResponse: "Talebiniz yönetime iletildi. İnceleme bekleniyor.",
-    };
+    setErrorMessage("");
+    setSuccessMessage("");
 
-    setRequests((currentRequests) => [newRequest, ...currentRequests]);
-    resetForm();
+    if (!formData.title.trim() || !formData.description.trim() || !formData.category) {
+      setErrorMessage("Başlık, kategori ve açıklama alanları zorunludur.");
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+
+      await createRequest({
+        title: formData.title.trim(),
+        description: buildDescriptionWithFormInfo(formData),
+        type: mapCategoryToRequestType(formData.category),
+        attachment: selectedFile?.file,
+        sendEmail: true,
+        sendSms: false,
+      });
+
+      setSuccessMessage("Talebiniz başarıyla yönetime gönderildi.");
+      resetForm();
+      await loadRequests();
+    } catch (error) {
+      setErrorMessage(error?.message ?? "Talep oluşturulamadı.");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
     <DashboardLayout
       roleTitle="Talepler"
       roleBadge="Sakin"
-      userName={residentInfo.fullName}
+      userName={user?.fullName ?? "Sakin"}
       navItems={navItems}
       theme="resident"
     >
       <div className="dashboard-page-header">
         <div>
           <span className="section-kicker">Talep Takibi</span>
-
           <h2>Talepler</h2>
-
           <p>
-            {residentInfo.siteName} / {residentInfo.apartment} için arıza,
-            bakım, temizlik ve benzeri taleplerinizi buradan yönetime
-            gönderebilirsiniz.
+            Arıza, bakım, temizlik ve benzeri taleplerinizi buradan yönetime
+            gönderebilir ve geçmiş taleplerinizi takip edebilirsiniz.
           </p>
         </div>
       </div>
+
+      {errorMessage && (
+        <div className="login-error-message">
+          <p>{errorMessage}</p>
+        </div>
+      )}
+
+      {successMessage && (
+        <div className="form-success-message">
+          <p>{successMessage}</p>
+        </div>
+      )}
 
       <ResidentRequestSummaryCards summary={summary} />
 
@@ -254,6 +403,7 @@ function ResidentRequestsPage() {
         onInputChange={handleInputChange}
         onFileChange={handleFileChange}
         onSubmit={handleSubmit}
+        isSubmitting={isSubmitting}
       />
 
       <ResidentRequestToolbar
@@ -267,14 +417,19 @@ function ResidentRequestsPage() {
 
       <div className="resident-section-heading">
         <span className="section-kicker">Geçmiş</span>
-
         <h3>Taleplerim</h3>
       </div>
 
-      <ResidentRequestCards
-        requests={filteredRequests}
-        onView={setSelectedRequest}
-      />
+      {isLoading ? (
+        <div className="dashboard-panel">
+          <p>Talepler yükleniyor...</p>
+        </div>
+      ) : (
+        <ResidentRequestCards
+          requests={filteredRequests}
+          onView={setSelectedRequest}
+        />
+      )}
 
       <ResidentRequestDetailsModal
         request={selectedRequest}

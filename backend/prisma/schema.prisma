@@ -445,6 +445,11 @@ model ResidentRequest {
   assignedToUserId String?
   assignedToUser   User?   @relation("UserAssignedRequests", fields: [assignedToUserId], references: [id], onDelete: SetNull)
 
+  attachmentOriginalFileName String?
+  attachmentStoredFileName   String?
+  attachmentMimeType         String?
+  attachmentSizeBytes        Int?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

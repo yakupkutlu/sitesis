@@ -28,6 +28,7 @@ function ResidentRequestForm({
   onInputChange,
   onFileChange,
   onSubmit,
+  isSubmitting = false,
 }) {
   const safeFormData = formData || {};
 
@@ -165,10 +166,10 @@ function ResidentRequestForm({
           <button
             type="submit"
             className="dashboard-action-button"
-            disabled={Boolean(fileError)}
+            disabled={Boolean(fileError) || isSubmitting}
           >
             <PlusCircle size={18} />
-            Talep Oluştur
+            {isSubmitting ? "Gönderiliyor..." : "Talep Oluştur"}
           </button>
         </div>
       </form>

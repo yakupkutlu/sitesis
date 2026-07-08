@@ -18,7 +18,10 @@ import { getManagerScope, hasManagerScope } from "../services/manager-scope.serv
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
 import { buildPaginationMeta, getPaginationParams } from "../utils/pagination.js";
+import fs from "node:fs/promises";
 
+import { requestUpload } from "../uploads/request-upload.js";
+import { isAllowedReceiptFile } from "../utils/file-signature.js";
 const router = express.Router();
 
 router.use(requireAuth);
@@ -67,9 +70,15 @@ const createRequestSchema = z.object({
   title: z.string().trim().min(2),
   description: z.string().trim().min(2),
   type: z.enum(["MAINTENANCE", "COMPLAINT", "SUGGESTION", "GENERAL"]),
-  apartmentId: z.string().uuid(),
-  sendSms: z.boolean().optional().default(false),
-  sendEmail: z.boolean().optional().default(true),
+  apartmentId: z.string().uuid().optional(),
+  sendSms: z
+  .preprocess((value) => value === "true" || value === true, z.boolean())
+  .optional()
+  .default(false),
+  sendEmail: z
+  .preprocess((value) => value === "false" ? false : value === "true" || value === true, z.boolean())
+  .optional()
+  .default(true),
 });
 
 const updateRequestSchema = z
@@ -83,7 +92,40 @@ const updateRequestSchema = z
   .refine((data) => Object.values(data).some((value) => value !== undefined), {
     message: "En az bir alan gönderilmelidir.",
   });
+async function deleteUploadedFile(file?: Express.Multer.File) {
+  if (!file) {
+    return;
+  }
 
+  try {
+    await fs.unlink(file.path);
+  } catch (error) {
+    console.error("Yüklenen talep dosyası silinemedi:", error);
+  }
+}
+function normalizeUploadedFileName(fileName: string | undefined | null) {
+  if (!fileName) {
+    return null;
+  }
+
+  const trimmedFileName = fileName.trim();
+
+  if (!trimmedFileName) {
+    return null;
+  }
+
+  const looksBroken = /[ÃÂ]/.test(trimmedFileName);
+
+  if (!looksBroken) {
+    return trimmedFileName;
+  }
+
+  try {
+    return Buffer.from(trimmedFileName, "latin1").toString("utf8");
+  } catch {
+    return trimmedFileName;
+  }
+}
 const requestParamsSchema = z.object({
   requestId: z.string().uuid(),
 });
@@ -712,62 +754,128 @@ router.get(
 router.post(
   "/",
   requireRole("SUPER_ADMIN", "MANAGER", "RESIDENT"),
+  requestUpload.single("attachment"),
   asyncHandler(async (request: Request, response: Response) => {
     const authenticatedRequest = request as AuthenticatedRequest;
+    const uploadedFile = request.file;
+    let shouldDeleteUploadedFile = Boolean(uploadedFile);
 
-    if (!authenticatedRequest.user) {
-      throw new HttpError(401, "Oturum bulunamadı.");
-    }
+    try {
+      if (!authenticatedRequest.user) {
+        throw new HttpError(401, "Oturum bulunamadı.");
+      }
 
-    const validationResult = createRequestSchema.safeParse(request.body);
+      const validationResult = createRequestSchema.safeParse(request.body);
 
-    if (!validationResult.success) {
-      throw new HttpError(
-        400,
-        "Gönderilen talep bilgileri geçersiz.",
-        validationResult.error.flatten().fieldErrors
-      );
-    }
+      if (!validationResult.success) {
+        throw new HttpError(
+          400,
+          "Gönderilen talep bilgileri geçersiz.",
+          validationResult.error.flatten().fieldErrors
+        );
+      }
 
-    const { title, description, type, apartmentId, sendSms, sendEmail } = validationResult.data;
+      const { title, description, type, apartmentId, sendSms, sendEmail } =
+        validationResult.data;
 
-    await ensureApartmentIsAccessible({
-      user: authenticatedRequest.user,
-      apartmentId,
-    });
+      let resolvedApartmentId = apartmentId;
 
-    const residentRequest = await prisma.residentRequest.create({
-      data: {
-        title,
-        description,
-        type,
-        apartmentId,
-        createdByUserId: authenticatedRequest.user.id,
-      },
-      include: requestInclude,
-    });
+      if (!resolvedApartmentId && authenticatedRequest.user.role === "RESIDENT") {
+        const originalAttachmentFileName = normalizeUploadedFileName(
+        uploadedFile?.originalname
+        );
+        const residentApartment = await prisma.apartmentResident.findFirst({
+          where: {
+            userId: authenticatedRequest.user.id,
+          },
+          select: {
+            apartmentId: true,
+          },
+          orderBy: {
+            createdAt: "asc",
+          },
+        });
 
-    await createAuditLog({
-      request,
-      userId: authenticatedRequest.user.id,
-      action: "CREATE_RESIDENT_REQUEST",
-      entityType: "ResidentRequest",
-      entityId: residentRequest.id,
-      metadata: {
-        title: residentRequest.title,
-        type: residentRequest.type,
-        apartmentId: residentRequest.apartmentId,
-      },
-    });
+        if (!residentApartment) {
+          throw new HttpError(400, "Bu sakin için kayıtlı daire bulunamadı.");
+        }
 
-    response.status(201).json({
-      success: true,
-      message: "Talep başarıyla oluşturuldu.",
-      data: residentRequest,
-    });
-  })
+        resolvedApartmentId = residentApartment.apartmentId;
+      }
+
+      if (!resolvedApartmentId) {
+        throw new HttpError(400, "Daire seçimi zorunludur.");
+      }
+
+      if (uploadedFile) {
+        const isAllowedFile = await isAllowedReceiptFile(
+          uploadedFile.path,
+          uploadedFile.mimetype
+        );
+
+        if (!isAllowedFile) {
+          throw new HttpError(
+            400,
+            "Talep dosyası gerçek PDF, PNG, JPG veya WEBP formatında olmalıdır."
+          );
+        }
+      }
+
+      await ensureApartmentIsAccessible({
+        user: authenticatedRequest.user,
+        apartmentId: resolvedApartmentId,
+      });
+
+      const originalAttachmentFileName = normalizeUploadedFileName(
+  uploadedFile?.originalname
 );
 
+const residentRequest = await prisma.residentRequest.create({
+  data: {
+    title,
+    description,
+    type,
+    apartmentId: resolvedApartmentId,
+    createdByUserId: authenticatedRequest.user.id,
+    attachmentOriginalFileName: originalAttachmentFileName,
+    attachmentStoredFileName: uploadedFile?.filename ?? null,
+    attachmentMimeType: uploadedFile?.mimetype ?? null,
+    attachmentSizeBytes: uploadedFile?.size ?? null,
+  },
+    include: requestInclude,
+  });
+      shouldDeleteUploadedFile = false;
+
+      await createAuditLog({
+        request,
+        userId: authenticatedRequest.user.id,
+        action: "CREATE_RESIDENT_REQUEST",
+        entityType: "ResidentRequest",
+        entityId: residentRequest.id,
+        metadata: {
+          title: residentRequest.title,
+          type: residentRequest.type,
+          apartmentId: residentRequest.apartmentId,
+          attachmentOriginalFileName: residentRequest.attachmentOriginalFileName,
+          attachmentMimeType: residentRequest.attachmentMimeType,
+          attachmentSizeBytes: residentRequest.attachmentSizeBytes,
+          sendSms,
+          sendEmail,
+        },
+      });
+
+      response.status(201).json({
+        success: true,
+        message: "Talep başarıyla oluşturuldu.",
+        data: residentRequest,
+      });
+    } finally {
+      if (shouldDeleteUploadedFile) {
+        await deleteUploadedFile(uploadedFile);
+      }
+    }
+  })
+);
 router.patch(
   "/:requestId",
   requireRole("SUPER_ADMIN", "MANAGER", "RESIDENT"),
