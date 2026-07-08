@@ -27,6 +27,7 @@ import {
 } from "../../api/apartmentResidentsApi";
 import { updateUser } from "../../api/usersApi";
 import { useAuth } from "../../context/AuthContext";
+import { buildPaymentSummary } from "../../utils/paymentSummary";
 
 const navItems = [
   { label: "Panel", path: "/super-admin/dashboard", icon: BarChart3 },
@@ -73,12 +74,12 @@ function formatDate(value) {
 function getResidentTypeLabel(type) {
   return type === "OWNER" ? "Ev Sahibi" : "Kiracı";
 }
-
 function mapApartmentResidentToUser(record) {
   const residentUser = record.user ?? {};
   const apartment = record.apartment ?? {};
   const block = apartment.block ?? {};
   const site = block.site ?? {};
+  const paymentSummary = buildPaymentSummary(record);
 
   return {
     id: record.id,
@@ -93,11 +94,11 @@ function mapApartmentResidentToUser(record) {
     createdByManager: "Süper Admin / Yönetici",
     status: residentUser.status === "ACTIVE" ? "Aktif" : "Pasif",
     createdAt: formatDate(record.createdAt),
-    totalDebt: "0 TL",
-    paidAmount: "0 TL",
-    remainingDebt: "0 TL",
+    totalDebt: paymentSummary.totalDebt,
+    paidAmount: paymentSummary.paidAmount,
+    remainingDebt: paymentSummary.remainingDebt,
     lastPaymentDate: "-",
-    paymentStatus: "Ödeme özeti sonra bağlanacak",
+    paymentStatus: paymentSummary.paymentStatus,
     rawRecord: record,
   };
 }
@@ -464,5 +465,8 @@ function UsersPage() {
 }
 
 export default UsersPage;
+
+
+
 
 

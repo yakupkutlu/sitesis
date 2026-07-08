@@ -26,6 +26,7 @@ import {
 } from "../../api/apartmentResidentsApi";
 import { getApartments } from "../../api/apartmentsApi";
 import { useAuth } from "../../context/AuthContext";
+import { buildPaymentSummary } from "../../utils/paymentSummary";
 
 const navItems = [
   { label: "Panel", path: "/manager/dashboard", icon: BarChart3 },
@@ -78,13 +79,13 @@ function formatDate(value) {
     return "-";
   }
 }
-
 function mapApartmentResidentToViewModel(item) {
   const user = item.user ?? {};
   const apartment = item.apartment ?? {};
   const block = apartment.block ?? {};
   const site = block.site ?? {};
-
+  const paymentSummary = buildPaymentSummary(item);
+  
   return {
     id: item.id,
     name: user.fullName ?? "-",
@@ -95,10 +96,10 @@ function mapApartmentResidentToViewModel(item) {
     phone: user.phone ?? "-",
     email: user.email ?? "-",
     status: user.status === "ACTIVE" ? "Aktif" : "Pasif",
-    paymentStatus: "Bekliyor",
-    totalDebt: "0 TL",
-    paidAmount: "0 TL",
-    remainingDebt: "0 TL",
+    paymentStatus: paymentSummary.paymentStatus,
+    totalDebt: paymentSummary.totalDebt,
+    paidAmount: paymentSummary.paidAmount,
+    remainingDebt: paymentSummary.remainingDebt,
     lastPaymentDate: "-",
     note: `${site.name ?? "Site"} / ${block.name ?? "Blok"} / ${
       apartment.number ? `Daire ${apartment.number}` : "Daire"
@@ -431,4 +432,7 @@ function ResidentsPage() {
 }
 
 export default ResidentsPage;
+
+
+
 

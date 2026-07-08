@@ -24,6 +24,18 @@ const apartmentResidentInclude = {
       id: true,
       number: true,
       floor: true,
+      paymentAllocations: {
+        where: {
+          status: {
+            not: "CANCELLED",
+          },
+        },
+        select: {
+          id: true,
+          amountKurus: true,
+          status: true,
+        },
+      },
       block: {
         select: {
           id: true,
@@ -799,6 +811,8 @@ router.patch(
 );
 
 export default router;
+
+
 
 
 
