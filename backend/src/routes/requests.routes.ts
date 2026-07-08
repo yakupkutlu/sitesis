@@ -3,23 +3,16 @@ import { z } from "zod";
 
 import prisma from "../db/prisma.js";
 import { type Prisma } from "../generated/prisma/client.js";
-import {
-  requireAuth,
-  requireRole,
-  type AuthenticatedRequest,
-  type AuthenticatedUser,
-} from "../middlewares/auth.middleware.js";
+import {requireAuth,requireRole,type AuthenticatedRequest,type AuthenticatedUser,} from "../middlewares/auth.middleware.js";
 import { createAuditLog } from "../services/audit-log.service.js";
-import {
-  queueEmailNotification,
-  queueSmsNotification,
-} from "../services/notification.service.js";
+import {queueEmailNotification,queueSmsNotification,} from "../services/notification.service.js";
 import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
 import { buildPaginationMeta, getPaginationParams } from "../utils/pagination.js";
 import fs from "node:fs/promises";
-
+import path from "node:path";
+import process from "node:process";
 import { requestUpload } from "../uploads/request-upload.js";
 import { isAllowedReceiptFile } from "../utils/file-signature.js";
 const router = express.Router();
@@ -781,9 +774,6 @@ router.post(
       let resolvedApartmentId = apartmentId;
 
       if (!resolvedApartmentId && authenticatedRequest.user.role === "RESIDENT") {
-        const originalAttachmentFileName = normalizeUploadedFileName(
-        uploadedFile?.originalname
-        );
         const residentApartment = await prisma.apartmentResident.findFirst({
           where: {
             userId: authenticatedRequest.user.id,
@@ -874,6 +864,73 @@ const residentRequest = await prisma.residentRequest.create({
         await deleteUploadedFile(uploadedFile);
       }
     }
+  })
+);
+router.get(
+  "/:requestId/attachment",
+  requireRole("SUPER_ADMIN", "MANAGER", "RESIDENT"),
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    const paramsResult = requestParamsSchema.safeParse(request.params);
+
+    if (!paramsResult.success) {
+      throw new HttpError(400, "Talep bilgisi geçersiz.");
+    }
+
+    const { requestId } = paramsResult.data;
+
+    await ensureRequestIsAccessible({
+      user: authenticatedRequest.user,
+      requestId,
+    });
+
+    const residentRequest = await prisma.residentRequest.findUnique({
+      where: {
+        id: requestId,
+      },
+      select: {
+        attachmentOriginalFileName: true,
+        attachmentStoredFileName: true,
+        attachmentMimeType: true,
+      },
+    });
+
+    if (!residentRequest?.attachmentStoredFileName) {
+      throw new HttpError(404, "Talep dosyası bulunamadı.");
+    }
+
+    const filePath = path.join(
+      process.cwd(),
+      "uploads",
+      "requests",
+      residentRequest.attachmentStoredFileName
+    );
+
+    try {
+      await fs.access(filePath);
+    } catch {
+      throw new HttpError(404, "Talep dosyası sunucuda bulunamadı.");
+    }
+
+    const originalFileName =
+      residentRequest.attachmentOriginalFileName || "talep-dosyasi";
+
+    response.setHeader(
+      "Content-Type",
+      residentRequest.attachmentMimeType || "application/octet-stream"
+    );
+
+    response.setHeader(
+      "Content-Disposition",
+      `inline; filename*=UTF-8''${encodeURIComponent(originalFileName)}`
+    );
+
+    response.sendFile(filePath);
   })
 );
 router.patch(

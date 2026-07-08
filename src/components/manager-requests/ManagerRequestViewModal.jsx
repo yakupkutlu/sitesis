@@ -1,4 +1,5 @@
-import { FileImage, X } from "lucide-react";
+﻿import { ExternalLink, FileImage, X } from "lucide-react";
+import { getRequestAttachmentUrl } from "../../api/requestsApi";
 
 function ManagerRequestViewModal({ request, onClose }) {
   if (!request) {
@@ -7,13 +8,20 @@ function ManagerRequestViewModal({ request, onClose }) {
 
   const hasFile = Boolean(request.fileName);
 
+  function handleOpenAttachment() {
+    if (!request.id) {
+      return;
+    }
+
+    window.open(getRequestAttachmentUrl(request.id), "_blank", "noopener,noreferrer");
+  }
+
   return (
     <div className="modal-overlay">
       <section className="details-modal manager-request-modal">
         <div className="modal-header">
           <div>
             <span className="section-kicker">Talep Görüntüle</span>
-
             <h3>{request.title || "Talep Detayı"}</h3>
           </div>
 
@@ -89,20 +97,27 @@ function ManagerRequestViewModal({ request, onClose }) {
               <span>
                 Bu dosya sakin tarafından talep ile birlikte gönderilmiştir.
               </span>
+
+              <button
+                type="button"
+                className="dashboard-action-button secondary-action"
+                onClick={handleOpenAttachment}
+              >
+                <ExternalLink size={17} />
+                Dosyayı Görüntüle
+              </button>
             </div>
           </div>
         )}
 
         <div className="details-description">
           <span>Talep Açıklaması</span>
-
           <p>{request.description || "Talep açıklaması bulunmuyor."}</p>
         </div>
 
         {request.managerResponse && (
           <div className="details-description">
             <span>Yönetici Cevabı</span>
-
             <p>{request.managerResponse}</p>
           </div>
         )}

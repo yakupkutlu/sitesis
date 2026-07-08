@@ -53,3 +53,9 @@ export async function updateRequest(requestId, payload) {
     body: payload,
   });
 }
+export function getRequestAttachmentUrl(requestId) {
+  const apiBaseUrl =
+    import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
+
+  return `${apiBaseUrl}/requests/${requestId}/attachment`;
+}

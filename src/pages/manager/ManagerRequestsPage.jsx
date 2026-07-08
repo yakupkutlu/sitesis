@@ -42,7 +42,6 @@ const statusToLabel = {
 const labelToStatus = {
   Yeni: "OPEN",
   İnceleniyor: "IN_PROGRESS",
-  "İnceleniyor": "IN_PROGRESS",
   Çözüldü: "DONE",
   Reddedildi: "REJECTED",
 };
@@ -72,13 +71,31 @@ function getDataArray(result) {
 }
 
 function formatDate(value) {
-  if (!value) return "-";
+  if (!value) {
+    return "-";
+  }
 
   try {
     return new Date(value).toLocaleDateString("tr-TR");
   } catch {
     return "-";
   }
+}
+
+function formatFileSize(size) {
+  if (!size) {
+    return "-";
+  }
+
+  if (size < 1024 * 1024) {
+    return `${Math.round(size / 1024)} KB`;
+  }
+
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function normalizeText(value) {
+  return String(value ?? "").toLocaleLowerCase("tr-TR").trim();
 }
 
 function getApartmentLabel(request) {
@@ -91,13 +108,33 @@ function getApartmentLabel(request) {
     .join(" / ");
 }
 
+function getManagerResponse(request) {
+  if (request.assignedToUser) {
+    return `Atanan yönetici: ${request.assignedToUser.fullName}`;
+  }
+
+  if (request.status === "DONE") {
+    return "Talep çözüldü olarak işaretlendi.";
+  }
+
+  if (request.status === "IN_PROGRESS") {
+    return "Talep yönetim tarafından inceleniyor.";
+  }
+
+  if (request.status === "REJECTED") {
+    return "Talep reddedildi.";
+  }
+
+  return "Talep yönetim incelemesi bekliyor.";
+}
+
 function mapRequestToViewModel(request) {
   const createdAt = formatDate(request.createdAt);
   const updatedAt = formatDate(request.updatedAt);
 
   return {
     id: request.id,
-    title: request.title,
+    title: request.title ?? "-",
     residentName: request.createdByUser?.fullName ?? "-",
     phone: request.createdByUser?.phone ?? "-",
     apartmentLabel: getApartmentLabel(request),
@@ -105,10 +142,10 @@ function mapRequestToViewModel(request) {
     priority: "Normal",
     status: statusToLabel[request.status] ?? request.status ?? "Yeni",
     description: request.description ?? "",
-    managerResponse: request.assignedToUser
-      ? `Atanan yönetici: ${request.assignedToUser.fullName}`
-      : "",
-    fileName: "",
+    managerResponse: getManagerResponse(request),
+    fileName: request.attachmentOriginalFileName || "",
+    fileSizeText: formatFileSize(request.attachmentSizeBytes),
+    fileType: request.attachmentMimeType || "",
     history: [
       {
         id: `${request.id}-created`,
@@ -120,7 +157,9 @@ function mapRequestToViewModel(request) {
             {
               id: `${request.id}-updated`,
               date: updatedAt,
-              text: `Talep durumu: ${statusToLabel[request.status] ?? request.status}`,
+              text: `Talep durumu: ${
+                statusToLabel[request.status] ?? request.status
+              }`,
             },
           ]
         : []),
@@ -150,36 +189,46 @@ function ManagerRequestsPage() {
   const [errorMessage, setErrorMessage] = useState("");
 
   async function loadRequests() {
-    const result = await getRequests({
-      page: 1,
-      limit: 100,
-      search: searchTerm.trim(),
-    });
+    try {
+      setIsLoading(true);
+      setErrorMessage("");
 
-    const requestItems = getDataArray(result).map(mapRequestToViewModel);
-    setRequests(requestItems);
+      const result = await getRequests({
+        page: 1,
+        limit: 100,
+      });
+
+      setRequests(getDataArray(result).map(mapRequestToViewModel));
+    } catch (error) {
+      setErrorMessage(error?.message ?? "Talepler alınamadı.");
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   useEffect(() => {
     let isMounted = true;
 
-    async function loadInitialData() {
-      try {
-        setIsLoading(true);
-        setErrorMessage("");
-        await loadRequests();
-      } catch (error) {
-        if (isMounted) {
-          setErrorMessage(error?.message ?? "Talepler alınamadı.");
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    }
+    getRequests({
+      page: 1,
+      limit: 100,
+    })
+      .then((result) => {
+        if (!isMounted) return;
 
-    loadInitialData();
+        setRequests(getDataArray(result).map(mapRequestToViewModel));
+        setErrorMessage("");
+      })
+      .catch((error) => {
+        if (!isMounted) return;
+
+        setErrorMessage(error?.message ?? "Talepler alınamadı.");
+      })
+      .finally(() => {
+        if (!isMounted) return;
+
+        setIsLoading(false);
+      });
 
     return () => {
       isMounted = false;
@@ -199,7 +248,7 @@ function ManagerRequestsPage() {
   }, [requests]);
 
   const filteredRequests = useMemo(() => {
-    const searchValue = searchTerm.trim().toLowerCase();
+    const searchValue = normalizeText(searchTerm);
 
     return requests.filter((request) => {
       const searchableText = [
@@ -215,7 +264,7 @@ function ManagerRequestsPage() {
         request.fileName,
       ]
         .join(" ")
-        .toLowerCase();
+        .toLocaleLowerCase("tr-TR");
 
       const matchesSearch = searchableText.includes(searchValue);
 
@@ -317,9 +366,7 @@ function ManagerRequestsPage() {
       <div className="dashboard-page-header">
         <div>
           <span className="section-kicker">Talep Yönetimi</span>
-
           <h2>Talepler</h2>
-
           <p>
             Yetkili olduğunuz site veya blok kapsamındaki sakin taleplerini
             görüntüleyebilir ve durumlarını güncelleyebilirsiniz.
