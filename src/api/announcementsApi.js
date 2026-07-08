@@ -37,3 +37,8 @@ export async function archiveAnnouncement(announcementId) {
     method: "PATCH",
   });
 }
+export async function markAnnouncementAsRead(announcementId) {
+  return apiRequest(`/announcements/${announcementId}/read`, {
+    method: "PATCH",
+  });
+}

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   Bell,
@@ -13,6 +13,8 @@ import ResidentAnnouncementSummaryCards from "../../components/resident-announce
 import ResidentAnnouncementToolbar from "../../components/resident-announcements/ResidentAnnouncementToolbar";
 import ResidentAnnouncementCards from "../../components/resident-announcements/ResidentAnnouncementCards";
 import ResidentAnnouncementDetailsModal from "../../components/resident-announcements/ResidentAnnouncementDetailsModal";
+import {getAnnouncements,markAnnouncementAsRead,} from "../../api/announcementsApi";
+import { useAuth } from "../../context/AuthContext";
 
 const navItems = [
   { label: "Panel", path: "/resident/dashboard", icon: Home },
@@ -23,70 +25,149 @@ const navItems = [
   { label: "Ayarlar", path: "/resident/settings", icon: Settings },
 ];
 
-const residentInfo = {
-  fullName: "Ali Can",
-  siteName: "Mavi Site",
-  apartment: "A Blok / Daire 5",
-};
+function getDataArray(result) {
+  const data = result?.data ?? result;
 
-const initialAnnouncements = [
-  {
-    id: 1,
-    title: "Su Kesintisi Bilgilendirmesi",
-    type: "Bakım",
-    date: "30.06.2026",
-    target: "A Blok Sakinleri",
-    sender: "Site Yönetimi",
-    siteName: "Mavi Site",
-    isRead: false,
-    content:
-      "Yarın 10:00 - 13:00 saatleri arasında bakım çalışması nedeniyle A Blok genelinde su kesintisi yaşanacaktır. Gerekli hazırlıkların yapılması rica olunur.",
-  },
-  {
-    id: 2,
-    title: "Aidat Son Ödeme Hatırlatması",
-    type: "Ödeme",
-    date: "29.06.2026",
-    target: "Tüm Site",
-    sender: "Site Yönetimi",
-    siteName: "Mavi Site",
-    isRead: false,
-    content:
-      "Temmuz ayı aidat son ödeme tarihi 10.07.2026 olarak belirlenmiştir. Ödemelerinizi zamanında yapmanız rica olunur.",
-  },
-  {
-    id: 3,
-    title: "Otopark Düzenlemesi",
-    type: "Bilgilendirme",
-    date: "28.06.2026",
-    target: "Tüm Site",
-    sender: "Site Yönetimi",
-    siteName: "Mavi Site",
-    isRead: true,
-    content:
-      "Otopark kullanım düzeni güncellenmiştir. Araçların sadece kendilerine ayrılan alanlara park edilmesi rica olunur.",
-  },
-  {
-    id: 4,
-    title: "Acil Elektrik Bakımı",
-    type: "Acil",
-    date: "27.06.2026",
-    target: "A Blok",
-    sender: "Site Yönetimi",
-    siteName: "Mavi Site",
-    isRead: true,
-    content:
-      "A Blok elektrik panosunda acil bakım çalışması yapılacaktır. Çalışma süresince kısa süreli elektrik kesintileri yaşanabilir.",
-  },
-];
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.announcements)) return data.announcements;
+
+  return [];
+}
+
+function formatDate(value) {
+  if (!value) {
+    return "-";
+  }
+
+  try {
+    return new Date(value).toLocaleDateString("tr-TR");
+  } catch {
+    return "-";
+  }
+}
+
+function normalizeText(value) {
+  return String(value ?? "").toLocaleLowerCase("tr-TR").trim();
+}
+
+function getAnnouncementType(announcement) {
+  const rawType =
+    announcement.type ||
+    announcement.category ||
+    announcement.announcementType ||
+    "Bilgilendirme";
+
+  return String(rawType);
+}
+
+function getAnnouncementContent(announcement) {
+  return (
+    announcement.content ||
+    announcement.body ||
+    announcement.description ||
+    announcement.message ||
+    ""
+  );
+}
+
+function getTargetText(announcement) {
+  if (announcement.target) return announcement.target;
+
+  const targetType = announcement.targetType;
+
+  if (targetType === "ALL") return "Tüm Site";
+  if (targetType === "SITE") return announcement.site?.name ?? "Site";
+  if (targetType === "BLOCK") {
+    const siteName = announcement.block?.site?.name;
+    const blockName = announcement.block?.name;
+
+    return [siteName, blockName].filter(Boolean).join(" / ") || "Blok";
+  }
+
+  if (targetType === "APARTMENT") {
+    const apartment = announcement.apartment;
+    const siteName = apartment?.block?.site?.name;
+    const blockName = apartment?.block?.name;
+    const apartmentNo = apartment?.number ? `Daire ${apartment.number}` : null;
+
+    return [siteName, blockName, apartmentNo].filter(Boolean).join(" / ") || "Daire";
+  }
+
+  return "Size gönderildi";
+}
+
+function mapAnnouncementToViewModel(announcement) {
+  const content = getAnnouncementContent(announcement);
+  const type = getAnnouncementType(announcement);
+
+  return {
+    id: announcement.id,
+    title: announcement.title ?? "-",
+    type,
+    date: formatDate(announcement.createdAt ?? announcement.date),
+    target: getTargetText(announcement),
+    sender:
+      announcement.createdByUser?.fullName ||
+      announcement.sender ||
+      "Site Yönetimi",
+    siteName:
+      announcement.site?.name ||
+      announcement.block?.site?.name ||
+      announcement.apartment?.block?.site?.name ||
+      "-",
+    isRead: Boolean(announcement.isRead),
+    content,
+    raw: announcement,
+  };
+}
 
 function ResidentAnnouncementsPage() {
-  const [announcements, setAnnouncements] = useState(initialAnnouncements);
+  const { user } = useAuth();
+
+  const [announcements, setAnnouncements] = useState([]);
   const [selectedAnnouncement, setSelectedAnnouncement] = useState(null);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [typeFilter, setTypeFilter] = useState("Tümü");
   const [readFilter, setReadFilter] = useState("Tümü");
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadAnnouncements() {
+      try {
+        setIsLoading(true);
+        setErrorMessage("");
+
+        const result = await getAnnouncements({
+          page: 1,
+          limit: 100,
+        });
+
+        if (isMounted) {
+          setAnnouncements(getDataArray(result).map(mapAnnouncementToViewModel));
+        }
+      } catch (error) {
+        if (isMounted) {
+          setErrorMessage(error?.message ?? "Duyurular alınamadı.");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadAnnouncements();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const summary = useMemo(() => {
     return {
@@ -100,14 +181,19 @@ function ResidentAnnouncementsPage() {
 
   const filteredAnnouncements = useMemo(() => {
     return announcements.filter((announcement) => {
-      const searchValue = searchTerm.toLowerCase();
+      const searchValue = normalizeText(searchTerm);
 
-      const matchesSearch =
-        announcement.title.toLowerCase().includes(searchValue) ||
-        announcement.type.toLowerCase().includes(searchValue) ||
-        announcement.content.toLowerCase().includes(searchValue) ||
-        announcement.target.toLowerCase().includes(searchValue) ||
-        announcement.sender.toLowerCase().includes(searchValue);
+      const searchableText = [
+        announcement.title,
+        announcement.type,
+        announcement.content,
+        announcement.target,
+        announcement.sender,
+      ]
+        .join(" ")
+        .toLocaleLowerCase("tr-TR");
+
+      const matchesSearch = searchableText.includes(searchValue);
 
       const matchesType =
         typeFilter === "Tümü" ? true : announcement.type === typeFilter;
@@ -123,20 +209,25 @@ function ResidentAnnouncementsPage() {
     });
   }, [announcements, searchTerm, typeFilter, readFilter]);
 
-  function handleViewAnnouncement(announcement) {
-  const updatedAnnouncement = {
-    ...announcement,
-    isRead: true,
-  };
+  async function handleViewAnnouncement(announcement) {
+    const updatedAnnouncement = {
+      ...announcement,
+      isRead: true,
+    };
 
-  setSelectedAnnouncement(updatedAnnouncement);
+    setSelectedAnnouncement(updatedAnnouncement);
 
-  setAnnouncements((currentAnnouncements) =>
-    currentAnnouncements.map((item) =>
-      item.id === announcement.id ? updatedAnnouncement : item
-    )
-  );
- }
+    setAnnouncements((currentAnnouncements) =>
+      currentAnnouncements.map((item) =>
+        item.id === announcement.id ? updatedAnnouncement : item
+      )
+    );
+    try {
+      await markAnnouncementAsRead(announcement.id);
+    } catch (error) {
+      console.error("Duyuru okundu bilgisi kaydedilemedi:", error);
+    }
+  }
 
   function handleCloseModal() {
     setSelectedAnnouncement(null);
@@ -146,7 +237,7 @@ function ResidentAnnouncementsPage() {
     <DashboardLayout
       roleTitle="Duyurular"
       roleBadge="Sakin"
-      userName={residentInfo.fullName}
+      userName={user?.fullName ?? "Sakin"}
       navItems={navItems}
       theme="resident"
     >
@@ -155,11 +246,17 @@ function ResidentAnnouncementsPage() {
           <span className="section-kicker">Duyuru Takibi</span>
           <h2>Duyurular</h2>
           <p>
-            {residentInfo.siteName} / {residentInfo.apartment} için size
-            gönderilen duyuruları buradan takip edebilirsiniz.
+            Size gönderilen site, blok veya daire duyurularını buradan takip
+            edebilirsiniz.
           </p>
         </div>
       </div>
+
+      {errorMessage && (
+        <div className="login-error-message">
+          <p>{errorMessage}</p>
+        </div>
+      )}
 
       <ResidentAnnouncementSummaryCards summary={summary} />
 
@@ -172,10 +269,16 @@ function ResidentAnnouncementsPage() {
         setReadFilter={setReadFilter}
       />
 
-      <ResidentAnnouncementCards
-        announcements={filteredAnnouncements}
-        onView={handleViewAnnouncement}
-      />
+      {isLoading ? (
+        <div className="dashboard-panel">
+          <p>Duyurular yükleniyor...</p>
+        </div>
+      ) : (
+        <ResidentAnnouncementCards
+          announcements={filteredAnnouncements}
+          onView={handleViewAnnouncement}
+        />
+      )}
 
       <ResidentAnnouncementDetailsModal
         announcement={selectedAnnouncement}

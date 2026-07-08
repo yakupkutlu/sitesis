@@ -530,10 +530,41 @@ router.get(
         where: whereCondition,
       }),
     ]);
+        const readRecords =
+      authenticatedRequest.user.role === "RESIDENT" && announcements.length > 0
+        ? await prisma.announcementRead.findMany({
+            where: {
+              userId: authenticatedRequest.user.id,
+              announcementId: {
+                in: announcements.map((announcement) => announcement.id),
+              },
+            },
+            select: {
+              announcementId: true,
+              readAt: true,
+            },
+          })
+        : [];
+
+    const readMap = new Map(
+      readRecords.map((readRecord) => [
+        readRecord.announcementId,
+        readRecord.readAt,
+      ])
+    );
+
+    const announcementsWithReadInfo =
+      authenticatedRequest.user.role === "RESIDENT"
+        ? announcements.map((announcement) => ({
+            ...announcement,
+            isRead: readMap.has(announcement.id),
+            readAt: readMap.get(announcement.id) ?? null,
+          }))
+        : announcements;
 
     response.status(200).json({
       success: true,
-      data: announcements,
+      data: announcementsWithReadInfo,
       pagination: buildPaginationMeta({
         page: paginationParams.page,
         limit: paginationParams.limit,
@@ -627,7 +658,73 @@ router.post(
     });
   })
 );
+router.patch(
+  "/:announcementId/read",
+  requireRole("RESIDENT"),
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
 
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    const paramsResult = announcementParamsSchema.safeParse(request.params);
+
+    if (!paramsResult.success) {
+      throw new HttpError(400, "Duyuru bilgisi geçersiz.");
+    }
+
+    const { announcementId } = paramsResult.data;
+
+    const userWhereCondition = await getAnnouncementWhereForUser(
+      authenticatedRequest.user
+    );
+
+    const announcement = await prisma.announcement.findFirst({
+      where: {
+        AND: [
+          {
+            id: announcementId,
+          },
+          userWhereCondition,
+        ],
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!announcement) {
+      throw new HttpError(404, "Duyuru bulunamadı veya erişim yetkiniz yok.");
+    }
+
+    const readRecord = await prisma.announcementRead.upsert({
+      where: {
+        announcementId_userId: {
+          announcementId,
+          userId: authenticatedRequest.user.id,
+        },
+      },
+      update: {
+        readAt: new Date(),
+      },
+      create: {
+        announcementId,
+        userId: authenticatedRequest.user.id,
+      },
+    });
+
+    response.status(200).json({
+      success: true,
+      message: "Duyuru okundu olarak işaretlendi.",
+      data: {
+        announcementId,
+        isRead: true,
+        readAt: readRecord.readAt,
+      },
+    });
+  })
+);
 router.patch(
   "/:announcementId",
   requireRole("SUPER_ADMIN", "MANAGER"),
