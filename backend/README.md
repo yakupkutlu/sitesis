@@ -351,3 +351,16 @@ Production'a çıkmadan önce `git status --short` çıktısı temiz olmalıdır
 Backend MVP büyük ölçüde tamamlanmıştır ve production cleanup aşamasına getirilmiştir.
 
 Bu backend gerçek dünyada kullanılabilecek şekilde güvenlik odaklı geliştirilmektedir. Bu nedenle gizli bilgiler frontend tarafında tutulmamalı, API key ve benzeri değerler kullanıcıya response içinde döndürülmemeli, upload edilen dosyalar doğrudan public path üzerinden servis edilmemelidir.
+## GitHub'a Gönderilmemesi Gereken Dosyalar
+
+Aşağıdaki dosya ve klasörler GitHub'a gönderilmemelidir:
+
+- `.env`
+- `node_modules`
+- `dist`
+- `uploads`
+- `src/generated/prisma`
+
+Bu dosyalar `.gitignore` içinde tutulmalıdır.
+
+`.env.example` dosyası ise GitHub'a gönderilebilir. Bu dosya gerçek gizli bilgiler içermez, sadece gerekli ortam değişkenlerini örnek olarak gösterir.
