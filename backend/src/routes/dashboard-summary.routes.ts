@@ -135,6 +135,65 @@ function buildManagerRequestWhere(managerScope: ManagerScope) {
   } satisfies Prisma.ResidentRequestWhereInput;
 }
 
+function buildActiveAllocationWhere(
+  baseWhere: Prisma.PaymentAllocationWhereInput = {}
+) {
+  return {
+    AND: [
+      baseWhere,
+      {
+        status: {
+          in: ["PENDING", "PAID"],
+        },
+      },
+    ],
+  } satisfies Prisma.PaymentAllocationWhereInput;
+}
+
+function buildPendingAllocationWhere(
+  baseWhere: Prisma.PaymentAllocationWhereInput = {}
+) {
+  return {
+    AND: [
+      baseWhere,
+      {
+        status: "PENDING",
+      },
+    ],
+  } satisfies Prisma.PaymentAllocationWhereInput;
+}
+
+function buildPaidAllocationWhere(
+  baseWhere: Prisma.PaymentAllocationWhereInput = {}
+) {
+  return {
+    AND: [
+      baseWhere,
+      {
+        status: "PAID",
+      },
+    ],
+  } satisfies Prisma.PaymentAllocationWhereInput;
+}
+
+function buildOverdueAllocationWhere(
+  now: Date,
+  baseWhere: Prisma.PaymentAllocationWhereInput = {}
+) {
+  return {
+    AND: [
+      buildPendingAllocationWhere(baseWhere),
+      {
+        paymentBatch: {
+          dueDate: {
+            lt: now,
+          },
+        },
+      },
+    ],
+  } satisfies Prisma.PaymentAllocationWhereInput;
+}
+
 router.get(
   "/super-admin",
   requireAuth,
@@ -172,65 +231,34 @@ router.get(
       prisma.block.count(),
       prisma.apartment.count(),
       prisma.user.count(),
-      prisma.user.count({
+      prisma.user.count({ where: { role: "SUPER_ADMIN" } }),
+      prisma.user.count({ where: { role: "MANAGER" } }),
+      prisma.user.count({ where: { role: "RESIDENT" } }),
+      prisma.paymentBatch.count({
         where: {
-          role: "SUPER_ADMIN",
-        },
-      }),
-      prisma.user.count({
-        where: {
-          role: "MANAGER",
-        },
-      }),
-      prisma.user.count({
-        where: {
-          role: "RESIDENT",
-        },
-      }),
-      prisma.paymentBatch.count(),
-      prisma.paymentAllocation.count(),
-      prisma.paymentAllocation.count({
-        where: {
-          status: "PENDING",
-        },
-      }),
-      prisma.paymentAllocation.count({
-        where: {
-          status: "PAID",
-        },
-      }),
-      prisma.paymentAllocation.count({
-        where: {
-          status: "PENDING",
-          paymentBatch: {
-            dueDate: {
-              lt: now,
-            },
+          allocations: {
+            some: buildActiveAllocationWhere(),
           },
         },
       }),
+      prisma.paymentAllocation.count({
+        where: buildActiveAllocationWhere(),
+      }),
+      prisma.paymentAllocation.count({
+        where: buildPendingAllocationWhere(),
+      }),
+      prisma.paymentAllocation.count({
+        where: buildPaidAllocationWhere(),
+      }),
+      prisma.paymentAllocation.count({
+        where: buildOverdueAllocationWhere(now),
+      }),
       prisma.residentRequest.count(),
-      prisma.residentRequest.count({
-        where: {
-          status: "OPEN",
-        },
-      }),
+      prisma.residentRequest.count({ where: { status: "OPEN" } }),
       prisma.notificationLog.count(),
-      prisma.notificationLog.count({
-        where: {
-          status: "PENDING",
-        },
-      }),
-      prisma.notificationLog.count({
-        where: {
-          status: "SENT",
-        },
-      }),
-      prisma.notificationLog.count({
-        where: {
-          status: "FAILED",
-        },
-      }),
+      prisma.notificationLog.count({ where: { status: "PENDING" } }),
+      prisma.notificationLog.count({ where: { status: "SENT" } }),
+      prisma.notificationLog.count({ where: { status: "FAILED" } }),
     ]);
 
     response.status(200).json({
@@ -286,8 +314,7 @@ router.get(
 
     const paymentBatchWhere: Prisma.PaymentBatchWhereInput = {
       allocations: {
-        some: allocationWhere,
-        every: allocationWhere,
+        some: buildActiveAllocationWhere(allocationWhere),
       },
     };
 
@@ -308,15 +335,9 @@ router.get(
       sentNotificationsCount,
       failedNotificationsCount,
     ] = await Promise.all([
-      prisma.site.count({
-        where: siteWhere,
-      }),
-      prisma.block.count({
-        where: blockWhere,
-      }),
-      prisma.apartment.count({
-        where: apartmentWhere,
-      }),
+      prisma.site.count({ where: siteWhere }),
+      prisma.block.count({ where: blockWhere }),
+      prisma.apartment.count({ where: apartmentWhere }),
       prisma.user.count({
         where: {
           role: "RESIDENT",
@@ -327,58 +348,23 @@ router.get(
           },
         },
       }),
-      prisma.paymentBatch.count({
-        where: paymentBatchWhere,
+      prisma.paymentBatch.count({ where: paymentBatchWhere }),
+      prisma.paymentAllocation.count({
+        where: buildActiveAllocationWhere(allocationWhere),
       }),
       prisma.paymentAllocation.count({
-        where: allocationWhere,
+        where: buildPendingAllocationWhere(allocationWhere),
       }),
       prisma.paymentAllocation.count({
-        where: {
-          AND: [
-            allocationWhere,
-            {
-              status: "PENDING",
-            },
-          ],
-        },
+        where: buildPaidAllocationWhere(allocationWhere),
       }),
       prisma.paymentAllocation.count({
-        where: {
-          AND: [
-            allocationWhere,
-            {
-              status: "PAID",
-            },
-          ],
-        },
+        where: buildOverdueAllocationWhere(now, allocationWhere),
       }),
-      prisma.paymentAllocation.count({
-        where: {
-          AND: [
-            allocationWhere,
-            {
-              status: "PENDING",
-              paymentBatch: {
-                dueDate: {
-                  lt: now,
-                },
-              },
-            },
-          ],
-        },
-      }),
-      prisma.residentRequest.count({
-        where: requestWhere,
-      }),
+      prisma.residentRequest.count({ where: requestWhere }),
       prisma.residentRequest.count({
         where: {
-          AND: [
-            requestWhere,
-            {
-              status: "OPEN",
-            },
-          ],
+          AND: [requestWhere, { status: "OPEN" }],
         },
       }),
       prisma.notificationLog.count({
@@ -489,76 +475,36 @@ router.get(
       prisma.paymentBatch.count({
         where: {
           allocations: {
-            some: residentAllocationWhere,
+            some: buildActiveAllocationWhere(residentAllocationWhere),
           },
         },
       }),
       prisma.paymentAllocation.count({
-        where: residentAllocationWhere,
+        where: buildActiveAllocationWhere(residentAllocationWhere),
       }),
       prisma.paymentAllocation.count({
-        where: {
-          AND: [
-            residentAllocationWhere,
-            {
-              status: "PENDING",
-            },
-          ],
-        },
+        where: buildPendingAllocationWhere(residentAllocationWhere),
       }),
       prisma.paymentAllocation.count({
-        where: {
-          AND: [
-            residentAllocationWhere,
-            {
-              status: "PAID",
-            },
-          ],
-        },
+        where: buildPaidAllocationWhere(residentAllocationWhere),
       }),
       prisma.paymentAllocation.count({
-        where: {
-          AND: [
-            residentAllocationWhere,
-            {
-              status: "PENDING",
-              paymentBatch: {
-                dueDate: {
-                  lt: now,
-                },
-              },
-            },
-          ],
-        },
+        where: buildOverdueAllocationWhere(now, residentAllocationWhere),
       }),
       prisma.paymentAllocation.aggregate({
-        where: residentAllocationWhere,
+        where: buildActiveAllocationWhere(residentAllocationWhere),
         _sum: {
           amountKurus: true,
         },
       }),
       prisma.paymentAllocation.aggregate({
-        where: {
-          AND: [
-            residentAllocationWhere,
-            {
-              status: "PAID",
-            },
-          ],
-        },
+        where: buildPaidAllocationWhere(residentAllocationWhere),
         _sum: {
           amountKurus: true,
         },
       }),
       prisma.paymentAllocation.aggregate({
-        where: {
-          AND: [
-            residentAllocationWhere,
-            {
-              status: "PENDING",
-            },
-          ],
-        },
+        where: buildPendingAllocationWhere(residentAllocationWhere),
         _sum: {
           amountKurus: true,
         },
@@ -568,12 +514,7 @@ router.get(
       }),
       prisma.residentRequest.count({
         where: {
-          AND: [
-            residentRequestWhere,
-            {
-              status: "OPEN",
-            },
-          ],
+          AND: [residentRequestWhere, { status: "OPEN" }],
         },
       }),
       prisma.notificationLog.count({
@@ -610,9 +551,9 @@ router.get(
         pendingAllocationsCount,
         paidAllocationsCount,
         overdueAllocationsCount,
-        totalDebtKurus: totalDebtAggregation._sum.amountKurus ?? 0,
-        paidTotalKurus: paidTotalAggregation._sum.amountKurus ?? 0,
-        remainingDebtKurus: remainingDebtAggregation._sum.amountKurus ?? 0,
+        totalDebtKurus: totalDebtAggregation._sum?.amountKurus ?? 0,
+        paidTotalKurus: paidTotalAggregation._sum?.amountKurus ?? 0,
+        remainingDebtKurus: remainingDebtAggregation._sum?.amountKurus ?? 0,
         residentRequestsCount,
         openRequestsCount,
         notificationLogsCount,
@@ -625,5 +566,3 @@ router.get(
 );
 
 export default router;
-
-

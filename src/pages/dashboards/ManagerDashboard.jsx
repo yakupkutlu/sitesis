@@ -57,6 +57,11 @@ const quickActions = [
     path: "/manager/announcements",
     icon: Bell,
   },
+  {
+    label: "Sakin Taleplerini İncele",
+    path: "/manager/requests",
+    icon: MessageSquareText,
+  },
 ];
 
 function formatNumber(value) {
@@ -73,31 +78,25 @@ function ManagerDashboard() {
   useEffect(() => {
     let isMounted = true;
 
-    async function loadSummary() {
-      try {
-        setIsLoading(true);
+    getManagerDashboardSummary()
+      .then((result) => {
+        if (!isMounted) return;
+
+        setSummary(result?.data ?? result ?? {});
         setErrorMessage("");
+      })
+      .catch((error) => {
+        if (!isMounted) return;
 
-        const result = await getManagerDashboardSummary();
-        const summaryData = result?.data ?? result;
+        setErrorMessage(
+          error?.message ?? "Yönetici dashboard bilgileri alınamadı."
+        );
+      })
+      .finally(() => {
+        if (!isMounted) return;
 
-        if (isMounted) {
-          setSummary(summaryData);
-        }
-      } catch (error) {
-        if (isMounted) {
-          setErrorMessage(
-            error?.message ?? "Yönetici dashboard bilgileri alınamadı."
-          );
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    loadSummary();
+        setIsLoading(false);
+      });
 
     return () => {
       isMounted = false;
@@ -109,7 +108,9 @@ function ManagerDashboard() {
       {
         label: "Toplam Daire",
         value: formatNumber(summary?.apartmentsCount),
-        description: `Site: ${formatNumber(summary?.assignedSitesCount)} | Blok: ${formatNumber(summary?.assignedBlocksCount)}`,
+        description: `Site: ${formatNumber(
+          summary?.assignedSitesCount
+        )} | Blok: ${formatNumber(summary?.assignedBlocksCount)}`,
         icon: Home,
       },
       {
@@ -121,13 +122,17 @@ function ManagerDashboard() {
       {
         label: "Ödeme Kalemleri",
         value: formatNumber(summary?.paymentAllocationsCount),
-        description: `Ödenen: ${formatNumber(summary?.paidAllocationsCount)} | Bekleyen: ${formatNumber(summary?.pendingAllocationsCount)}`,
+        description: `Ödenen: ${formatNumber(
+          summary?.paidAllocationsCount
+        )} | Bekleyen: ${formatNumber(summary?.pendingAllocationsCount)}`,
         icon: CreditCard,
       },
       {
-        label: "Bekleyen Talep",
+        label: "Açık Talep",
         value: formatNumber(summary?.openRequestsCount),
-        description: `Toplam talep: ${formatNumber(summary?.residentRequestsCount)}`,
+        description: `Toplam talep: ${formatNumber(
+          summary?.residentRequestsCount
+        )}`,
         icon: MessageSquareText,
       },
     ],
@@ -138,22 +143,34 @@ function ManagerDashboard() {
     () => [
       {
         title: "Aidat ve ödeme durumu",
-        description: `Toplam ödeme grubu: ${formatNumber(summary?.paymentBatchesCount)} | Toplam ödeme kalemi: ${formatNumber(summary?.paymentAllocationsCount)}`,
+        description: `Toplam ödeme grubu: ${formatNumber(
+          summary?.paymentBatchesCount
+        )} | Toplam ödeme kalemi: ${formatNumber(
+          summary?.paymentAllocationsCount
+        )}`,
         icon: CreditCard,
       },
       {
         title: "Gecikmiş ödemeler",
-        description: `Gecikmiş ödeme kalemi: ${formatNumber(summary?.overdueAllocationsCount)}`,
+        description: `Gecikmiş ödeme kalemi: ${formatNumber(
+          summary?.overdueAllocationsCount
+        )}`,
         icon: Bell,
       },
       {
         title: "Sakin talepleri",
-        description: `Toplam talep: ${formatNumber(summary?.residentRequestsCount)} | Açık talep: ${formatNumber(summary?.openRequestsCount)}`,
+        description: `Toplam talep: ${formatNumber(
+          summary?.residentRequestsCount
+        )} | Açık talep: ${formatNumber(summary?.openRequestsCount)}`,
         icon: MessageSquareText,
       },
       {
         title: "Bildirim kayıtları",
-        description: `Gönderilen: ${formatNumber(summary?.sentNotificationsCount)} | Bekleyen: ${formatNumber(summary?.pendingNotificationsCount)} | Hatalı: ${formatNumber(summary?.failedNotificationsCount)}`,
+        description: `Gönderilen: ${formatNumber(
+          summary?.sentNotificationsCount
+        )} | Bekleyen: ${formatNumber(
+          summary?.pendingNotificationsCount
+        )} | Hatalı: ${formatNumber(summary?.failedNotificationsCount)}`,
         icon: UploadCloud,
       },
     ],
@@ -173,8 +190,8 @@ function ManagerDashboard() {
           <span className="section-kicker">Genel Bakış</span>
           <h2>Yönetici Paneli</h2>
           <p>
-            Daireler, sakinler, aidat ödemeleri, dekontlar, duyurular ve talepler
-            bu panel üzerinden yönetilir.
+            Daireler, sakinler, aidat ödemeleri, dekontlar, duyurular ve
+            talepler bu panel üzerinden yönetilir.
           </p>
         </div>
 
@@ -284,7 +301,9 @@ function ManagerDashboard() {
               <div className="manager-summary-grid">
                 <div>
                   <span>Toplam Kalem</span>
-                  <strong>{formatNumber(summary?.paymentAllocationsCount)}</strong>
+                  <strong>
+                    {formatNumber(summary?.paymentAllocationsCount)}
+                  </strong>
                 </div>
 
                 <div>
@@ -294,12 +313,16 @@ function ManagerDashboard() {
 
                 <div>
                   <span>Bekleyen</span>
-                  <strong>{formatNumber(summary?.pendingAllocationsCount)}</strong>
+                  <strong>
+                    {formatNumber(summary?.pendingAllocationsCount)}
+                  </strong>
                 </div>
 
                 <div>
                   <span>Gecikmiş</span>
-                  <strong>{formatNumber(summary?.overdueAllocationsCount)}</strong>
+                  <strong>
+                    {formatNumber(summary?.overdueAllocationsCount)}
+                  </strong>
                 </div>
               </div>
             </div>

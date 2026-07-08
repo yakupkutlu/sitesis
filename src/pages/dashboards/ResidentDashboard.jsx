@@ -16,6 +16,8 @@ import ResidentRecentAnnouncements from "../../components/resident-dashboard/Res
 import ResidentOpenRequests from "../../components/resident-dashboard/ResidentOpenRequests";
 
 import { getResidentDashboardSummary } from "../../api/dashboardSummaryApi";
+import { getAnnouncements } from "../../api/announcementsApi";
+import { getRequests } from "../../api/requestsApi";
 import { useAuth } from "../../context/AuthContext";
 
 const navItems = [
@@ -26,6 +28,31 @@ const navItems = [
   { label: "Talepler", path: "/resident/requests", icon: MessageSquareText },
   { label: "Ayarlar", path: "/resident/settings", icon: Settings },
 ];
+
+const requestStatusMap = {
+  OPEN: "Yeni",
+  IN_PROGRESS: "İnceleniyor",
+  DONE: "Çözüldü",
+  REJECTED: "Reddedildi",
+};
+
+const requestTypeMap = {
+  MAINTENANCE: "Bakım",
+  COMPLAINT: "Şikayet",
+  SUGGESTION: "Öneri",
+  GENERAL: "Genel",
+};
+
+function getDataArray(result) {
+  const data = result?.data ?? result;
+
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.announcements)) return data.announcements;
+  if (Array.isArray(data?.requests)) return data.requests;
+
+  return [];
+}
 
 function formatNumber(value) {
   return new Intl.NumberFormat("tr-TR").format(Number(value ?? 0));
@@ -41,6 +68,18 @@ function formatMoneyFromKurus(value) {
   }).format(amount);
 }
 
+function formatDate(value) {
+  if (!value) {
+    return "-";
+  }
+
+  try {
+    return new Date(value).toLocaleDateString("tr-TR");
+  } catch {
+    return "-";
+  }
+}
+
 function calculateProgress(paidKurus, totalKurus) {
   const paid = Number(paidKurus ?? 0);
   const total = Number(totalKurus ?? 0);
@@ -52,41 +91,79 @@ function calculateProgress(paidKurus, totalKurus) {
   return Math.min(100, Math.round((paid / total) * 100));
 }
 
+function getAnnouncementDescription(announcement) {
+  return (
+    announcement.content ||
+    announcement.body ||
+    announcement.description ||
+    announcement.message ||
+    "Duyuru açıklaması bulunmuyor."
+  );
+}
+
+function mapAnnouncementToDashboard(announcement) {
+  return {
+    id: announcement.id,
+    title: announcement.title ?? "Duyuru",
+    date: formatDate(announcement.createdAt ?? announcement.date),
+    description: getAnnouncementDescription(announcement),
+  };
+}
+
+function mapRequestToDashboard(request) {
+  return {
+    id: request.id,
+    title: request.title ?? "Talep",
+    category: requestTypeMap[request.type] ?? "Genel",
+    status: requestStatusMap[request.status] ?? request.status ?? "Yeni",
+    date: formatDate(request.createdAt),
+  };
+}
+
 function ResidentDashboard() {
   const { user } = useAuth();
 
   const [summary, setSummary] = useState(null);
+  const [recentAnnouncements, setRecentAnnouncements] = useState([]);
+  const [recentRequests, setRecentRequests] = useState([]);
+
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
     let isMounted = true;
 
-    async function loadSummary() {
-      try {
-        setIsLoading(true);
+    Promise.all([
+      getResidentDashboardSummary(),
+      getAnnouncements({
+        page: 1,
+        limit: 3,
+      }),
+      getRequests({
+        page: 1,
+        limit: 3,
+      }),
+    ])
+      .then(([summaryResult, announcementsResult, requestsResult]) => {
+        if (!isMounted) return;
+
+        setSummary(summaryResult?.data ?? summaryResult ?? {});
+        setRecentAnnouncements(
+          getDataArray(announcementsResult).map(mapAnnouncementToDashboard)
+        );
+        setRecentRequests(getDataArray(requestsResult).map(mapRequestToDashboard));
         setErrorMessage("");
+      })
+      .catch((error) => {
+        if (!isMounted) return;
 
-        const result = await getResidentDashboardSummary();
-        const summaryData = result?.data ?? result;
+        setErrorMessage(error?.message ?? "Sakin dashboard bilgileri alınamadı.");
+      })
+      .finally(() => {
+        if (!isMounted) return;
 
-        if (isMounted) {
-          setSummary(summaryData);
-        }
-      } catch (error) {
-        if (isMounted) {
-          setErrorMessage(
-            error?.message ?? "Sakin dashboard bilgileri alınamadı."
-          );
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    loadSummary();
+        setIsLoading(false);
+      });
 
     return () => {
       isMounted = false;
@@ -97,7 +174,6 @@ function ResidentDashboard() {
     () => ({
       fullName: user?.fullName ?? "Sakin",
       role: "Sakin",
-      siteName: "Bağlı yaşam alanı",
       apartment:
         Number(summary?.apartmentsCount ?? 0) > 0
           ? `${formatNumber(summary?.apartmentsCount)} daire bağlantısı`
@@ -108,7 +184,7 @@ function ResidentDashboard() {
 
   const stats = useMemo(
     () => ({
-      totalDebt: formatMoneyFromKurus(summary?.totalDebtKurus),
+      totalDebt: formatMoneyFromKurus(summary?.remainingDebtKurus),
       currentDue: formatMoneyFromKurus(summary?.remainingDebtKurus),
       pendingReceipts: formatNumber(summary?.pendingAllocationsCount),
       openRequests: formatNumber(summary?.openRequestsCount),
@@ -118,7 +194,7 @@ function ResidentDashboard() {
 
   const payment = useMemo(
     () => ({
-      currentDue: formatMoneyFromKurus(summary?.totalDebtKurus),
+      currentDue: formatMoneyFromKurus(summary?.remainingDebtKurus),
       paidAmount: formatMoneyFromKurus(summary?.paidTotalKurus),
       remainingAmount: formatMoneyFromKurus(summary?.remainingDebtKurus),
       dueDate: "-",
@@ -136,46 +212,36 @@ function ResidentDashboard() {
     [summary]
   );
 
-  const announcements = useMemo(
-    () => [
-      {
-        id: 1,
-        title: "Duyurular",
-        date: "-",
-        description:
-          "Size gönderilen duyuruları Duyurular sayfasından takip edebilirsiniz.",
-      },
-      {
-        id: 2,
-        title: "Bildirim Özeti",
-        date: "-",
-        description: `Gönderilen bildirim: ${formatNumber(
-          summary?.sentNotificationsCount
-        )} | Bekleyen: ${formatNumber(summary?.pendingNotificationsCount)}`,
-      },
-    ],
-    [summary]
-  );
+  const announcements = useMemo(() => {
+    if (recentAnnouncements.length > 0) {
+      return recentAnnouncements;
+    }
 
-  const openRequests = useMemo(
-    () => [
+    return [
       {
-        id: 1,
-        title: "Açık Talepler",
+        id: "empty-announcement",
+        title: "Duyuru bulunmuyor",
+        date: "-",
+        description: "Size gönderilmiş güncel duyuru bulunmuyor.",
+      },
+    ];
+  }, [recentAnnouncements]);
+
+  const openRequests = useMemo(() => {
+    if (recentRequests.length > 0) {
+      return recentRequests;
+    }
+
+    return [
+      {
+        id: "empty-request",
+        title: "Talep bulunmuyor",
         category: "Talep",
-        status: `${formatNumber(summary?.openRequestsCount)} açık talep`,
+        status: "Açık talep yok",
         date: "-",
       },
-      {
-        id: 2,
-        title: "Toplam Talepler",
-        category: "Özet",
-        status: `${formatNumber(summary?.residentRequestsCount)} toplam talep`,
-        date: "-",
-      },
-    ],
-    [summary]
-  );
+    ];
+  }, [recentRequests]);
 
   return (
     <DashboardLayout
@@ -231,3 +297,4 @@ function ResidentDashboard() {
 }
 
 export default ResidentDashboard;
+
