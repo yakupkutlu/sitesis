@@ -11,6 +11,7 @@ import {
 } from "../middlewares/auth.middleware.js";
 import { createAuditLog } from "../services/audit-log.service.js";
 import {
+  createNotificationLog,
   queueEmailNotification,
   queueSmsNotification,
 } from "../services/notification.service.js";
@@ -384,9 +385,35 @@ async function queueAnnouncementNotifications(params: {
     recipientCount: 0,
     emailNotificationCount: 0,
     smsNotificationCount: 0,
+    skippedNotificationCount: 0,
   };
 
+  const metadata = {
+    purpose: "ANNOUNCEMENT",
+    targetType: params.announcement.targetType,
+    ...(params.announcement.siteId ? { siteId: params.announcement.siteId } : {}),
+    ...(params.announcement.blockId ? { blockId: params.announcement.blockId } : {}),
+    ...(params.announcement.apartmentId
+      ? { apartmentId: params.announcement.apartmentId }
+      : {}),
+  } as Prisma.InputJsonObject;
+
   if (!params.sendSms && !params.sendEmail) {
+    summary.skippedNotificationCount += 1;
+
+    await createNotificationLog({
+      channel: "EMAIL",
+      status: "SKIPPED",
+      sourceType: "ANNOUNCEMENT",
+      subject: params.announcement.title,
+      message: params.announcement.content,
+      entityType: "Announcement",
+      entityId: params.announcement.id,
+      errorMessage: "Duyuru oluşturuldu ancak SMS/E-posta gönderimi seçilmedi.",
+      metadata,
+      createdByUserId: params.createdByUserId,
+    });
+
     return summary;
   }
 
@@ -401,16 +428,55 @@ async function queueAnnouncementNotifications(params: {
 
   const notificationJobs: Promise<unknown>[] = [];
 
-  for (const recipient of recipients) {
-    const metadata = {
-      purpose: "ANNOUNCEMENT",
-      targetType: params.announcement.targetType,
-      ...(params.announcement.siteId ? { siteId: params.announcement.siteId } : {}),
-      ...(params.announcement.blockId ? { blockId: params.announcement.blockId } : {}),
-      ...(params.announcement.apartmentId ? { apartmentId: params.announcement.apartmentId } : {}),
-    };
+  if (recipients.length === 0) {
+    if (params.sendEmail) {
+      summary.skippedNotificationCount += 1;
 
+      notificationJobs.push(
+        createNotificationLog({
+          channel: "EMAIL",
+          status: "SKIPPED",
+          sourceType: "ANNOUNCEMENT",
+          subject: params.announcement.title,
+          message: params.announcement.content,
+          entityType: "Announcement",
+          entityId: params.announcement.id,
+          errorMessage: "Duyuru hedefinde aktif sakin bulunamadı.",
+          metadata,
+          createdByUserId: params.createdByUserId,
+        })
+      );
+    }
+
+    if (params.sendSms) {
+      summary.skippedNotificationCount += 1;
+
+      notificationJobs.push(
+        createNotificationLog({
+          channel: "SMS",
+          status: "SKIPPED",
+          sourceType: "ANNOUNCEMENT",
+          message: `${params.announcement.title}: ${params.announcement.content}`,
+          entityType: "Announcement",
+          entityId: params.announcement.id,
+          errorMessage: "Duyuru hedefinde aktif sakin bulunamadı.",
+          metadata,
+          createdByUserId: params.createdByUserId,
+        })
+      );
+    }
+
+    await Promise.all(notificationJobs);
+
+    return summary;
+  }
+
+  let emailRecipientCount = 0;
+  let smsRecipientCount = 0;
+
+  for (const recipient of recipients) {
     if (params.sendEmail && recipient.email) {
+      emailRecipientCount += 1;
       summary.emailNotificationCount += 1;
 
       notificationJobs.push(
@@ -429,6 +495,7 @@ async function queueAnnouncementNotifications(params: {
     }
 
     if (params.sendSms && recipient.phone) {
+      smsRecipientCount += 1;
       summary.smsNotificationCount += 1;
 
       notificationJobs.push(
@@ -446,11 +513,47 @@ async function queueAnnouncementNotifications(params: {
     }
   }
 
+  if (params.sendEmail && emailRecipientCount === 0) {
+    summary.skippedNotificationCount += 1;
+
+    notificationJobs.push(
+      createNotificationLog({
+        channel: "EMAIL",
+        status: "SKIPPED",
+        sourceType: "ANNOUNCEMENT",
+        subject: params.announcement.title,
+        message: params.announcement.content,
+        entityType: "Announcement",
+        entityId: params.announcement.id,
+        errorMessage: "Hedef sakinlerde e-posta adresi bulunamadı.",
+        metadata,
+        createdByUserId: params.createdByUserId,
+      })
+    );
+  }
+
+  if (params.sendSms && smsRecipientCount === 0) {
+    summary.skippedNotificationCount += 1;
+
+    notificationJobs.push(
+      createNotificationLog({
+        channel: "SMS",
+        status: "SKIPPED",
+        sourceType: "ANNOUNCEMENT",
+        message: `${params.announcement.title}: ${params.announcement.content}`,
+        entityType: "Announcement",
+        entityId: params.announcement.id,
+        errorMessage: "Hedef sakinlerde telefon numarası bulunamadı.",
+        metadata,
+        createdByUserId: params.createdByUserId,
+      })
+    );
+  }
+
   await Promise.all(notificationJobs);
 
   return summary;
 }
-
 router.get(
   "/",
   requireRole("SUPER_ADMIN", "MANAGER", "RESIDENT"),
@@ -884,5 +987,6 @@ router.patch(
 );
 
 export default router;
+
 
 

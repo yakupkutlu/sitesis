@@ -1,17 +1,21 @@
-﻿import { useEffect, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   BarChart3,
   Bell,
   BrainCircuit,
   Building2,
+  CheckCircle2,
+  Clock,
   Info,
   Mail,
   MessageSquare,
+  RefreshCcw,
   Settings,
   ShieldCheck,
   UserRound,
   Users,
+  XCircle,
 } from "lucide-react";
 
 import SmsSettingsForm from "../../components/notifications/SmsSettingsForm";
@@ -28,6 +32,7 @@ import {
   getEmailSettings,
   updateEmailSetting,
 } from "../../api/emailSettingsApi";
+import { getNotificationLogs } from "../../api/notificationLogsApi";
 import { useAuth } from "../../context/AuthContext";
 
 const navItems = [
@@ -74,24 +79,49 @@ const initialEmailSettings = {
   hasSendgridApiKey: false,
 };
 
+const statusLabelMap = {
+  PENDING: "Bekliyor",
+  SENT: "Gönderildi",
+  FAILED: "Hatalı",
+  SKIPPED: "Atlandı",
+};
+
+const sourceTypeLabelMap = {
+  MANUAL: "Manuel",
+  PAYMENT_BATCH: "Aidat / Ödeme",
+  ANNOUNCEMENT: "Duyuru",
+  RESIDENT_REQUEST: "Talep",
+  SYSTEM: "Sistem",
+};
+
+const targetTypeLabelMap = {
+  ALL: "Tüm Sistem",
+  SITE: "Site",
+  BLOCK: "Blok",
+  APARTMENT: "Daire",
+};
+
+function getDataArray(result) {
+  const data = result?.data ?? result;
+
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.notificationLogs)) return data.notificationLogs;
+
+  return [];
+}
+
 function getFirstSetting(result) {
   const data = result?.data ?? result;
 
-  if (Array.isArray(data)) {
-    return data[0] ?? null;
-  }
-
-  if (Array.isArray(data?.items)) {
-    return data.items[0] ?? null;
-  }
+  if (Array.isArray(data)) return data[0] ?? null;
+  if (Array.isArray(data?.items)) return data.items[0] ?? null;
 
   return data ?? null;
 }
 
 function mapSmsSettingToFormData(setting) {
-  if (!setting) {
-    return initialSmsSettings;
-  }
+  if (!setting) return initialSmsSettings;
 
   return {
     id: setting.id ?? null,
@@ -111,9 +141,7 @@ function mapSmsSettingToFormData(setting) {
 }
 
 function mapEmailSettingToFormData(setting) {
-  if (!setting) {
-    return initialEmailSettings;
-  }
+  if (!setting) return initialEmailSettings;
 
   return {
     id: setting.id ?? null,
@@ -152,29 +180,12 @@ function buildSmsPayload(formData, isUpdate) {
     status: formData.status,
   };
 
-  addTextValue(payload, "senderName", formData.senderName, {
-    allowNull: isUpdate,
-  });
-
-  addTextValue(payload, "fromPhone", formData.fromPhone, {
-    allowNull: isUpdate,
-  });
-
-  addTextValue(payload, "username", formData.username, {
-    allowNull: false,
-  });
-
-  addTextValue(payload, "password", formData.password, {
-    allowNull: false,
-  });
-
-  addTextValue(payload, "apiKey", formData.apiKey, {
-    allowNull: false,
-  });
-
-  addTextValue(payload, "apiSecret", formData.apiSecret, {
-    allowNull: false,
-  });
+  addTextValue(payload, "senderName", formData.senderName, { allowNull: isUpdate });
+  addTextValue(payload, "fromPhone", formData.fromPhone, { allowNull: isUpdate });
+  addTextValue(payload, "username", formData.username, { allowNull: false });
+  addTextValue(payload, "password", formData.password, { allowNull: false });
+  addTextValue(payload, "apiKey", formData.apiKey, { allowNull: false });
+  addTextValue(payload, "apiSecret", formData.apiSecret, { allowNull: false });
 
   return payload;
 }
@@ -186,18 +197,11 @@ function buildEmailPayload(formData, isUpdate) {
     smtpSecure: Boolean(formData.smtpSecure),
   };
 
-  addTextValue(payload, "fromEmail", formData.fromEmail, {
-    allowNull: false,
-  });
-
-  addTextValue(payload, "fromName", formData.fromName, {
-    allowNull: isUpdate,
-  });
+  addTextValue(payload, "fromEmail", formData.fromEmail, { allowNull: false });
+  addTextValue(payload, "fromName", formData.fromName, { allowNull: isUpdate });
 
   if (formData.provider === "SMTP") {
-    addTextValue(payload, "smtpHost", formData.smtpHost, {
-      allowNull: isUpdate,
-    });
+    addTextValue(payload, "smtpHost", formData.smtpHost, { allowNull: isUpdate });
 
     if (String(formData.smtpPort ?? "").trim()) {
       payload.smtpPort = Number(formData.smtpPort);
@@ -223,57 +227,141 @@ function buildEmailPayload(formData, isUpdate) {
   return payload;
 }
 
+function formatDateTime(value) {
+  if (!value) return "-";
+
+  try {
+    return new Date(value).toLocaleString("tr-TR");
+  } catch {
+    return "-";
+  }
+}
+
+function getRecipientText(log) {
+  const recipientName = log?.recipientUser?.fullName;
+  const recipientValue =
+    log?.channel === "EMAIL"
+      ? log?.recipientEmail || log?.recipientUser?.email
+      : log?.recipientPhone || log?.recipientUser?.phone;
+
+  if (recipientName && recipientValue) return `${recipientName} - ${recipientValue}`;
+  return recipientName || recipientValue || "-";
+}
+
+function getStatusIcon(status) {
+  if (status === "SENT") return CheckCircle2;
+  if (status === "FAILED") return XCircle;
+  if (status === "SKIPPED") return Info;
+  return Clock;
+}
+
+function getTargetText(log) {
+  const targetType = log?.metadata?.targetType;
+
+  if (!targetType) {
+    return "-";
+  }
+
+  return targetTypeLabelMap[targetType] ?? targetType;
+}
+
 function NotificationsPage() {
   const { user } = useAuth();
 
   const [smsSettings, setSmsSettings] = useState(initialSmsSettings);
   const [emailSettings, setEmailSettings] = useState(initialEmailSettings);
+  const [notificationLogs, setNotificationLogs] = useState([]);
+  const [logFilters, setLogFilters] = useState({
+    channel: "",
+    status: "",
+    search: "",
+  });
 
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [isSavingSms, setIsSavingSms] = useState(false);
   const [isSavingEmail, setIsSavingEmail] = useState(false);
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [logErrorMessage, setLogErrorMessage] = useState("");
 
   useEffect(() => {
     let isMounted = true;
 
-    async function loadNotificationSettings() {
-      try {
-        setIsLoading(true);
-        setErrorMessage("");
+    Promise.allSettled([
+      getSmsSettings(),
+      getEmailSettings(),
+      getNotificationLogs({ page: 1, limit: 20 }),
+    ])
+      .then(([smsResult, emailResult, logsResult]) => {
+        if (!isMounted) return;
 
-        const [smsResult, emailResult] = await Promise.all([
-          getSmsSettings(),
-          getEmailSettings(),
-        ]);
-
-        const smsSetting = getFirstSetting(smsResult);
-        const emailSetting = getFirstSetting(emailResult);
-
-        if (isMounted) {
-          setSmsSettings(mapSmsSettingToFormData(smsSetting));
-          setEmailSettings(mapEmailSettingToFormData(emailSetting));
+        if (smsResult.status === "fulfilled") {
+          setSmsSettings(mapSmsSettingToFormData(getFirstSetting(smsResult.value)));
         }
-      } catch (error) {
-        if (isMounted) {
-          setErrorMessage(
-            error?.message ?? "Bildirim ayarları alınamadı."
+
+        if (emailResult.status === "fulfilled") {
+          setEmailSettings(
+            mapEmailSettingToFormData(getFirstSetting(emailResult.value))
           );
         }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    }
 
-    loadNotificationSettings();
+        if (logsResult.status === "fulfilled") {
+          setNotificationLogs(getDataArray(logsResult.value));
+          setLogErrorMessage("");
+        } else {
+          setLogErrorMessage(
+            logsResult.reason?.message ?? "Bildirim kayıtları alınamadı."
+          );
+        }
+
+        if (smsResult.status === "rejected" || emailResult.status === "rejected") {
+          setErrorMessage("Bildirim ayarları alınırken hata oluştu.");
+        } else {
+          setErrorMessage("");
+        }
+      })
+      .finally(() => {
+        if (!isMounted) return;
+        setIsLoading(false);
+      });
 
     return () => {
       isMounted = false;
     };
   }, []);
+
+  const notificationStats = useMemo(
+    () => ({
+      total: notificationLogs.length,
+      sent: notificationLogs.filter((log) => log.status === "SENT").length,
+      pending: notificationLogs.filter((log) => log.status === "PENDING").length,
+      failed: notificationLogs.filter((log) => log.status === "FAILED").length,
+      skipped: notificationLogs.filter((log) => log.status === "SKIPPED").length,
+    }),
+    [notificationLogs]
+  );
+
+  async function loadNotificationLogs(nextFilters = logFilters) {
+    try {
+      setIsLoadingLogs(true);
+      setLogErrorMessage("");
+
+      const result = await getNotificationLogs({
+        page: 1,
+        limit: 20,
+        channel: nextFilters.channel,
+        status: nextFilters.status,
+        search: nextFilters.search,
+      });
+
+      setNotificationLogs(getDataArray(result));
+    } catch (error) {
+      setLogErrorMessage(error?.message ?? "Bildirim kayıtları alınamadı.");
+    } finally {
+      setIsLoadingLogs(false);
+    }
+  }
 
   function handleSmsChange(event) {
     const { name, value, type, checked } = event.target;
@@ -291,6 +379,20 @@ function NotificationsPage() {
       ...current,
       [name]: type === "checkbox" ? checked : value,
     }));
+  }
+
+  function handleLogFilterChange(event) {
+    const { name, value } = event.target;
+
+    setLogFilters((current) => ({
+      ...current,
+      [name]: value,
+    }));
+  }
+
+  async function handleLogFilterSubmit(event) {
+    event.preventDefault();
+    await loadNotificationLogs(logFilters);
   }
 
   async function handleSmsSubmit(event) {
@@ -406,6 +508,16 @@ function NotificationsPage() {
             e-posta gönderim ayarlarını buradan yönetebilirsiniz.
           </p>
         </div>
+
+        <button
+          type="button"
+          className="dashboard-action-button secondary-action"
+          onClick={() => loadNotificationLogs(logFilters)}
+          disabled={isLoadingLogs}
+        >
+          <RefreshCcw size={18} />
+          {isLoadingLogs ? "Yenileniyor..." : "Kayıtları Yenile"}
+        </button>
       </div>
 
       {errorMessage && (
@@ -459,9 +571,9 @@ function NotificationsPage() {
           title="Gönderim Bilgileri"
           description="SMS ve e-posta gönderim ayarları bu sayfadan yönetilir."
           items={[
-            "Kaydedilen ayarlar bildirim gönderiminde kullanılır",
-            "Test gönderimi için ayrıca backend test endpointi gerekir",
-            "Başarılı ve hatalı gönderimler sistem kayıtlarında takip edilir",
+            "Bildirim kayıtları aşağıdaki tabloda takip edilir",
+            "Atlandı durumu aktif SMS veya e-posta ayarı bulunmadığını gösterir",
+            "Başarılı ve hatalı gönderimler sistem kayıtlarında görünür",
           ]}
         />
       </section>
@@ -471,26 +583,195 @@ function NotificationsPage() {
           <p>Bildirim ayarları yükleniyor...</p>
         </div>
       ) : (
-        <div className="notification-settings-grid">
-          <SmsSettingsForm
-            formData={smsSettings}
-            onInputChange={handleSmsChange}
-            onSubmit={handleSmsSubmit}
-            onTestSms={handleTestSms}
-            isSaving={isSavingSms}
-          />
+        <>
+          <div className="notification-settings-grid">
+            <SmsSettingsForm
+              formData={smsSettings}
+              onInputChange={handleSmsChange}
+              onSubmit={handleSmsSubmit}
+              onTestSms={handleTestSms}
+              isSaving={isSavingSms}
+            />
 
-          <EmailSettingsForm
-            formData={emailSettings}
-            onInputChange={handleEmailChange}
-            onSubmit={handleEmailSubmit}
-            onTestEmail={handleTestEmail}
-            isSaving={isSavingEmail}
-          />
-        </div>
+            <EmailSettingsForm
+              formData={emailSettings}
+              onInputChange={handleEmailChange}
+              onSubmit={handleEmailSubmit}
+              onTestEmail={handleTestEmail}
+              isSaving={isSavingEmail}
+            />
+          </div>
+
+          <section className="dashboard-panel notification-log-panel">
+            <div className="dashboard-panel-header">
+              <div>
+                <span className="section-kicker">Gönderim Kayıtları</span>
+                <h3>SMS / E-posta Logları</h3>
+              </div>
+            </div>
+
+            <div className="notification-log-stats-grid">
+              <div>
+                <span>Gösterilen Kayıt</span>
+                <strong>{notificationStats.total}</strong>
+              </div>
+
+              <div>
+                <span>Gönderildi</span>
+                <strong>{notificationStats.sent}</strong>
+              </div>
+
+              <div>
+                <span>Bekliyor</span>
+                <strong>{notificationStats.pending}</strong>
+              </div>
+
+              <div>
+                <span>Hatalı</span>
+                <strong>{notificationStats.failed}</strong>
+              </div>
+
+              <div>
+                <span>Atlandı</span>
+                <strong>{notificationStats.skipped}</strong>
+              </div>
+            </div>
+
+            <form className="notification-log-filter-bar" onSubmit={handleLogFilterSubmit}>
+              <input
+                type="search"
+                name="search"
+                value={logFilters.search}
+                onChange={handleLogFilterChange}
+                placeholder="Alıcı, konu, mesaj veya hata ara..."
+              />
+
+              <select
+                name="channel"
+                value={logFilters.channel}
+                onChange={handleLogFilterChange}
+              >
+                <option value="">Tüm kanallar</option>
+                <option value="EMAIL">E-posta</option>
+                <option value="SMS">SMS</option>
+              </select>
+
+              <select
+                name="status"
+                value={logFilters.status}
+                onChange={handleLogFilterChange}
+              >
+                <option value="">Tüm durumlar</option>
+                <option value="PENDING">Bekliyor</option>
+                <option value="SENT">Gönderildi</option>
+                <option value="FAILED">Hatalı</option>
+                <option value="SKIPPED">Atlandı</option>
+              </select>
+
+              <button
+                type="submit"
+                className="dashboard-action-button"
+                disabled={isLoadingLogs}
+              >
+                Filtrele
+              </button>
+            </form>
+
+            {logErrorMessage && (
+              <div className="login-error-message">
+                <p>{logErrorMessage}</p>
+              </div>
+            )}
+
+            {isLoadingLogs ? (
+              <p>Bildirim kayıtları yükleniyor...</p>
+            ) : notificationLogs.length === 0 ? (
+              <p>Henüz bildirim kaydı bulunmuyor.</p>
+            ) : (
+              <div className="notification-log-table-wrapper">
+                <table className="notification-log-table">
+                  <thead>
+                    <tr>
+                      <th>Kanal</th>
+                      <th>Durum</th>
+                      <th>Alıcı</th><th>Hedef</th><th>Konu / Kaynak</th>
+                      <th>Mesaj</th>
+                      <th>Sonuç</th>
+                      <th>Tarih</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {notificationLogs.map((log) => {
+                      const StatusIcon = getStatusIcon(log.status);
+
+                      return (
+                        <tr key={log.id}>
+                          <td>
+                            <span className="notification-channel-pill">
+                              {log.channel === "EMAIL" ? "E-posta" : "SMS"}
+                            </span>
+                          </td>
+
+                          <td>
+                            <span
+                              className={`notification-status-pill ${String(
+                                log.status
+                              ).toLowerCase()}`}
+                            >
+                              <StatusIcon size={14} />
+                              {statusLabelMap[log.status] ?? log.status}
+                            </span>
+                          </td>
+
+                          <td className="notification-recipient-cell">
+                            {getRecipientText(log)}
+                          </td>
+
+                          <td>
+                            <span className="notification-target-pill">
+                              {getTargetText(log)}
+                            </span>
+                          </td>
+
+                          <td>
+                            <strong>{log.subject || "-"}</strong>
+                            <span className="notification-source-text">
+                              {sourceTypeLabelMap[log.sourceType] ?? log.sourceType}
+                            </span>
+                          </td>
+
+                          <td>
+                            <span className="notification-message-cell">
+                              {log.message}
+                            </span>
+                          </td>
+
+                          <td>
+                            {log.errorMessage ? (
+                              <span className="notification-error-text">
+                                {log.errorMessage}
+                              </span>
+                            ) : (
+                              <span className="notification-success-text">-</span>
+                            )}
+                          </td>
+
+                          <td>{formatDateTime(log.createdAt)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </>
       )}
     </DashboardLayout>
   );
 }
 
 export default NotificationsPage;
+
+

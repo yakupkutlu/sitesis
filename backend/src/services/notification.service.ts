@@ -44,9 +44,6 @@ function getErrorMessage(error: unknown) {
 }
 
 export async function createNotificationLog(input: CreateNotificationLogInput) {
-  if (!input.recipientUserId && !input.recipientEmail && !input.recipientPhone) {
-    throw new Error("En az bir alıcı bilgisi gönderilmelidir.");
-  }
 
   return prisma.notificationLog.create({
     data: {
@@ -228,4 +225,5 @@ export async function queueSmsNotification(input: {
     createdByUserId: input.createdByUserId,
   });
 }
+
 
