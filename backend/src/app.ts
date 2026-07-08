@@ -28,6 +28,7 @@ import requestsRoutes from "./routes/requests.routes.js";
 import smsSettingsRoutes from "./routes/sms-settings.routes.js";
 import emailSettingsRoutes from "./routes/email-settings.routes.js";
 import notificationLogsRoutes from "./routes/notification-logs.routes.js";
+import contactMessagesRoutes from "./routes/contact-messages.routes.js";
 import aiSettingsRoutes from "./routes/ai-settings.routes.js";
 import systemSettingsRoutes from "./routes/system-settings.routes.js";
 import dashboardSummaryRoutes from "./routes/dashboard-summary.routes.js";
@@ -99,6 +100,7 @@ app.use("/api/requests", requestsRoutes);
 app.use("/api/sms-settings", smsSettingsRoutes);
 app.use("/api/email-settings", emailSettingsRoutes);
 app.use("/api/notification-logs", notificationLogsRoutes);
+app.use("/api/contact-messages", contactMessagesRoutes);
 app.use("/api/ai-settings", aiSettingsRoutes);
 app.use("/api/system-settings", systemSettingsRoutes);
 app.use("/api/dashboard-summary", dashboardSummaryRoutes);
@@ -114,6 +116,8 @@ app.use((_request: Request, response: Response) => {
 app.use(errorHandler);
 
 export default app;
+
+
 
 
 

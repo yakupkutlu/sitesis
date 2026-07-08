@@ -1,3 +1,4 @@
+﻿import { useState } from "react";
 import {
   Clock3,
   Mail,
@@ -6,6 +7,15 @@ import {
   Phone,
   Send,
 } from "lucide-react";
+
+import { createContactMessage } from "../api/contactMessagesApi";
+
+const initialFormData = {
+  fullName: "",
+  email: "",
+  phone: "",
+  message: "",
+};
 
 const contactItems = [
   {
@@ -31,10 +41,66 @@ const contactItems = [
 ];
 
 function Contact() {
-  function handleSubmit(event) {
+  const [formData, setFormData] = useState(initialFormData);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  function handleInputChange(event) {
+    const { name, value } = event.target;
+
+    setFormData((current) => ({
+      ...current,
+      [name]: value,
+    }));
+  }
+
+  async function handleSubmit(event) {
     event.preventDefault();
 
-    alert("Mesajınız alınmıştır. En kısa sürede sizinle iletişime geçilecektir.");
+    if (!formData.fullName.trim()) {
+      setErrorMessage("Ad soyad zorunludur.");
+      setSuccessMessage("");
+      return;
+    }
+
+    if (!formData.email.trim()) {
+      setErrorMessage("E-posta zorunludur.");
+      setSuccessMessage("");
+      return;
+    }
+
+    if (!formData.message.trim()) {
+      setErrorMessage("Mesaj zorunludur.");
+      setSuccessMessage("");
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      setErrorMessage("");
+      setSuccessMessage("");
+
+      const result = await createContactMessage({
+        fullName: formData.fullName.trim(),
+        email: formData.email.trim(),
+        phone: formData.phone.trim() || undefined,
+        message: formData.message.trim(),
+      });
+
+      setSuccessMessage(
+        result?.message ??
+          "Mesajınız alınmıştır. En kısa sürede sizinle iletişime geçilecektir."
+      );
+      setFormData(initialFormData);
+    } catch (error) {
+      setErrorMessage(
+        error?.message ??
+          "Mesajınız gönderilemedi. Lütfen bilgileri kontrol edip tekrar deneyin."
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -95,12 +161,27 @@ function Contact() {
             </p>
           </div>
 
+          {errorMessage && (
+            <div className="login-error-message">
+              <p>{errorMessage}</p>
+            </div>
+          )}
+
+          {successMessage && (
+            <div className="login-success-message">
+              <p>{successMessage}</p>
+            </div>
+          )}
+
           <label>
             Ad Soyad
             <input
               type="text"
               name="fullName"
               placeholder="Adınızı ve soyadınızı girin"
+              value={formData.fullName}
+              onChange={handleInputChange}
+              disabled={isSubmitting}
               required
             />
           </label>
@@ -111,13 +192,23 @@ function Contact() {
               type="email"
               name="email"
               placeholder="ornek@mail.com"
+              value={formData.email}
+              onChange={handleInputChange}
+              disabled={isSubmitting}
               required
             />
           </label>
 
           <label>
             Telefon
-            <input type="tel" name="phone" placeholder="+90 5xx xxx xx xx" />
+            <input
+              type="tel"
+              name="phone"
+              placeholder="+90 5xx xxx xx xx"
+              value={formData.phone}
+              onChange={handleInputChange}
+              disabled={isSubmitting}
+            />
           </label>
 
           <label>
@@ -126,13 +217,16 @@ function Contact() {
               name="message"
               rows="5"
               placeholder="Mesajınızı kısa ve açık şekilde yazın"
+              value={formData.message}
+              onChange={handleInputChange}
+              disabled={isSubmitting}
               required
             />
           </label>
 
-          <button type="submit">
+          <button type="submit" disabled={isSubmitting}>
             <Send size={18} />
-            Mesaj Gönder
+            {isSubmitting ? "Gönderiliyor..." : "Mesaj Gönder"}
           </button>
         </form>
       </div>
