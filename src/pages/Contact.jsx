@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import {
   Clock3,
   Mail,
@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 
 import { createContactMessage } from "../api/contactMessagesApi";
+import { getSystemSettings } from "../api/systemSettingsApi";
 
 const initialFormData = {
   fullName: "",
@@ -17,34 +18,87 @@ const initialFormData = {
   message: "",
 };
 
-const contactItems = [
-  {
-    icon: Phone,
-    title: "Telefon",
-    text: "+90 555 000 00 00",
-  },
-  {
-    icon: Mail,
-    title: "E-posta",
-    text: "info@konutyonetim.com",
-  },
-  {
-    icon: MapPin,
-    title: "Adres",
-    text: "Türkiye / İstanbul",
-  },
-  {
-    icon: Clock3,
-    title: "Çalışma Saatleri",
-    text: "Pazartesi - Cuma / 09:00 - 18:00",
-  },
-];
+const defaultContactSettings = {
+  contactPhone: "+90 555 000 00 00",
+  contactEmail: "info@konutyonetim.com",
+  address: "Türkiye / İstanbul",
+  workingHours: "Pazartesi - Cuma / 09:00 - 18:00",
+};
 
 function Contact() {
   const [formData, setFormData] = useState(initialFormData);
+  const [contactSettings, setContactSettings] = useState(defaultContactSettings);
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadContactSettings() {
+      try {
+        const result = await getSystemSettings();
+        const settings = result?.data ?? result;
+
+        if (!isMounted) {
+          return;
+        }
+
+        setContactSettings({
+          contactPhone:
+            settings?.supportPhone ||
+            settings?.contactPhone ||
+            defaultContactSettings.contactPhone,
+          contactEmail:
+            settings?.supportEmail ||
+            settings?.contactEmail ||
+            defaultContactSettings.contactEmail,
+          address: settings?.address || defaultContactSettings.address,
+          workingHours:
+            settings?.workingHours || defaultContactSettings.workingHours,
+        });
+      } catch {
+        if (!isMounted) {
+          return;
+        }
+
+        setContactSettings(defaultContactSettings);
+      }
+    }
+
+    loadContactSettings();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const contactItems = useMemo(
+    () => [
+      {
+        icon: Phone,
+        title: "Telefon",
+        text: contactSettings.contactPhone,
+      },
+      {
+        icon: Mail,
+        title: "E-posta",
+        text: contactSettings.contactEmail,
+      },
+      {
+        icon: MapPin,
+        title: "Adres",
+        text: contactSettings.address,
+      },
+      {
+        icon: Clock3,
+        title: "Çalışma Saatleri",
+        text: contactSettings.workingHours,
+      },
+    ],
+    [contactSettings]
+  );
 
   function handleInputChange(event) {
     const { name, value } = event.target;
