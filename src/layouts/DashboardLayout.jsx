@@ -16,48 +16,63 @@ import { useAuth } from "../context/AuthContext";
 const notificationsByRole = {
   "Süper Admin": [
     {
-      title: "Yeni Yönetim Kaydı",
-      text: "Sisteme yeni site veya apartman kaydı eklendi.",
+      title: "İletişim Mesajları",
+      text: "Ana sayfadaki iletişim formundan gelen mesajları kontrol edin.",
+      path: "/super-admin/contact-messages",
     },
     {
-      title: "SMS / E-posta Bilgisi",
-      text: "Bildirim servis kullanım bilgileri güncellendi.",
+      title: "SMS / E-posta Logları",
+      text: "Bildirim gönderim kayıtlarını ve hataları görüntüleyin.",
+      path: "/super-admin/notifications",
     },
     {
-      title: "Sistem Kontrolü",
-      text: "Genel sistem ayarları kontrol edilebilir.",
+      title: "Sistem Ayarları",
+      text: "Genel sistem ve marka ayarlarını kontrol edin.",
+      path: "/super-admin/settings",
     },
   ],
 
   Yönetici: [
     {
-      title: "Yeni Talep",
-      text: "A Blok / Daire 5 yeni talep oluşturdu.",
+      title: "Sakin Talepleri",
+      text: "Sakinlerden gelen açık talepleri kontrol edin.",
+      path: "/manager/requests",
     },
     {
-      title: "Dekont Bekliyor",
-      text: "2 dekont yönetici onayı bekliyor.",
+      title: "Dekontlar",
+      text: "Onay bekleyen dekontları inceleyin.",
+      path: "/manager/receipts",
     },
     {
-      title: "Aidat Hatırlatma",
-      text: "Bu ay için ödeme takipleri güncellendi.",
+      title: "Aidat ve Ödemeler",
+      text: "Aidat, ödeme ve gecikme durumlarını kontrol edin.",
+      path: "/manager/payments",
     },
   ],
 
   Sakin: [
     {
-      title: "Yeni Duyuru",
-      text: "Size yeni bir duyuru gönderildi.",
+      title: "Duyurular",
+      text: "Size gönderilen yeni duyuruları görüntüleyin.",
+      path: "/resident/announcements",
     },
     {
-      title: "Dekont Durumu",
-      text: "Yüklediğiniz dekont yönetici kontrolünde.",
+      title: "Dekont Yükle",
+      text: "Ödeme dekontlarınızı buradan yükleyebilirsiniz.",
+      path: "/resident/receipts",
     },
     {
-      title: "Talep Cevabı",
-      text: "Talebiniz için yönetici cevabı eklendi.",
+      title: "Talepler",
+      text: "Taleplerinizin durumunu takip edin.",
+      path: "/resident/requests",
     },
   ],
+};
+
+const notificationHomePathByRole = {
+  "Süper Admin": "/super-admin/notifications",
+  Yönetici: "/manager/requests",
+  Sakin: "/resident/announcements",
 };
 
 const settingsPathByRole = {
@@ -103,6 +118,8 @@ function DashboardLayout({
     typeof isDarkMode === "boolean" ? isDarkMode : getStoredDarkMode(roleBadge);
 
   const notifications = notificationsByRole[roleBadge] || [];
+  const notificationHomePath =
+    notificationHomePathByRole[roleBadge] || "/super-admin/notifications";
   const settingsPath = settingsPathByRole[roleBadge] || "/super-admin/settings";
   const safeUserName = userName || "Kullanıcı";
   const safeTheme = theme || "manager";
@@ -268,17 +285,30 @@ function DashboardLayout({
                 <div className="topbar-dropdown notification-dropdown">
                   <div className="topbar-dropdown-header">
                     <strong>Bildirimler</strong>
-                    <span>Son işlemler</span>
+                    <span>Hızlı bağlantılar</span>
                   </div>
 
                   <div className="notification-list">
                     {notifications.map((notification) => (
-                      <div key={notification.title}>
+                      <Link
+                        to={notification.path}
+                        key={notification.title}
+                        className="notification-list-link"
+                        onClick={closeTopbarMenus}
+                      >
                         <strong>{notification.title}</strong>
                         <span>{notification.text}</span>
-                      </div>
+                      </Link>
                     ))}
                   </div>
+
+                  <Link
+                    to={notificationHomePath}
+                    className="notification-view-all-link"
+                    onClick={closeTopbarMenus}
+                  >
+                    Tüm bildirimleri görüntüle
+                  </Link>
                 </div>
               )}
             </div>

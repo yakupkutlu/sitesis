@@ -12083,3 +12083,48 @@ input:focus-visible {
     grid-template-columns: 1fr;
   }
 }
+
+/* Dashboard notification dropdown links */
+.notification-list-link {
+  display: block;
+  padding: 0.85rem;
+  border-radius: 14px;
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.18s ease, transform 0.18s ease;
+}
+
+.notification-list-link:hover {
+  background: rgba(37, 99, 235, 0.08);
+  transform: translateY(-1px);
+}
+
+.notification-list-link strong {
+  display: block;
+  color: #0f172a;
+  font-size: 0.92rem;
+  margin-bottom: 0.25rem;
+}
+
+.notification-list-link span {
+  display: block;
+  color: #64748b;
+  font-size: 0.83rem;
+  line-height: 1.35;
+}
+
+.notification-view-all-link {
+  display: block;
+  margin-top: 0.6rem;
+  padding: 0.8rem;
+  border-radius: 14px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 800;
+  text-align: center;
+  text-decoration: none;
+}
+
+.notification-view-all-link:hover {
+  background: #dbeafe;
+}
