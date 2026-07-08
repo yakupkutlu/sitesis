@@ -7,6 +7,7 @@ import {
   Building2,
   FileSearch,
   KeyRound,
+  MessageSquareText,
   Mail,
   Settings,
   ShieldCheck,
@@ -30,7 +31,8 @@ const navItems = [
   { label: "Site / Apartmanlar", path: "/super-admin/buildings", icon: Building2 },
   { label: "Yöneticiler", path: "/super-admin/managers", icon: Users },
   { label: "Kullanıcılar / Sakinler", path: "/super-admin/users", icon: UserRound },
-  { label: "Duyurular", path: "/super-admin/announcements", icon: Bell },
+  { label: "Duyurular", path: "/super-admin/announcements", icon: Bell },  { label: "İletişim Mesajları", path: "/super-admin/contact-messages", icon: MessageSquareText },
+
   { label: "AI API Ayarları", path: "/super-admin/ai-settings", icon: BrainCircuit },
   { label: "SMS / E-posta", path: "/super-admin/notifications", icon: Mail },
   { label: "Genel Ayarlar", path: "/super-admin/settings", icon: Settings },
@@ -295,4 +297,6 @@ function AiSettingsPage() {
 }
 
 export default AiSettingsPage;
+
+
 

@@ -20,6 +20,7 @@ import BuildingsPage from "./pages/super-admin/BuildingsPage";
 import ManagersPage from "./pages/super-admin/ManagersPage";
 import AnnouncementsPage from "./pages/super-admin/AnnouncementsPage";
 import NotificationsPage from "./pages/super-admin/NotificationsPage";
+import ContactMessagesPage from "./pages/super-admin/ContactMessagesPage";
 import AiSettingsPage from "./pages/super-admin/AiSettingsPage";
 import SettingsPage from "./pages/super-admin/SettingsPage";
 import UsersPage from "./pages/super-admin/UsersPage";
@@ -91,6 +92,7 @@ function App() {
         <Route path="/resident/announcements" element={protect(["RESIDENT"], <ResidentAnnouncementsPage />)} />
         <Route path="/resident/requests" element={protect(["RESIDENT"], <ResidentRequestsPage />)} />
         <Route path="/resident/settings" element={protect(["RESIDENT"], <ResidentSettingsPage />)} />
+        <Route path="/super-admin/contact-messages" element={<ContactMessagesPage />} />
 
         <Route path="*" element={<NotFound />} />
       </Routes>
@@ -101,3 +103,6 @@ function App() {
 }
 
 export default App;
+
+
+
