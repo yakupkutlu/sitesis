@@ -529,10 +529,38 @@ router.delete(
       });
     }
 
-    await prisma.apartmentResident.delete({
-      where: {
-        id: apartmentResidentId,
-      },
+    const deleteResult = await prisma.$transaction(async (transaction) => {
+      await transaction.apartmentResident.delete({
+        where: {
+          id: apartmentResidentId,
+        },
+      });
+
+      const remainingApartmentResidentCount = await transaction.apartmentResident.count({
+        where: {
+          userId: targetApartmentResident.userId,
+        },
+      });
+
+      let userDeactivated = false;
+
+      if (remainingApartmentResidentCount === 0) {
+        await transaction.user.update({
+          where: {
+            id: targetApartmentResident.userId,
+          },
+          data: {
+            status: "PASSIVE",
+          },
+        });
+
+        userDeactivated = true;
+      }
+
+      return {
+        remainingApartmentResidentCount,
+        userDeactivated,
+      };
     });
 
     await createAuditLog({
@@ -545,16 +573,20 @@ router.delete(
         apartmentId: targetApartmentResident.apartmentId,
         userId: targetApartmentResident.userId,
         type: targetApartmentResident.type,
+        userDeactivated: deleteResult.userDeactivated,
+        remainingApartmentResidentCount:
+          deleteResult.remainingApartmentResidentCount,
       },
     });
 
     response.status(200).json({
       success: true,
-      message: "Daire sakini kaydı başarıyla kaldırıldı.",
+      message: deleteResult.userDeactivated
+        ? "Daire sakini bağlantısı kaldırıldı ve kullanıcı pasif yapıldı."
+        : "Daire sakini bağlantısı başarıyla kaldırıldı.",
     });
   })
 );
-
 
 const createResidentAndAssignSchema = z.object({
   fullName: z.string().trim().min(2),
@@ -647,11 +679,36 @@ router.post(
       },
       select: {
         id: true,
+        role: true,
+        status: true,
       },
     });
 
+    if (existingUser && existingUser.role !== "RESIDENT") {
+      throw new HttpError(
+        409,
+        "Bu e-posta adresi farklı role sahip bir kullanıcıya ait."
+      );
+    }
+
     if (existingUser) {
-      throw new HttpError(409, "Bu e-posta adresi zaten kullanılıyor.");
+      const existingApartmentResident = await prisma.apartmentResident.findFirst({
+        where: {
+          userId: existingUser.id,
+        },
+        select: {
+          id: true,
+          apartmentId: true,
+          type: true,
+        },
+      });
+
+      if (existingApartmentResident) {
+        throw new HttpError(
+          409,
+          "Bu e-posta ile kayıtlı sakin zaten bir daireye bağlı."
+        );
+      }
     }
 
     await ensureApartmentResidentTypeAvailable({
@@ -662,26 +719,49 @@ router.post(
     const passwordHash = await bcrypt.hash(password, 12);
 
     const result = await prisma.$transaction(async (transaction) => {
-      const user = await transaction.user.create({
-        data: {
-          fullName,
-          email: normalizedEmail,
-          phone: phone && phone.length > 0 ? phone : null,
-          passwordHash,
-          role: "RESIDENT",
-          status: "ACTIVE",
-        },
-        select: {
-          id: true,
-          fullName: true,
-          email: true,
-          phone: true,
-          role: true,
-          status: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      });
+      const user = existingUser
+        ? await transaction.user.update({
+            where: {
+              id: existingUser.id,
+            },
+            data: {
+              fullName,
+              phone: phone && phone.length > 0 ? phone : null,
+              passwordHash,
+              role: "RESIDENT",
+              status: "ACTIVE",
+            },
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+              phone: true,
+              role: true,
+              status: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          })
+        : await transaction.user.create({
+            data: {
+              fullName,
+              email: normalizedEmail,
+              phone: phone && phone.length > 0 ? phone : null,
+              passwordHash,
+              role: "RESIDENT",
+              status: "ACTIVE",
+            },
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+              phone: true,
+              role: true,
+              status: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          });
 
       const apartmentResident = await transaction.apartmentResident.create({
         data: {
@@ -695,30 +775,35 @@ router.post(
       return {
         user,
         apartmentResident,
+        reusedExistingUser: Boolean(existingUser),
       };
     });
 
     await createAuditLog({
       request,
       userId: authenticatedRequest.user.id,
-      action: "CREATE_RESIDENT_AND_ASSIGN_APARTMENT",
+      action: result.reusedExistingUser
+        ? "REACTIVATE_RESIDENT_AND_ASSIGN_APARTMENT"
+        : "CREATE_RESIDENT_AND_ASSIGN_APARTMENT",
       entityType: "ApartmentResident",
       entityId: result.apartmentResident.id,
       metadata: {
         createdResidentEmail: result.user.email,
         apartmentId,
         type,
+        reusedExistingUser: result.reusedExistingUser,
       },
     });
 
     response.status(201).json({
       success: true,
-      message: "Sakin başarıyla oluşturuldu ve daireye bağlandı.",
+      message: result.reusedExistingUser
+        ? "Pasif sakin tekrar aktif edildi ve daireye bağlandı."
+        : "Sakin başarıyla oluşturuldu ve daireye bağlandı.",
       data: result.apartmentResident,
     });
   })
 );
-
 
 const updateResidentPasswordSchema = z.object({
   password: z.string().min(8, "Yeni şifre en az 8 karakter olmalıdır."),
