@@ -21,37 +21,53 @@ export async function getCsrfToken(forceRefresh = false) {
   csrfToken = result.data.csrfToken;
   return csrfToken;
 }
-
 export async function apiRequest(path, options = {}) {
   const method = options.method ?? "GET";
   const upperMethod = method.toUpperCase();
 
-  const headers = {
-    ...(options.headers ?? {}),
-  };
+  async function sendRequest(shouldRefreshCsrf = false) {
+    const headers = {
+      ...(options.headers ?? {}),
+    };
 
-  const isFormData = options.body instanceof FormData;
+    const isFormData = options.body instanceof FormData;
 
-  if (!isFormData && options.body !== undefined) {
-    headers["Content-Type"] = "application/json";
+    if (!isFormData && options.body !== undefined) {
+      headers["Content-Type"] = "application/json";
+    }
+
+    if (["POST", "PATCH", "DELETE"].includes(upperMethod)) {
+      headers["x-csrf-token"] = await getCsrfToken(shouldRefreshCsrf);
+    }
+
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      method: upperMethod,
+      credentials: "include",
+      headers,
+      body: isFormData
+        ? options.body
+        : options.body !== undefined
+          ? JSON.stringify(options.body)
+          : undefined,
+    });
+
+    const result = await response.json().catch(() => null);
+
+    return { response, result };
   }
 
-  if (["POST", "PATCH", "DELETE"].includes(upperMethod)) {
-    headers["x-csrf-token"] = await getCsrfToken();
+  let { response, result } = await sendRequest(false);
+
+  const isCsrfError =
+    response.status === 403 &&
+    String(result?.message || "").toLowerCase().includes("csrf");
+
+  if (isCsrfError && ["POST", "PATCH", "DELETE"].includes(upperMethod)) {
+    clearCachedCsrfToken();
+    const retryResult = await sendRequest(true);
+    response = retryResult.response;
+    result = retryResult.result;
   }
-
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method: upperMethod,
-    credentials: "include",
-    headers,
-    body: isFormData
-      ? options.body
-      : options.body !== undefined
-        ? JSON.stringify(options.body)
-        : undefined,
-  });
-
-  const result = await response.json().catch(() => null);
 
   if (!response.ok) {
     const message = result?.message ?? "İstek başarısız oldu.";
