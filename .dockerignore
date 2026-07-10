@@ -1,0 +1,15 @@
+node_modules/
+dist/
+dist-ssr/
+backend/
+.env
+.env.*
+!.env.example
+!.env.docker.example
+uploads/
+coverage/
+.vite/
+.cache/
+.git/
+.github/
+*.log
