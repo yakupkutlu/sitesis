@@ -60,7 +60,41 @@ function getDataArray(result) {
 
   return [];
 }
+async function getAllPaginatedData(requestFunction, params = {}) {
+  const firstResult = await requestFunction({
+    ...params,
+    page: 1,
+    limit: 100,
+  });
 
+  const firstPageData = getDataArray(firstResult);
+  const totalPages = Number(firstResult?.pagination?.totalPages ?? 1);
+
+  if (totalPages <= 1) {
+    return firstPageData;
+  }
+
+  const remainingRequests = Array.from(
+    { length: totalPages - 1 },
+    (_, index) =>
+      requestFunction({
+        ...params,
+        page: index + 2,
+        limit: 100,
+      })
+  );
+
+  const remainingResults = await Promise.all(remainingRequests);
+
+  const allItems = [
+    ...firstPageData,
+    ...remainingResults.flatMap((result) => getDataArray(result)),
+  ];
+
+  return Array.from(
+    new Map(allItems.map((item) => [item.id, item])).values()
+  );
+}
 function formatDate(value) {
   if (!value) return "-";
 
@@ -125,17 +159,14 @@ function UsersPage() {
   const [errorMessage, setErrorMessage] = useState("");
 
   async function loadUsersPageData() {
-    const [residentsResult, apartmentsResult] = await Promise.all([
-      getApartmentResidents({ limit: 100 }),
-      getApartments({ limit: 100 }),
-    ]);
+  const [residents, apartmentList] = await Promise.all([
+    getAllPaginatedData(getApartmentResidents),
+    getAllPaginatedData(getApartments),
+  ]);
 
-    const residents = getDataArray(residentsResult);
-    const apartmentList = getDataArray(apartmentsResult);
-
-    setUserList(residents.map(mapApartmentResidentToUser));
-    setApartments(apartmentList);
-  }
+  setUserList(residents.map(mapApartmentResidentToUser));
+  setApartments(apartmentList);
+}
 
   useEffect(() => {
     let isMounted = true;
