@@ -20,7 +20,6 @@ backend/.env.*.local
 !backend/.env.example
 
 # uploads / private files
-uploads/
 backend/uploads/
 
 # generated prisma client
