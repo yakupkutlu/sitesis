@@ -26,4 +26,4 @@ RUN mkdir -p /app/uploads && chown -R node:node /app
 USER node
 EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=5 CMD node -e "fetch('http://127.0.0.1:5000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
-CMD ["sh", "-c", "npm run prisma:migrate:deploy && npm start"]
+CMD ["sh", "-c", "npm run prisma:migrate:deploy && npm run seed:super-admin && npm start"]
