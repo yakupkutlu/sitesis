@@ -12,3 +12,5 @@ src/generated/prisma/
 coverage/
 *.log
 .env.docker
+
+backend/dump.sql
