@@ -28,7 +28,7 @@ function ReceiptTable({
         <table className="receipts-table">
           <thead>
             <tr>
-              <th>Yükleyen</th>
+              <th>Yükleyen Yönetici</th>
               <th>Daire</th>
               <th>Ödeme</th>
               <th>Tutar</th>

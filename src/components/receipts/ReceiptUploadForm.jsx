@@ -1,13 +1,19 @@
-﻿import { AlertTriangle, FileCheck2, ShieldCheck, X } from "lucide-react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, FileCheck2, ShieldCheck, X } from "lucide-react";
 import ReceiptMatchPreview from "./ReceiptMatchPreview";
 
 const allowedReceiptFileTypesText = "PDF, PNG, JPG, JPEG ve WEBP";
 const maxReceiptFileSizeText = "10 MB";
 const paymentOwnerTypeOptions = ["Kiracı Ödemesi", "Ev Sahibi Ödemesi"];
 
+function getResidentTypeLabel(type) {
+  return type === "OWNER" ? "Ev Sahibi" : "Kiracı";
+}
+
 function ReceiptUploadForm({
   formData,
   apartmentOptions,
+  selectedFile,
   fileError,
   matchResult,
   onInputChange,
@@ -17,7 +23,74 @@ function ReceiptUploadForm({
   onConfirmMatch,
   isSaving = false,
 }) {
-  const safeApartmentOptions = apartmentOptions || {};
+  const safeApartmentOptions = useMemo(
+    () => (Array.isArray(apartmentOptions) ? apartmentOptions : []),
+    [apartmentOptions]
+  );
+
+  const [previewUrl, setPreviewUrl] = useState("");
+  const previewUrlRef = useRef("");
+
+  const manualApartmentId = formData.manualApartmentId ?? "";
+  const manualResidentUserId = formData.manualResidentUserId ?? "";
+  const manualVerified = Boolean(formData.manualVerified);
+
+  const selectedApartment = useMemo(
+    () =>
+      safeApartmentOptions.find(
+        (apartment) => apartment.id === manualApartmentId
+      ) ?? null,
+    [safeApartmentOptions, manualApartmentId]
+  );
+
+  const selectedApartmentResidents = useMemo(
+    () =>
+      Array.isArray(selectedApartment?.residents)
+        ? selectedApartment.residents
+        : [],
+    [selectedApartment]
+  );
+
+  const isManualMode = Boolean(manualApartmentId);
+
+  const manualModeIsIncomplete =
+    isManualMode && (!manualResidentUserId || !manualVerified);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrlRef.current) {
+        URL.revokeObjectURL(previewUrlRef.current);
+      }
+    };
+  }, []);
+
+  function replacePreviewUrl(file) {
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = "";
+    }
+
+    const nextPreviewUrl = file ? URL.createObjectURL(file) : "";
+
+    previewUrlRef.current = nextPreviewUrl;
+    setPreviewUrl(nextPreviewUrl);
+  }
+
+  function handleFileChange(event) {
+    const file = event.target.files?.[0] ?? null;
+
+    replacePreviewUrl(file);
+    onFileChange(event);
+  }
+
+  function handleManualVerifiedChange(event) {
+    onInputChange({
+      target: {
+        name: "manualVerified",
+        value: event.target.checked,
+      },
+    });
+  }
 
   return (
     <section className="receipt-form-card">
@@ -28,8 +101,9 @@ function ReceiptUploadForm({
           <h3>Dekont Ekle</h3>
 
           <p>
-            Dekont bilgileri daire, sakin, tutar ve açıklama alanlarına göre
-            kontrol edilir. Yönetici onayı olmadan ödeme kaydına işlenmez.
+            Otomatik modda dekont AI ile analiz edilir. AI kullanılamıyorsa
+            daire, kayıtlı sakin ve tutar seçilerek manuel doğrulama
+            yapılabilir.
           </p>
         </div>
 
@@ -60,7 +134,7 @@ function ReceiptUploadForm({
       <form className="receipt-form" onSubmit={onSubmit}>
         <div className="form-grid">
           <label>
-            Ödeyen Ad Soyad
+            Dekontta Yazılı Ödeyen Ad Soyad
             <input
               type="text"
               name="payerName"
@@ -69,18 +143,32 @@ function ReceiptUploadForm({
               placeholder="Örn: Ali Can"
               disabled={isSaving}
             />
+            <small>
+              Bu alan, dekontta görünen gönderen kişidir. Kayıtlı sakin seçimi
+              aşağıdaki daire alanından ayrıca doğrulanır.
+            </small>
           </label>
 
           <label>
-            Banka Hesap No / IBAN
-            <input
-              type="text"
-              name="bankAccount"
-              value={formData.bankAccount}
-              onChange={onInputChange}
-              placeholder="Örn: TR00 0000 0000 0000"
-              disabled={isSaving}
-            />
+            IBAN
+            <div className="iban-input-wrapper">
+              <span className="iban-prefix">TR</span>
+
+              <input
+                type="text"
+                name="bankAccount"
+                value={formData.bankAccount}
+                onChange={onInputChange}
+                placeholder="24 rakam giriniz"
+                inputMode="numeric"
+                autoComplete="off"
+                minLength={24}
+                maxLength={24}
+                pattern="[0-9]{24}"
+                title="TR kodundan sonra tam olarak 24 rakam giriniz."
+                disabled={isSaving}
+              />
+            </div>
           </label>
 
           <label>
@@ -91,7 +179,9 @@ function ReceiptUploadForm({
               value={formData.amount}
               onChange={onInputChange}
               placeholder="Örn: 1250"
-              min="0"
+              min="0.01"
+              step="0.01"
+              required={isManualMode}
               disabled={isSaving}
             />
           </label>
@@ -105,20 +195,22 @@ function ReceiptUploadForm({
               disabled={isSaving}
             >
               {paymentOwnerTypeOptions.map((option) => (
-                <option key={option}>{option}</option>
+                <option key={option} value={option}>
+                  {option}
+                </option>
               ))}
             </select>
           </label>
 
           <label>
-            Manuel Daire Seçimi
+            Ödemesi Yapılacak Daire
             <select
               name="manualApartmentId"
-              value={formData.manualApartmentId}
+              value={manualApartmentId}
               onChange={onInputChange}
               disabled={isSaving}
             >
-              <option value="">Otomatik eşleştir</option>
+              <option value="">AI ile otomatik eşleştir</option>
 
               {safeApartmentOptions.map((apartment) => (
                 <option key={apartment.id} value={apartment.id}>
@@ -128,16 +220,60 @@ function ReceiptUploadForm({
             </select>
           </label>
 
+          {isManualMode && (
+            <label>
+              Daireye Kayıtlı Sakin
+              <select
+                name="manualResidentUserId"
+                value={manualResidentUserId}
+                onChange={onInputChange}
+                disabled={isSaving || selectedApartmentResidents.length === 0}
+                required
+              >
+                <option value="">Kayıtlı sakini seçiniz</option>
+
+                {selectedApartmentResidents.map((resident) => (
+                  <option
+                    key={`${resident.userId}-${resident.type}`}
+                    value={resident.userId}
+                  >
+                    {resident.fullName} - {getResidentTypeLabel(resident.type)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
           <label>
             Dekont Dosyası
             <input
               type="file"
               accept=".pdf,.png,.jpg,.jpeg,.webp"
-              onChange={onFileChange}
+              onChange={handleFileChange}
               disabled={isSaving}
               required
             />
           </label>
+
+          {isManualMode && selectedApartmentResidents.length === 0 && (
+            <div className="full-width receipt-file-error">
+              <AlertTriangle size={20} />
+              <span>
+                Seçilen daireye kayıtlı sakin bulunmuyor. Manuel eşleştirme
+                yapılamaz.
+              </span>
+            </div>
+          )}
+
+          {isManualMode && selectedApartmentResidents.length > 0 && (
+            <div className="full-width receipt-manual-info">
+              <strong>Manuel doğrulama modu</strong>
+              <span>
+                Sistem seçilen daire, kayıtlı sakin, ödeme tipi ve tutar
+                ilişkisini Backend tarafında tekrar kontrol edecektir.
+              </span>
+            </div>
+          )}
 
           {formData.fileName && (
             <div className="full-width receipt-file-info">
@@ -158,6 +294,52 @@ function ReceiptUploadForm({
               <AlertTriangle size={20} />
               <span>{fileError}</span>
             </div>
+          )}
+
+          {previewUrl && (
+            <div className="full-width receipt-file-preview-card">
+              <div className="receipt-file-preview-header">
+                <strong>Dosya Önizlemesi</strong>
+                <span>
+                  Manuel işlemde dosyayı görsel olarak kontrol etmeniz gerekir.
+                </span>
+              </div>
+
+              {selectedFile?.type?.startsWith("image/") ? (
+                <img
+                  src={previewUrl}
+                  alt="Yüklenen dekont önizlemesi"
+                  className="receipt-file-preview-image"
+                />
+              ) : (
+                <object
+                  data={previewUrl}
+                  type="application/pdf"
+                  className="receipt-file-preview-pdf"
+                  aria-label="Yüklenen PDF dekont önizlemesi"
+                >
+                  <p>PDF önizlemesi tarayıcı tarafından gösterilemedi.</p>
+                </object>
+              )}
+            </div>
+          )}
+
+          {isManualMode && (
+            <label className="full-width receipt-manual-confirmation">
+              <input
+                type="checkbox"
+                name="manualVerified"
+                checked={manualVerified}
+                onChange={handleManualVerifiedChange}
+                disabled={isSaving || selectedApartmentResidents.length === 0}
+                required
+              />
+
+              <span>
+                Dosyayı görüntüledim; seçilen daireyi, kayıtlı sakini, ödeme
+                tipini ve tutarı manuel olarak doğruladım.
+              </span>
+            </label>
           )}
 
           <label className="full-width">
@@ -192,7 +374,12 @@ function ReceiptUploadForm({
           <button
             type="submit"
             className="dashboard-action-button"
-            disabled={Boolean(fileError) || isSaving}
+            disabled={
+              Boolean(fileError) ||
+              isSaving ||
+              manualModeIsIncomplete ||
+              (isManualMode && selectedApartmentResidents.length === 0)
+            }
           >
             {isSaving ? "Kontrol Ediliyor..." : "Eşleştirme Önizle"}
           </button>
@@ -203,5 +390,3 @@ function ReceiptUploadForm({
 }
 
 export default ReceiptUploadForm;
-
-

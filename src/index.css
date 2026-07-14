@@ -12128,3 +12128,137 @@ input:focus-visible {
 .notification-view-all-link:hover {
   background: #dbeafe;
 }
+.iban-input-wrapper {
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+  width: 100%;
+  border: 1px solid #d9e1ee;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.iban-prefix {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14px;
+  font-weight: 700;
+  border-right: 1px solid #d9e1ee;
+  background: #f5f7fb;
+}
+
+.iban-input-wrapper input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+}
+
+.iban-input-wrapper:focus-within {
+  border-color: #2563eb;
+}
+.receipt-form label small {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-muted, #64748b);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.receipt-manual-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid #bfdbfe;
+  border-radius: 14px;
+  background: #eff6ff;
+  color: #1e3a8a;
+}
+
+.receipt-manual-info span {
+  line-height: 1.5;
+}
+
+.receipt-file-preview-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #dbe3ef;
+  border-radius: 16px;
+  background: #f8fafc;
+}
+
+.receipt-file-preview-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.receipt-file-preview-header span {
+  color: #64748b;
+  font-size: 0.86rem;
+}
+
+.receipt-file-preview-image {
+  display: block;
+  width: 100%;
+  max-height: 520px;
+  object-fit: contain;
+  border: 1px solid #dbe3ef;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.receipt-file-preview-pdf {
+  width: 100%;
+  min-height: 520px;
+  border: 1px solid #dbe3ef;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.receipt-manual-confirmation {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid #f59e0b;
+  border-radius: 14px;
+  background: #fffbeb;
+  color: #78350f;
+  cursor: pointer;
+}
+
+.receipt-manual-confirmation input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  flex: 0 0 auto;
+}
+
+.dashboard-layout.dark-mode .receipt-manual-info {
+  border-color: #1d4ed8;
+  background: rgba(30, 64, 175, 0.18);
+  color: #dbeafe;
+}
+
+.dashboard-layout.dark-mode .receipt-file-preview-card {
+  border-color: #334155;
+  background: #0f172a;
+}
+
+.dashboard-layout.dark-mode .receipt-file-preview-header span,
+.dashboard-layout.dark-mode .receipt-form label small {
+  color: #94a3b8;
+}
+
+.dashboard-layout.dark-mode .receipt-manual-confirmation {
+  border-color: #d97706;
+  background: rgba(146, 64, 14, 0.18);
+  color: #fde68a;
+}

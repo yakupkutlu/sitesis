@@ -2,13 +2,23 @@
 import { z } from "zod";
 
 import prisma from "../db/prisma.js";
-import {requireAuth,requireRole,type AuthenticatedRequest,} from "../middlewares/auth.middleware.js";
+import {
+  requireAuth,
+  requireRole,
+  type AuthenticatedRequest,
+} from "../middlewares/auth.middleware.js";
 import { createAuditLog } from "../services/audit-log.service.js";
-import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
+import {
+  getManagerScope,
+  hasManagerScope,
+} from "../services/manager-scope.service.js";
 import { type Prisma } from "../generated/prisma/client.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
-import { buildPaginationMeta, getPaginationParams } from "../utils/pagination.js";
+import {
+  buildPaginationMeta,
+  getPaginationParams,
+} from "../utils/pagination.js";
 
 const router = express.Router();
 
@@ -39,7 +49,7 @@ const updateApartmentSchema = z
     },
     {
       message: "En az bir alan gönderilmelidir.",
-    }
+    },
   );
 
 function getRequiredParam(request: Request, paramName: string) {
@@ -62,7 +72,7 @@ router.get(
       throw new HttpError(
         400,
         "Daire filtre bilgileri geçersiz.",
-        queryResult.error.flatten().fieldErrors
+        queryResult.error.flatten().fieldErrors,
       );
     }
 
@@ -75,7 +85,11 @@ router.get(
     const paginationParams = getPaginationParams(request.query);
 
     if (!paginationParams.success) {
-      throw new HttpError(400, "Sayfalama bilgileri geçersiz.", paginationParams.errors);
+      throw new HttpError(
+        400,
+        "Sayfalama bilgileri geçersiz.",
+        paginationParams.errors,
+      );
     }
 
     const { blockId } = queryResult.data;
@@ -114,7 +128,10 @@ router.get(
       const managerScope = await getManagerScope(authenticatedRequest.user.id);
 
       if (!hasManagerScope(managerScope)) {
-        throw new HttpError(403, "Bu yöneticiye atanmış bir site veya blok bulunamadı.");
+        throw new HttpError(
+          403,
+          "Bu yöneticiye atanmış bir site veya blok bulunamadı.",
+        );
       }
 
       const managerFilters: Prisma.ApartmentWhereInput[] = [];
@@ -164,6 +181,24 @@ router.get(
               },
             },
           },
+          residents: {
+            select: {
+              id: true,
+              type: true,
+              userId: true,
+              user: {
+                select: {
+                  id: true,
+                  fullName: true,
+                  email: true,
+                  status: true,
+                },
+              },
+            },
+            orderBy: {
+              createdAt: "asc",
+            },
+          },
           _count: {
             select: {
               residents: true,
@@ -191,7 +226,7 @@ router.get(
         totalCount,
       }),
     });
-  })
+  }),
 );
 
 router.post(
@@ -210,7 +245,7 @@ router.post(
       throw new HttpError(
         400,
         "Gönderilen daire bilgileri geçersiz.",
-        validationResult.error.flatten().fieldErrors
+        validationResult.error.flatten().fieldErrors,
       );
     }
 
@@ -287,7 +322,7 @@ router.post(
       message: "Daire başarıyla oluşturuldu.",
       data: apartment,
     });
-  })
+  }),
 );
 
 router.patch(
@@ -308,7 +343,7 @@ router.patch(
       throw new HttpError(
         400,
         "Gönderilen daire güncelleme bilgileri geçersiz.",
-        validationResult.error.flatten().fieldErrors
+        validationResult.error.flatten().fieldErrors,
       );
     }
 
@@ -349,7 +384,10 @@ router.patch(
       }
     }
 
-    if (nextBlockId !== targetApartment.blockId || nextNumber !== targetApartment.number) {
+    if (
+      nextBlockId !== targetApartment.blockId ||
+      nextNumber !== targetApartment.number
+    ) {
       const existingApartment = await prisma.apartment.findUnique({
         where: {
           blockId_number: {
@@ -363,7 +401,10 @@ router.patch(
       });
 
       if (existingApartment && existingApartment.id !== targetApartment.id) {
-        throw new HttpError(409, "Bu blok içinde aynı daire numarası zaten var.");
+        throw new HttpError(
+          409,
+          "Bu blok içinde aynı daire numarası zaten var.",
+        );
       }
     }
 
@@ -383,7 +424,8 @@ router.patch(
     }
 
     if (description !== undefined) {
-      updateData.description = description && description.length > 0 ? description : null;
+      updateData.description =
+        description && description.length > 0 ? description : null;
     }
 
     if (blockId !== undefined) {
@@ -439,7 +481,7 @@ router.patch(
       message: "Daire başarıyla güncellendi.",
       data: updatedApartment,
     });
-  })
+  }),
 );
 
 export default router;

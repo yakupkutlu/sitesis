@@ -25,6 +25,7 @@ function ReceiptMatchPreview({ matchResult, onConfirm, isSaving = false }) {
   const matchedApartment = matchResult.apartment;
   const aiResult = matchResult.ai || null;
   const canConfirm = Boolean(matchedApartment?.paymentAllocationId);
+  const isManualVerification = matchResult.verificationMode === "MANUAL";
 
   return (
     <section className="receipt-match-preview">
@@ -33,6 +34,16 @@ function ReceiptMatchPreview({ matchResult, onConfirm, isSaving = false }) {
         <h4>{matchResult.status || "Eşleştirme Durumu"}</h4>
         <p>{matchResult.message || "Eşleştirme sonucu henüz oluşturulmadı."}</p>
       </div>
+
+      {isManualVerification && (
+        <div className="receipt-manual-info">
+          <strong>Manuel doğrulama</strong>
+          <span>
+            AI sonucu zorunlu değildir. Dosya, daire ve kayıtlı sakin yönetici
+            tarafından kontrol edilmiştir; Backend ilişkiyi tekrar doğrular.
+          </span>
+        </div>
+      )}
 
       <div className="receipt-ai-result-card">
         <div>
@@ -89,18 +100,23 @@ function ReceiptMatchPreview({ matchResult, onConfirm, isSaving = false }) {
           </div>
 
           <div>
-            <span>Sakin</span>
+            <span>Kayıtlı Sakin</span>
             <strong>{matchedApartment.residentName || "-"}</strong>
           </div>
 
           <div>
-            <span>Ödeme Tipi</span>
+            <span>Sakin Tipi</span>
             <strong>{matchedApartment.residentRole || "-"}</strong>
           </div>
 
           <div>
             <span>Beklenen Tutar</span>
             <strong>{matchedApartment.expectedAmountText || "-"}</strong>
+          </div>
+
+          <div className="full-width">
+            <span>Ödeme Başlığı</span>
+            <strong>{matchedApartment.paymentTitle || "-"}</strong>
           </div>
         </div>
       )}

@@ -64,6 +64,8 @@ export async function analyzeManagerPaymentReceipt({
   amount,
   paymentOwnerType,
   manualApartmentId,
+  manualResidentUserId,
+  manualVerified,
   description,
   receipt,
 }) {
@@ -73,7 +75,12 @@ export async function analyzeManagerPaymentReceipt({
   if (bankAccount) formData.append("bankAccount", bankAccount);
   if (amount) formData.append("amount", amount);
   if (paymentOwnerType) formData.append("paymentOwnerType", paymentOwnerType);
-  if (manualApartmentId) formData.append("manualApartmentId", manualApartmentId);
+  if (manualApartmentId)
+    formData.append("manualApartmentId", manualApartmentId);
+  if (manualResidentUserId) {
+    formData.append("manualResidentUserId", manualResidentUserId);
+  }
+  if (manualVerified) formData.append("manualVerified", "true");
   if (description) formData.append("description", description);
 
   formData.append("receipt", receipt);
@@ -90,6 +97,9 @@ export async function managerConfirmPaymentReceipt({
   bankAccount,
   amount,
   paymentOwnerType,
+  manualApartmentId,
+  manualResidentUserId,
+  manualVerified,
   note,
   receipt,
   aiResult,
@@ -102,6 +112,12 @@ export async function managerConfirmPaymentReceipt({
   if (bankAccount) formData.append("bankAccount", bankAccount);
   if (amount) formData.append("amount", amount);
   if (paymentOwnerType) formData.append("paymentOwnerType", paymentOwnerType);
+  if (manualApartmentId)
+    formData.append("manualApartmentId", manualApartmentId);
+  if (manualResidentUserId) {
+    formData.append("manualResidentUserId", manualResidentUserId);
+  }
+  if (manualVerified) formData.append("manualVerified", "true");
   if (note) formData.append("note", note);
 
   if (aiResult) {

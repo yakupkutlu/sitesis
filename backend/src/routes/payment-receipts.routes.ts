@@ -7,52 +7,179 @@ import { z } from "zod";
 
 import prisma from "../db/prisma.js";
 import { type Prisma } from "../generated/prisma/client.js";
-import {requireAuth,requireRole,type AuthenticatedRequest,} from "../middlewares/auth.middleware.js";
+import {
+  requireAuth,
+  requireRole,
+  type AuthenticatedRequest,
+} from "../middlewares/auth.middleware.js";
 import { createAuditLog } from "../services/audit-log.service.js";
 import {
   analyzeReceiptWithAiFallback,
   type ReceiptAiAnalyzeResult,
 } from "../services/receipt-ai.service.js";
-import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
+import {
+  getManagerScope,
+  hasManagerScope,
+} from "../services/manager-scope.service.js";
 import { receiptUpload } from "../uploads/receipt-upload.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
 import { isAllowedReceiptFile } from "../utils/file-signature.js";
-import { buildPaginationMeta, getPaginationParams } from "../utils/pagination.js";
+import {
+  buildPaginationMeta,
+  getPaginationParams,
+} from "../utils/pagination.js";
 const router = express.Router();
 
 router.use(requireAuth);
 
+const optionalFormBooleanSchema = z.preprocess((value) => {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
 
-const managerConfirmReceiptSchema = z.object({
-  paymentAllocationId: z.string().uuid(),
-  payerName: z.string().trim().optional(),
-  bankAccount: z.string().trim().optional(),
-  amount: z.coerce.number().positive().optional(),
-  paymentOwnerType: z.string().trim().optional(),
-  note: z.string().trim().optional(),
-  aiResult: z.string().trim().optional(),
-});
+  if (value === true || value === "true" || value === "1" || value === "on") {
+    return true;
+  }
+
+  if (
+    value === false ||
+    value === "false" ||
+    value === "0" ||
+    value === "off"
+  ) {
+    return false;
+  }
+
+  return value;
+}, z.boolean().optional());
+
+const optionalIbanSchema = z
+  .string()
+  .trim()
+  .regex(
+    /^TR\d{24}$/,
+    "IBAN, TR ile başlamalı ve ardından 24 rakam içermelidir.",
+  )
+  .optional();
+
+const paymentOwnerTypeSchema = z
+  .enum(["Kiracı Ödemesi", "Ev Sahibi Ödemesi"])
+  .optional();
+
+const managerConfirmReceiptSchema = z
+  .object({
+    paymentAllocationId: z.string().uuid(),
+    payerName: z.string().trim().optional(),
+    bankAccount: optionalIbanSchema,
+    amount: z.coerce.number().positive().optional(),
+    paymentOwnerType: paymentOwnerTypeSchema,
+    manualApartmentId: z.string().uuid().optional(),
+    manualResidentUserId: z.string().uuid().optional(),
+    manualVerified: optionalFormBooleanSchema,
+    note: z.string().trim().optional(),
+    aiResult: z.string().trim().optional(),
+  })
+  .superRefine((data, context) => {
+    if (!data.manualApartmentId) {
+      return;
+    }
+
+    if (!data.manualResidentUserId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["manualResidentUserId"],
+        message: "Manuel eşleştirme için kayıtlı sakin seçilmelidir.",
+      });
+    }
+
+    if (data.manualVerified !== true) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["manualVerified"],
+        message: "Manuel doğrulama onayı zorunludur.",
+      });
+    }
+
+    if (data.amount === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["amount"],
+        message: "Manuel eşleştirme için tutar zorunludur.",
+      });
+    }
+
+    if (!data.paymentOwnerType) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["paymentOwnerType"],
+        message: "Manuel eşleştirme için ödeme tipi zorunludur.",
+      });
+    }
+  });
+
 const uploadReceiptSchema = z.object({
   paymentAllocationId: z.string().uuid(),
   note: z.string().trim().optional(),
 });
 
+const analyzeReceiptSchema = z
+  .object({
+    payerName: z.string().trim().optional(),
+    bankAccount: optionalIbanSchema,
+    amount: z.preprocess(
+      (value) => (value === "" || value === null ? undefined : value),
+      z.coerce.number().positive().optional(),
+    ),
+    paymentOwnerType: paymentOwnerTypeSchema,
+    manualApartmentId: z.preprocess(
+      (value) => (value === "" ? undefined : value),
+      z.string().uuid().optional(),
+    ),
+    manualResidentUserId: z.preprocess(
+      (value) => (value === "" ? undefined : value),
+      z.string().uuid().optional(),
+    ),
+    manualVerified: optionalFormBooleanSchema,
+    description: z.string().trim().optional(),
+  })
+  .superRefine((data, context) => {
+    if (!data.manualApartmentId) {
+      return;
+    }
 
-const analyzeReceiptSchema = z.object({
-  payerName: z.string().trim().optional(),
-  bankAccount: z.string().trim().optional(),
-  amount: z.preprocess(
-    (value) => (value === "" || value === null ? undefined : value),
-    z.coerce.number().positive().optional()
-  ),
-  paymentOwnerType: z.string().trim().optional(),
-  manualApartmentId: z.preprocess(
-    (value) => (value === "" ? undefined : value),
-    z.string().uuid().optional()
-  ),
-  description: z.string().trim().optional(),
-});
+    if (!data.manualResidentUserId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["manualResidentUserId"],
+        message: "Manuel eşleştirme için kayıtlı sakin seçilmelidir.",
+      });
+    }
+
+    if (data.manualVerified !== true) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["manualVerified"],
+        message: "Manuel doğrulama onayı zorunludur.",
+      });
+    }
+
+    if (data.amount === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["amount"],
+        message: "Manuel eşleştirme için tutar zorunludur.",
+      });
+    }
+
+    if (!data.paymentOwnerType) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["paymentOwnerType"],
+        message: "Manuel eşleştirme için ödeme tipi zorunludur.",
+      });
+    }
+  });
 const receiptParamsSchema = z.object({
   receiptId: z.string().uuid(),
 });
@@ -60,8 +187,6 @@ const receiptParamsSchema = z.object({
 const reviewReceiptSchema = z.object({
   reviewNote: z.string().trim().optional(),
 });
-
-
 
 function buildAiAnalyzeMessage(aiResult: ReceiptAiAnalyzeResult) {
   if (!aiResult.provider) {
@@ -91,25 +216,29 @@ function parseSavedAiResult(value: string | undefined) {
         : null;
 
     const amountKurus =
-      typeof parsed.amountKurus === "number" && Number.isFinite(parsed.amountKurus)
+      typeof parsed.amountKurus === "number" &&
+      Number.isFinite(parsed.amountKurus)
         ? Math.round(parsed.amountKurus)
         : amount !== null
           ? Math.round(amount * 100)
           : null;
 
     const confidence =
-      typeof parsed.confidence === "number" && Number.isFinite(parsed.confidence)
+      typeof parsed.confidence === "number" &&
+      Number.isFinite(parsed.confidence)
         ? Math.max(0, Math.min(1, parsed.confidence))
         : null;
 
     return {
       aiProvider: provider,
       aiModelName:
-        typeof parsed.modelName === "string" && parsed.modelName.trim().length > 0
+        typeof parsed.modelName === "string" &&
+        parsed.modelName.trim().length > 0
           ? parsed.modelName.trim()
           : null,
       aiPayerName:
-        typeof parsed.payerName === "string" && parsed.payerName.trim().length > 0
+        typeof parsed.payerName === "string" &&
+        parsed.payerName.trim().length > 0
           ? parsed.payerName.trim()
           : null,
       aiAmountKurus: amountKurus,
@@ -119,11 +248,13 @@ function parseSavedAiResult(value: string | undefined) {
           ? parsed.apartmentNumber.trim()
           : null,
       aiDescription:
-        typeof parsed.description === "string" && parsed.description.trim().length > 0
+        typeof parsed.description === "string" &&
+        parsed.description.trim().length > 0
           ? parsed.description.trim()
           : null,
       aiPaymentDate:
-        typeof parsed.paymentDate === "string" && parsed.paymentDate.trim().length > 0
+        typeof parsed.paymentDate === "string" &&
+        parsed.paymentDate.trim().length > 0
           ? parsed.paymentDate.trim()
           : null,
       aiConfidence: confidence,
@@ -138,6 +269,57 @@ function formatKurusAsTry(amountKurus: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+}
+
+function getExpectedResidentType(paymentOwnerType?: string) {
+  if (paymentOwnerType === "Ev Sahibi Ödemesi") {
+    return "OWNER" as const;
+  }
+
+  if (paymentOwnerType === "Kiracı Ödemesi") {
+    return "TENANT" as const;
+  }
+
+  return null;
+}
+
+async function ensureResidentBelongsToApartment(params: {
+  apartmentId: string;
+  residentUserId: string;
+  paymentOwnerType?: string;
+}) {
+  const residentRelation = await prisma.apartmentResident.findFirst({
+    where: {
+      apartmentId: params.apartmentId,
+      userId: params.residentUserId,
+    },
+    select: {
+      id: true,
+      type: true,
+      user: {
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+        },
+      },
+    },
+  });
+
+  if (!residentRelation) {
+    throw new HttpError(400, "Seçilen sakin bu daireye bağlı değildir.");
+  }
+
+  const expectedResidentType = getExpectedResidentType(params.paymentOwnerType);
+
+  if (expectedResidentType && residentRelation.type !== expectedResidentType) {
+    throw new HttpError(
+      400,
+      "Seçilen ödeme tipi, dairedeki sakin tipi ile eşleşmiyor.",
+    );
+  }
+
+  return residentRelation;
 }
 async function deleteUploadedFile(file?: Express.Multer.File) {
   if (!file) {
@@ -155,7 +337,10 @@ async function getManagerReceiptAccessFilter(managerId: string) {
   const managerScope = await getManagerScope(managerId);
 
   if (!hasManagerScope(managerScope)) {
-    throw new HttpError(403, "Bu yöneticiye atanmış bir site veya blok bulunamadı.");
+    throw new HttpError(
+      403,
+      "Bu yöneticiye atanmış bir site veya blok bulunamadı.",
+    );
   }
 
   const filter: Prisma.PaymentReceiptWhereInput = {
@@ -190,7 +375,9 @@ async function ensureManagerCanAccessReceipt(params: {
   managerId: string;
   receiptId: string;
 }) {
-  const managerReceiptFilter = await getManagerReceiptAccessFilter(params.managerId);
+  const managerReceiptFilter = await getManagerReceiptAccessFilter(
+    params.managerId,
+  );
 
   const receipt = await prisma.paymentReceipt.findFirst({
     where: {
@@ -274,15 +461,18 @@ async function ensureUserCanDownloadReceipt(params: {
     const managerScope = await getManagerScope(params.user.id);
 
     if (!hasManagerScope(managerScope)) {
-      throw new HttpError(403, "Bu yöneticiye atanmış bir site veya blok bulunamadı.");
+      throw new HttpError(
+        403,
+        "Bu yöneticiye atanmış bir site veya blok bulunamadı.",
+      );
     }
 
     const canAccessByBlock = managerScope.blockIds.includes(
-      receipt.paymentAllocation.apartment.blockId
+      receipt.paymentAllocation.apartment.blockId,
     );
 
     const canAccessBySite = managerScope.siteIds.includes(
-      receipt.paymentAllocation.apartment.block.siteId
+      receipt.paymentAllocation.apartment.block.siteId,
     );
 
     if (!canAccessByBlock && !canAccessBySite) {
@@ -294,7 +484,6 @@ async function ensureUserCanDownloadReceipt(params: {
 
   throw new HttpError(403, "Bu dekontu indirme yetkiniz yok.");
 }
-
 
 router.post(
   "/analyze",
@@ -319,19 +508,19 @@ router.post(
         throw new HttpError(
           400,
           "Dekont analiz bilgileri geçersiz.",
-          validationResult.error.flatten().fieldErrors
+          validationResult.error.flatten().fieldErrors,
         );
       }
 
       const isAllowedFile = await isAllowedReceiptFile(
         uploadedFile.path,
-        uploadedFile.mimetype
+        uploadedFile.mimetype,
       );
 
       if (!isAllowedFile) {
         throw new HttpError(
           400,
-          "Dekont dosyası gerçek PDF, PNG, JPG veya WEBP formatında olmalıdır."
+          "Dekont dosyası gerçek PDF, PNG, JPG veya WEBP formatında olmalıdır.",
         );
       }
 
@@ -340,37 +529,73 @@ router.post(
         amount,
         paymentOwnerType,
         manualApartmentId,
+        manualResidentUserId,
         description,
       } = validationResult.data;
 
-      const aiResult = await analyzeReceiptWithAiFallback({
-        filePath: uploadedFile.path,
-        mimeType: uploadedFile.mimetype,
-        originalFileName: uploadedFile.originalname,
-      });
+      const isManualMode = Boolean(manualApartmentId);
+
+      const aiResult: ReceiptAiAnalyzeResult = isManualMode
+        ? {
+            payerName: null,
+            amount: null,
+            amountKurus: null,
+            apartmentNumber: null,
+            description: null,
+            paymentDate: null,
+            confidence: 0,
+            provider: null,
+            modelName: null,
+          }
+        : await analyzeReceiptWithAiFallback({
+            filePath: uploadedFile.path,
+            mimeType: uploadedFile.mimetype,
+            originalFileName: uploadedFile.originalname,
+          });
 
       const serializedAiResult = {
         ...aiResult,
-        message: buildAiAnalyzeMessage(aiResult),
+        message: isManualMode
+          ? "Manuel doğrulama seçildiği için AI analizi çalıştırılmadı."
+          : buildAiAnalyzeMessage(aiResult),
       };
 
-      const effectiveAmount = amount ?? aiResult.amount;
+      if (!isManualMode && !aiResult.provider) {
+        response.status(200).json({
+          success: true,
+          message:
+            "AI servisi kullanılamıyor. Daire ve kayıtlı sakin seçerek manuel doğrulama yapabilirsiniz.",
+          data: {
+            verificationMode: "AI",
+            status: "Eşleşme bulunamadı",
+            message:
+              "Otomatik eşleştirme için AI sonucu alınamadı. Manuel daire seçimine geçin.",
+            apartment: null,
+            suggestions: [],
+            ai: serializedAiResult,
+          },
+        });
+
+        return;
+      }
+
+      const effectiveAmount = isManualMode ? amount : aiResult.amount;
 
       if (effectiveAmount === null || effectiveAmount === undefined) {
         response.status(200).json({
           success: true,
-          message:
-            "AI dekont tutarını okuyamadı. Lütfen tutarı manuel girip tekrar deneyin.",
+          message: isManualMode
+            ? "Manuel eşleştirme için tutar girilmelidir."
+            : "AI dekont tutarını okuyamadı. Manuel daire seçimine geçebilirsiniz.",
           data: {
+            verificationMode: isManualMode ? "MANUAL" : "AI",
             status: "Eşleşme bulunamadı",
-            message:
-              "Dekont tutarı okunamadığı için ödeme eşleştirmesi yapılamadı.",
+            message: isManualMode
+              ? "Manuel eşleştirme için tutar zorunludur."
+              : "Dekont tutarı okunamadığı için otomatik eşleştirme yapılamadı.",
             apartment: null,
             suggestions: [],
-            ai: {
-              ...aiResult,
-              message: buildAiAnalyzeMessage(aiResult),
-            },
+            ai: serializedAiResult,
           },
         });
 
@@ -382,12 +607,14 @@ router.post(
       let managerAccessFilter: Prisma.PaymentAllocationWhereInput = {};
 
       if (authenticatedRequest.user.role === "MANAGER") {
-        const managerScope = await getManagerScope(authenticatedRequest.user.id);
+        const managerScope = await getManagerScope(
+          authenticatedRequest.user.id,
+        );
 
         if (!hasManagerScope(managerScope)) {
           throw new HttpError(
             403,
-            "Bu yöneticiye atanmış bir site veya blok bulunamadı."
+            "Bu yöneticiye atanmış bir site veya blok bulunamadı.",
           );
         }
 
@@ -411,6 +638,18 @@ router.post(
             },
           ],
         };
+      }
+
+      let validatedManualResident: Awaited<
+        ReturnType<typeof ensureResidentBelongsToApartment>
+      > | null = null;
+
+      if (manualApartmentId && manualResidentUserId) {
+        validatedManualResident = await ensureResidentBelongsToApartment({
+          apartmentId: manualApartmentId,
+          residentUserId: manualResidentUserId,
+          paymentOwnerType,
+        });
       }
 
       const allocations = await prisma.paymentAllocation.findMany({
@@ -475,6 +714,7 @@ router.post(
         response.status(200).json({
           success: true,
           data: {
+            verificationMode: isManualMode ? "MANUAL" : "AI",
             ai: serializedAiResult,
             status: "Eşleşme bulunamadı",
             message:
@@ -494,13 +734,15 @@ router.post(
       }
 
       const bestMatch = allocations[0];
-      const resident = bestMatch.apartment.residents[0];
+      const resident =
+        validatedManualResident ?? bestMatch.apartment.residents[0];
 
       const apartmentLabel = `${bestMatch.apartment.block.site.name} / ${bestMatch.apartment.block.name} / Daire ${bestMatch.apartment.number}`;
 
       response.status(200).json({
         success: true,
         data: {
+          verificationMode: isManualMode ? "MANUAL" : "AI",
           ai: serializedAiResult,
           status: "Eşleşme bulundu",
           message:
@@ -508,6 +750,7 @@ router.post(
           apartment: {
             id: bestMatch.apartment.id,
             label: apartmentLabel,
+            residentUserId: resident?.user.id ?? null,
             residentName: resident?.user.fullName ?? "-",
             residentRole: resident?.type === "OWNER" ? "Ev Sahibi" : "Kiracı",
             expectedAmountText: `${formatKurusAsTry(bestMatch.amountKurus)} TL`,
@@ -533,7 +776,7 @@ router.post(
     } finally {
       await deleteUploadedFile(uploadedFile);
     }
-  })
+  }),
 );
 
 router.get(
@@ -549,59 +792,64 @@ router.get(
     const paginationParams = getPaginationParams(request.query);
 
     if (!paginationParams.success) {
-      throw new HttpError(400, "Sayfalama bilgileri geçersiz.", paginationParams.errors);
+      throw new HttpError(
+        400,
+        "Sayfalama bilgileri geçersiz.",
+        paginationParams.errors,
+      );
     }
 
-    const searchCondition: Prisma.PaymentReceiptWhereInput = paginationParams.search
-      ? {
-          OR: [
-            {
-              originalFileName: {
-                contains: paginationParams.search,
-                mode: "insensitive",
-              },
-            },
-            {
-              note: {
-                contains: paginationParams.search,
-                mode: "insensitive",
-              },
-            },
-            {
-              uploadedByUser: {
-                fullName: {
+    const searchCondition: Prisma.PaymentReceiptWhereInput =
+      paginationParams.search
+        ? {
+            OR: [
+              {
+                originalFileName: {
                   contains: paginationParams.search,
                   mode: "insensitive",
                 },
               },
-            },
-            {
-              uploadedByUser: {
-                email: {
+              {
+                note: {
                   contains: paginationParams.search,
                   mode: "insensitive",
                 },
               },
-            },
-            {
-              paymentAllocation: {
-                paymentBatch: {
-                  title: {
+              {
+                uploadedByUser: {
+                  fullName: {
                     contains: paginationParams.search,
                     mode: "insensitive",
                   },
                 },
               },
-            },
-          ],
-        }
-      : {};
+              {
+                uploadedByUser: {
+                  email: {
+                    contains: paginationParams.search,
+                    mode: "insensitive",
+                  },
+                },
+              },
+              {
+                paymentAllocation: {
+                  paymentBatch: {
+                    title: {
+                      contains: paginationParams.search,
+                      mode: "insensitive",
+                    },
+                  },
+                },
+              },
+            ],
+          }
+        : {};
 
     let whereCondition: Prisma.PaymentReceiptWhereInput = searchCondition;
 
     if (authenticatedRequest.user.role === "MANAGER") {
       const managerFilter = await getManagerReceiptAccessFilter(
-        authenticatedRequest.user.id
+        authenticatedRequest.user.id,
       );
 
       whereCondition = {
@@ -679,7 +927,7 @@ router.get(
         totalCount,
       }),
     });
-  })
+  }),
 );
 
 router.post(
@@ -696,7 +944,7 @@ router.post(
       throw new HttpError(
         400,
         "Gönderilen dekont bilgileri geçersiz.",
-        validationResult.error.flatten().fieldErrors
+        validationResult.error.flatten().fieldErrors,
       );
     }
 
@@ -705,11 +953,14 @@ router.post(
     }
     const isAllowedFile = await isAllowedReceiptFile(
       request.file.path,
-      request.file.mimetype
+      request.file.mimetype,
     );
     if (!isAllowedFile) {
-     await deleteUploadedFile(request.file);
-     throw new HttpError(400, "Dekont dosyası gerçek PDF, PNG, JPG veya WEBP formatında olmalıdır.");
+      await deleteUploadedFile(request.file);
+      throw new HttpError(
+        400,
+        "Dekont dosyası gerçek PDF, PNG, JPG veya WEBP formatında olmalıdır.",
+      );
     }
     if (!authenticatedRequest.user) {
       await deleteUploadedFile(request.file);
@@ -749,18 +1000,25 @@ router.post(
     }
 
     const isSuperAdmin = authenticatedRequest.user.role === "SUPER_ADMIN";
-    const isResidentOwnerOfApartment = allocation.apartment.residents.length > 0;
+    const isResidentOwnerOfApartment =
+      allocation.apartment.residents.length > 0;
 
     if (!isSuperAdmin && !isResidentOwnerOfApartment) {
       await deleteUploadedFile(request.file);
 
-      throw new HttpError(403, "Bu ödeme kaydı için dekont yükleme yetkiniz yok.");
+      throw new HttpError(
+        403,
+        "Bu ödeme kaydı için dekont yükleme yetkiniz yok.",
+      );
     }
 
     if (allocation.status === "PAID") {
       await deleteUploadedFile(request.file);
 
-      throw new HttpError(409, "Bu ödeme zaten ödenmiş. Yeni dekont yüklenemez.");
+      throw new HttpError(
+        409,
+        "Bu ödeme zaten ödenmiş. Yeni dekont yüklenemez.",
+      );
     }
 
     if (allocation.status === "CANCELLED") {
@@ -784,7 +1042,7 @@ router.post(
 
       throw new HttpError(
         409,
-        "Bu ödeme için zaten onay bekleyen bir dekont var. Yönetici onaylayana veya reddedene kadar tekrar yükleyemezsiniz."
+        "Bu ödeme için zaten onay bekleyen bir dekont var. Yönetici onaylayana veya reddedene kadar tekrar yükleyemezsiniz.",
       );
     }
 
@@ -820,7 +1078,7 @@ router.post(
       message: "Dekont başarıyla yüklendi ve onay bekliyor.",
       data: receipt,
     });
-  })
+  }),
 );
 
 router.get(
@@ -845,7 +1103,7 @@ router.get(
       process.cwd(),
       "uploads",
       "receipts",
-      receipt.storedFileName
+      receipt.storedFileName,
     );
 
     try {
@@ -856,7 +1114,7 @@ router.get(
 
     response.setHeader("Content-Type", receipt.mimeType);
     response.download(receiptFilePath, receipt.originalFileName);
-  })
+  }),
 );
 
 router.patch(
@@ -956,7 +1214,7 @@ router.patch(
       message: "Dekont onaylandı ve ödeme ödenmiş olarak işaretlendi.",
       data: result,
     });
-  })
+  }),
 );
 
 router.patch(
@@ -1037,9 +1295,8 @@ router.patch(
       message: "Dekont reddedildi.",
       data: rejectedReceipt,
     });
-  })
+  }),
 );
-
 
 router.post(
   "/manager-confirm",
@@ -1059,25 +1316,27 @@ router.post(
         throw new HttpError(400, "Dekont dosyası zorunludur.");
       }
 
-      const validationResult = managerConfirmReceiptSchema.safeParse(request.body);
+      const validationResult = managerConfirmReceiptSchema.safeParse(
+        request.body,
+      );
 
       if (!validationResult.success) {
         throw new HttpError(
           400,
           "Dekont eşleştirme bilgileri geçersiz.",
-          validationResult.error.flatten().fieldErrors
+          validationResult.error.flatten().fieldErrors,
         );
       }
 
       const isAllowedFile = await isAllowedReceiptFile(
         uploadedFile.path,
-        uploadedFile.mimetype
+        uploadedFile.mimetype,
       );
 
       if (!isAllowedFile) {
         throw new HttpError(
           400,
-          "Dekont dosyası gerçek PDF, PNG, JPG veya WEBP formatında olmalıdır."
+          "Dekont dosyası gerçek PDF, PNG, JPG veya WEBP formatında olmalıdır.",
         );
       }
 
@@ -1088,18 +1347,25 @@ router.post(
         payerName,
         bankAccount,
         paymentOwnerType,
+        manualApartmentId,
+        manualResidentUserId,
+        manualVerified,
         aiResult,
       } = validationResult.data;
+
+      const isManualMode = Boolean(manualApartmentId);
 
       let managerAccessFilter: Prisma.PaymentAllocationWhereInput = {};
 
       if (authenticatedRequest.user.role === "MANAGER") {
-        const managerScope = await getManagerScope(authenticatedRequest.user.id);
+        const managerScope = await getManagerScope(
+          authenticatedRequest.user.id,
+        );
 
         if (!hasManagerScope(managerScope)) {
           throw new HttpError(
             403,
-            "Bu yöneticiye atanmış bir site veya blok bulunamadı."
+            "Bu yöneticiye atanmış bir site veya blok bulunamadı.",
           );
         }
 
@@ -1134,11 +1400,38 @@ router.post(
           id: true,
           amountKurus: true,
           status: true,
+          apartmentId: true,
         },
       });
 
       if (!allocation) {
         throw new HttpError(404, "Eşleşen ödeme kaydı bulunamadı.");
+      }
+
+      if (isManualMode) {
+        if (
+          manualVerified !== true ||
+          !manualApartmentId ||
+          !manualResidentUserId
+        ) {
+          throw new HttpError(
+            400,
+            "Manuel doğrulama bilgileri eksik veya geçersiz.",
+          );
+        }
+
+        if (allocation.apartmentId !== manualApartmentId) {
+          throw new HttpError(
+            400,
+            "Onaylanan ödeme kaydı seçilen daireye ait değildir.",
+          );
+        }
+
+        await ensureResidentBelongsToApartment({
+          apartmentId: manualApartmentId,
+          residentUserId: manualResidentUserId,
+          paymentOwnerType,
+        });
       }
 
       if (allocation.status === "PAID") {
@@ -1155,7 +1448,7 @@ router.post(
         if (amountKurus !== allocation.amountKurus) {
           throw new HttpError(
             400,
-            "Dekont tutarı ile ödeme tutarı eşleşmiyor."
+            "Dekont tutarı ile ödeme tutarı eşleşmiyor.",
           );
         }
       }
@@ -1172,19 +1465,27 @@ router.post(
       if (existingPendingReceipt) {
         throw new HttpError(
           409,
-          "Bu ödeme için zaten onay bekleyen bir dekont var."
+          "Bu ödeme için zaten onay bekleyen bir dekont var.",
         );
       }
 
       const savedAiResult = parseSavedAiResult(aiResult);
 
       const fallbackNote = [
-        payerName ? `Ödeyen: ${payerName}` : null,
+        payerName ? `Dekontta yazılı ödeyen: ${payerName}` : null,
         bankAccount ? `Hesap/IBAN: ${bankAccount}` : null,
         paymentOwnerType ? `Tip: ${paymentOwnerType}` : null,
       ]
         .filter(Boolean)
         .join(" | ");
+
+      const combinedNote = [note?.trim() || null, fallbackNote || null]
+        .filter(Boolean)
+        .join(" | ");
+
+      const reviewNote = isManualMode
+        ? "Yönetici dosyayı görüntüleyip daire, sakin, ödeme tipi ve tutarı manuel olarak doğruladı."
+        : "Yönetici tarafından AI eşleştirmesi kontrol edilerek onaylandı.";
 
       const result = await prisma.$transaction(async (transaction) => {
         const approvedReceipt = await transaction.paymentReceipt.create({
@@ -1195,9 +1496,9 @@ router.post(
             storedFileName: uploadedFile.filename,
             mimeType: uploadedFile.mimetype,
             sizeBytes: uploadedFile.size,
-            note: note || fallbackNote || null,
+            note: combinedNote || null,
             status: "APPROVED",
-            reviewNote: "Yönetici tarafından eşleştirilerek onaylandı.",
+            reviewNote,
             reviewedAt: new Date(),
             reviewedByUserId: authenticatedRequest.user!.id,
             ...(savedAiResult
@@ -1246,6 +1547,10 @@ router.post(
           payerName,
           bankAccount,
           paymentOwnerType,
+          verificationMode: isManualMode ? "MANUAL" : "AI",
+          manualApartmentId: manualApartmentId ?? null,
+          manualResidentUserId: manualResidentUserId ?? null,
+          manualVerified: manualVerified === true,
         },
       });
 
@@ -1260,23 +1565,7 @@ router.post(
         await deleteUploadedFile(uploadedFile);
       }
     }
-  })
+  }),
 );
 
 export default router;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

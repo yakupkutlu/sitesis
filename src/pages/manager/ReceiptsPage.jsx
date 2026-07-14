@@ -50,6 +50,8 @@ const emptyUploadFormData = {
   amount: "",
   paymentOwnerType: "Kiracı Ödemesi",
   manualApartmentId: "",
+  manualResidentUserId: "",
+  manualVerified: false,
   description: "",
   fileName: "",
   fileType: "",
@@ -109,7 +111,9 @@ function formatFileSize(size) {
 }
 
 function normalizeText(value) {
-  return String(value ?? "").toLocaleLowerCase("tr-TR").trim();
+  return String(value ?? "")
+    .toLocaleLowerCase("tr-TR")
+    .trim();
 }
 
 function fixTurkishFileName(value) {
@@ -187,14 +191,23 @@ function ReceiptsPage() {
   const [errorMessage, setErrorMessage] = useState("");
 
   const apartmentOptions = useMemo(() => {
-    return apartments.map((apartment) => ({
-      id: apartment.id,
-      label: getApartmentLabel(apartment),
-      residentName:
-        apartment.residents?.[0]?.user?.fullName ??
-        apartment.apartmentResidents?.[0]?.user?.fullName ??
-        "-",
-    }));
+    return apartments.map((apartment) => {
+      const residents = Array.isArray(apartment.residents)
+        ? apartment.residents.map((resident) => ({
+            relationId: resident.id,
+            userId: resident.user?.id ?? resident.userId,
+            fullName: resident.user?.fullName ?? "-",
+            email: resident.user?.email ?? "-",
+            type: resident.type,
+          }))
+        : [];
+
+      return {
+        id: apartment.id,
+        label: getApartmentLabel(apartment),
+        residents,
+      };
+    });
   }, [apartments]);
 
   async function loadReceipts() {
@@ -295,14 +308,80 @@ function ReceiptsPage() {
   }
 
   function handleUploadInputChange(event) {
-    const { name, value } = event.target;
+    const { name, value, type, checked } = event.target;
 
-    setUploadFormData((currentData) => ({
-      ...currentData,
-      [name]: value,
-    }));
+    const normalizedValue =
+      name === "bankAccount"
+        ? value.replace(/\D/g, "").slice(0, 24)
+        : type === "checkbox"
+          ? checked
+          : value;
+
+    setUploadFormData((currentData) => {
+      const nextData = {
+        ...currentData,
+        [name]: normalizedValue,
+      };
+
+      if (name === "manualApartmentId") {
+        nextData.manualResidentUserId = "";
+        nextData.manualVerified = false;
+      }
+
+      if (name === "manualResidentUserId") {
+        const apartment = apartmentOptions.find(
+          (item) => item.id === currentData.manualApartmentId,
+        );
+        const resident = apartment?.residents?.find(
+          (item) => item.userId === value,
+        );
+
+        if (resident?.type === "OWNER") {
+          nextData.paymentOwnerType = "Ev Sahibi Ödemesi";
+        } else if (resident?.type === "TENANT") {
+          nextData.paymentOwnerType = "Kiracı Ödemesi";
+        }
+
+        nextData.manualVerified = false;
+      }
+
+      return nextData;
+    });
 
     setMatchResult(null);
+  }
+
+  function validateManagerReceiptForm() {
+    if (
+      uploadFormData.bankAccount &&
+      !/^\d{24}$/.test(uploadFormData.bankAccount)
+    ) {
+      setErrorMessage(
+        "IBAN için TR kodundan sonra tam olarak 24 rakam giriniz.",
+      );
+      return false;
+    }
+
+    if (uploadFormData.manualApartmentId) {
+      if (!uploadFormData.manualResidentUserId) {
+        setErrorMessage("Manuel eşleştirme için kayıtlı sakin seçiniz.");
+        return false;
+      }
+
+      if (!uploadFormData.amount || Number(uploadFormData.amount) <= 0) {
+        setErrorMessage("Manuel eşleştirme için geçerli tutar giriniz.");
+        return false;
+      }
+
+      if (!uploadFormData.manualVerified) {
+        setErrorMessage(
+          "Dosyayı ve manuel bilgileri kontrol ettiğinizi onaylayınız.",
+        );
+        return false;
+      }
+    }
+
+    return true;
   }
 
   function handleUploadFileChange(event) {
@@ -355,8 +434,12 @@ function ReceiptsPage() {
       return;
     }
 
+    if (!validateManagerReceiptForm()) {
+      return;
+    }
+
     const isConfirmed = window.confirm(
-      "Bu dekontu eşleştirip ödemeyi ödendi olarak işaretlemek istiyor musunuz?"
+      "Bu dekontu eşleştirip ödemeyi ödendi olarak işaretlemek istiyor musunuz?",
     );
 
     if (!isConfirmed) {
@@ -371,9 +454,14 @@ function ReceiptsPage() {
       await managerConfirmPaymentReceipt({
         paymentAllocationId,
         payerName: uploadFormData.payerName.trim() || undefined,
-        bankAccount: uploadFormData.bankAccount.trim() || undefined,
-        amount: uploadFormData.amount,
+        bankAccount: uploadFormData.bankAccount
+          ? `TR${uploadFormData.bankAccount}`
+          : undefined,
+        amount: uploadFormData.amount || matchResult?.ai?.amount || undefined,
         paymentOwnerType: uploadFormData.paymentOwnerType,
+        manualApartmentId: uploadFormData.manualApartmentId || undefined,
+        manualResidentUserId: uploadFormData.manualResidentUserId || undefined,
+        manualVerified: Boolean(uploadFormData.manualVerified),
         note: uploadFormData.description.trim() || undefined,
         receipt: selectedUploadFile,
         aiResult: matchResult?.ai,
@@ -382,7 +470,9 @@ function ReceiptsPage() {
       await loadReceipts();
       closeUploadForm();
 
-      setMessage("Dekont eşleştirildi, onaylandı ve ödeme ödendi olarak işaretlendi.");
+      setMessage(
+        "Dekont eşleştirildi, onaylandı ve ödeme ödendi olarak işaretlendi.",
+      );
     } catch (error) {
       setErrorMessage(error?.message ?? "Dekont eşleştirilip onaylanamadı.");
     } finally {
@@ -397,6 +487,10 @@ function ReceiptsPage() {
       return;
     }
 
+    if (!validateManagerReceiptForm()) {
+      return;
+    }
+
     try {
       setIsSaving(true);
       setMessage("");
@@ -404,10 +498,14 @@ function ReceiptsPage() {
 
       const result = await analyzeManagerPaymentReceipt({
         payerName: uploadFormData.payerName.trim() || undefined,
-        bankAccount: uploadFormData.bankAccount.trim() || undefined,
+        bankAccount: uploadFormData.bankAccount
+          ? `TR${uploadFormData.bankAccount}`
+          : undefined,
         amount: uploadFormData.amount,
         paymentOwnerType: uploadFormData.paymentOwnerType,
         manualApartmentId: uploadFormData.manualApartmentId || undefined,
+        manualResidentUserId: uploadFormData.manualResidentUserId || undefined,
+        manualVerified: Boolean(uploadFormData.manualVerified),
         description: uploadFormData.description.trim() || undefined,
         receipt: selectedUploadFile,
       });
@@ -422,7 +520,7 @@ function ReceiptsPage() {
 
   async function handleApprove(receiptId) {
     const reviewNote = window.prompt(
-      "Onay notu yazabilirsiniz. Boş bırakabilirsiniz."
+      "Onay notu yazabilirsiniz. Boş bırakabilirsiniz.",
     );
 
     try {
@@ -446,7 +544,7 @@ function ReceiptsPage() {
 
   async function handleReject(receiptId) {
     const reviewNote = window.prompt(
-      "Red sebebini yazın. Boş bırakabilirsiniz."
+      "Red sebebini yazın. Boş bırakabilirsiniz.",
     );
 
     const isConfirmed = window.confirm("Bu dekontu reddetmek istiyor musunuz?");
@@ -475,7 +573,11 @@ function ReceiptsPage() {
   }
 
   function handleDownload(receiptId) {
-    window.open(getPaymentReceiptDownloadUrl(receiptId), "_blank", "noopener,noreferrer");
+    window.open(
+      getPaymentReceiptDownloadUrl(receiptId),
+      "_blank",
+      "noopener,noreferrer",
+    );
   }
 
   return (
@@ -525,6 +627,7 @@ function ReceiptsPage() {
         <ReceiptUploadForm
           formData={uploadFormData}
           apartmentOptions={apartmentOptions}
+          selectedFile={selectedUploadFile}
           fileError={uploadFileError}
           matchResult={matchResult}
           onInputChange={handleUploadInputChange}
@@ -589,9 +692,3 @@ function ReceiptsPage() {
 }
 
 export default ReceiptsPage;
-
-
-
-
-
-

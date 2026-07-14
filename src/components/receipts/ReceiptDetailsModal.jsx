@@ -40,13 +40,14 @@ function ReceiptDetailsModal({ receipt, onClose }) {
 
   const hasAiInfo = Boolean(
     rawReceipt.aiProvider ||
-      rawReceipt.aiModelName ||
-      rawReceipt.aiPayerName ||
-      rawReceipt.aiAmountKurus !== null && rawReceipt.aiAmountKurus !== undefined ||
-      rawReceipt.aiApartmentNumber ||
-      rawReceipt.aiDescription ||
-      rawReceipt.aiPaymentDate ||
-      rawReceipt.aiConfidence !== null && rawReceipt.aiConfidence !== undefined
+    rawReceipt.aiModelName ||
+    rawReceipt.aiPayerName ||
+    (rawReceipt.aiAmountKurus !== null &&
+      rawReceipt.aiAmountKurus !== undefined) ||
+    rawReceipt.aiApartmentNumber ||
+    rawReceipt.aiDescription ||
+    rawReceipt.aiPaymentDate ||
+    (rawReceipt.aiConfidence !== null && rawReceipt.aiConfidence !== undefined),
   );
 
   return (
@@ -70,12 +71,12 @@ function ReceiptDetailsModal({ receipt, onClose }) {
 
         <div className="details-list receipt-details-list">
           <div>
-            <span>Yükleyen</span>
+            <span>Yükleyen Yönetici</span>
             <strong>{receipt.payerName || "-"}</strong>
           </div>
 
           <div>
-            <span>E-posta</span>
+            <span>Yükleyen E-posta</span>
             <strong>{receipt.payerEmail || "-"}</strong>
           </div>
 
@@ -188,8 +189,11 @@ function ReceiptDetailsModal({ receipt, onClose }) {
 
         {!hasAiInfo && (
           <div className="details-description">
-            <span>AI Analiz Bilgileri</span>
-            <p>Bu dekont için kayıtlı AI analiz bilgisi bulunmuyor.</p>
+            <span>Doğrulama Bilgisi</span>
+            <p>
+              Bu kayıt için AI analiz bilgisi bulunmuyor. Kayıt yönetici
+              tarafından manuel doğrulanmış olabilir.
+            </p>
           </div>
         )}
 
