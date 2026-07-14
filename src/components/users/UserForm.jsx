@@ -1,9 +1,17 @@
-﻿import { CheckCircle2, X } from "lucide-react";
+﻿import { useMemo } from "react";
+import { CheckCircle2, X } from "lucide-react";
 
 const residentTypeOptions = [
   { value: "TENANT", label: "Kiracı" },
   { value: "OWNER", label: "Ev Sahibi" },
 ];
+
+function compareText(leftValue, rightValue) {
+  return String(leftValue ?? "").localeCompare(String(rightValue ?? ""), "tr", {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
 
 function UserForm({
   formData,
@@ -14,8 +22,80 @@ function UserForm({
   onCancel,
   isSaving = false,
 }) {
-  const safeApartments = apartments || [];
+  const safeApartments = useMemo(
+  () => (Array.isArray(apartments) ? apartments : []),
+  [apartments]
+);
   const isEditMode = Boolean(editingUser);
+
+  const siteOptions = useMemo(() => {
+    const sitesById = new Map();
+
+    safeApartments.forEach((apartment) => {
+      const site = apartment.block?.site;
+
+      if (site?.id) {
+        sitesById.set(site.id, site);
+      }
+    });
+
+    return Array.from(sitesById.values()).sort((leftSite, rightSite) =>
+      compareText(leftSite.name, rightSite.name)
+    );
+  }, [safeApartments]);
+
+  const blockOptions = useMemo(() => {
+    if (!formData.siteId) {
+      return [];
+    }
+
+    const blocksById = new Map();
+
+    safeApartments.forEach((apartment) => {
+      const block = apartment.block;
+
+      if (block?.id && block.site?.id === formData.siteId) {
+        blocksById.set(block.id, block);
+      }
+    });
+
+    return Array.from(blocksById.values()).sort((leftBlock, rightBlock) =>
+      compareText(leftBlock.name, rightBlock.name)
+    );
+  }, [safeApartments, formData.siteId]);
+
+  const apartmentOptions = useMemo(() => {
+    if (!formData.blockId) {
+      return [];
+    }
+
+    return safeApartments
+      .filter((apartment) => apartment.block?.id === formData.blockId)
+      .filter((apartment) => {
+        const residentCount = Number(apartment._count?.residents ?? 0);
+        const isCurrentApartment = apartment.id === formData.apartmentId;
+
+        return residentCount === 0 || isCurrentApartment;
+      })
+      .sort((leftApartment, rightApartment) =>
+        compareText(leftApartment.number, rightApartment.number)
+      );
+  }, [safeApartments, formData.blockId, formData.apartmentId]);
+
+  const sitePlaceholder =
+    siteOptions.length > 0 ? "Site seçin" : "Site bulunamadı";
+
+  const blockPlaceholder = !formData.siteId
+    ? "Önce site seçin"
+    : blockOptions.length > 0
+      ? "Blok seçin"
+      : "Bu sitede blok bulunamadı";
+
+  const apartmentPlaceholder = !formData.blockId
+    ? "Önce blok seçin"
+    : apartmentOptions.length > 0
+      ? "Boş daire seçin"
+      : "Bu blokta boş daire bulunamadı";
 
   return (
     <section className="manager-form-card">
@@ -28,7 +108,8 @@ function UserForm({
           <h3>{isEditMode ? "Sakin Bilgilerini Düzenle" : "Yeni Sakin Ekle"}</h3>
 
           <p>
-            Kiracı veya ev sahibi hesabı oluşturulur ve seçilen daireye bağlanır.
+            Önce siteyi ve bloğu seçin. Daire listesinde yalnızca boş daireler
+            gösterilir.
           </p>
         </div>
 
@@ -120,20 +201,61 @@ function UserForm({
           </label>
 
           <label>
+            Site Seç
+            <select
+              name="siteId"
+              value={formData.siteId}
+              onChange={onInputChange}
+              disabled={isSaving || siteOptions.length === 0}
+              required
+            >
+              <option value="">{sitePlaceholder}</option>
+
+              {siteOptions.map((site) => (
+                <option key={site.id} value={site.id}>
+                  {site.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            Blok Seç
+            <select
+              name="blockId"
+              value={formData.blockId}
+              onChange={onInputChange}
+              disabled={isSaving || !formData.siteId || blockOptions.length === 0}
+              required
+            >
+              <option value="">{blockPlaceholder}</option>
+
+              {blockOptions.map((block) => (
+                <option key={block.id} value={block.id}>
+                  {block.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
             Daire Seç
             <select
               name="apartmentId"
               value={formData.apartmentId}
               onChange={onInputChange}
-              disabled={isSaving}
+              disabled={
+                isSaving ||
+                !formData.blockId ||
+                apartmentOptions.length === 0
+              }
               required
             >
-              <option value="">Daire seçin</option>
+              <option value="">{apartmentPlaceholder}</option>
 
-              {safeApartments.map((apartment) => (
+              {apartmentOptions.map((apartment) => (
                 <option key={apartment.id} value={apartment.id}>
-                  {apartment.block?.site?.name || "Site"} /{" "}
-                  {apartment.block?.name || "Blok"} / Daire {apartment.number}
+                  Daire {apartment.number}
                 </option>
               ))}
             </select>

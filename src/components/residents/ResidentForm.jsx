@@ -1,4 +1,12 @@
-﻿import { X } from "lucide-react";
+﻿import { useMemo } from "react";
+import { X } from "lucide-react";
+
+function compareText(leftValue, rightValue) {
+  return String(leftValue ?? "").localeCompare(String(rightValue ?? ""), "tr", {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
 
 function ResidentForm({
   formData,
@@ -9,6 +17,80 @@ function ResidentForm({
   onCancel,
   isSaving = false,
 }) {
+  const safeApartments = useMemo(
+    () => (Array.isArray(apartments) ? apartments : []),
+    [apartments]
+  );
+
+  const siteOptions = useMemo(() => {
+    const sitesById = new Map();
+
+    safeApartments.forEach((apartment) => {
+      const site = apartment.block?.site;
+
+      if (site?.id) {
+        sitesById.set(site.id, site);
+      }
+    });
+
+    return Array.from(sitesById.values()).sort((leftSite, rightSite) =>
+      compareText(leftSite.name, rightSite.name)
+    );
+  }, [safeApartments]);
+
+  const blockOptions = useMemo(() => {
+    if (!formData.siteId) {
+      return [];
+    }
+
+    const blocksById = new Map();
+
+    safeApartments.forEach((apartment) => {
+      const block = apartment.block;
+
+      if (block?.id && block.site?.id === formData.siteId) {
+        blocksById.set(block.id, block);
+      }
+    });
+
+    return Array.from(blocksById.values()).sort((leftBlock, rightBlock) =>
+      compareText(leftBlock.name, rightBlock.name)
+    );
+  }, [safeApartments, formData.siteId]);
+
+  const apartmentOptions = useMemo(() => {
+    if (!formData.blockId) {
+      return [];
+    }
+
+    return safeApartments
+      .filter((apartment) => apartment.block?.id === formData.blockId)
+      .filter((apartment) => {
+        const residentCount = Number(apartment._count?.residents ?? 0);
+        const isCurrentApartment = apartment.id === formData.apartmentId;
+
+        return residentCount === 0 || isCurrentApartment;
+      })
+      .sort((leftApartment, rightApartment) =>
+        compareText(leftApartment.number, rightApartment.number)
+      );
+  }, [safeApartments, formData.blockId, formData.apartmentId]);
+
+  const sitePlaceholder =
+    siteOptions.length > 0 ? "Site seçiniz" : "Yetkili site bulunamadı";
+
+  const blockPlaceholder = !formData.siteId
+    ? "Önce site seçiniz"
+    : blockOptions.length > 0
+      ? "Blok seçiniz"
+      : "Bu sitede yetkili blok bulunamadı";
+
+  const apartmentPlaceholder = !formData.blockId
+    ? "Önce blok seçiniz"
+    : apartmentOptions.length > 0
+      ? "Boş daire seçiniz"
+      : "Bu blokta boş daire bulunamadı";
+
   return (
     <section className="resident-form-card">
       <div className="resident-form-header">
@@ -22,11 +104,18 @@ function ResidentForm({
           </h3>
 
           <p>
-            Yönetici sadece kendi yetki alanındaki dairelere sakin ekleyebilir.
+            Önce yetkili olduğunuz siteyi ve bloğu seçin. Daire listesinde
+            yalnızca boş daireler gösterilir.
           </p>
         </div>
 
-        <button type="button" className="modal-close-button" onClick={onCancel}>
+        <button
+          type="button"
+          className="modal-close-button"
+          onClick={onCancel}
+          aria-label="Sakin formunu kapat"
+          disabled={isSaving}
+        >
           <X size={20} />
         </button>
       </div>
@@ -60,20 +149,63 @@ function ResidentForm({
           </label>
 
           <label>
+            Site
+            <select
+              name="siteId"
+              value={formData.siteId}
+              onChange={onInputChange}
+              required
+              disabled={isSaving || siteOptions.length === 0}
+            >
+              <option value="">{sitePlaceholder}</option>
+
+              {siteOptions.map((site) => (
+                <option key={site.id} value={site.id}>
+                  {site.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            Blok
+            <select
+              name="blockId"
+              value={formData.blockId}
+              onChange={onInputChange}
+              required
+              disabled={
+                isSaving || !formData.siteId || blockOptions.length === 0
+              }
+            >
+              <option value="">{blockPlaceholder}</option>
+
+              {blockOptions.map((block) => (
+                <option key={block.id} value={block.id}>
+                  {block.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
             Daire
             <select
               name="apartmentId"
               value={formData.apartmentId}
               onChange={onInputChange}
               required
-              disabled={isSaving}
+              disabled={
+                isSaving ||
+                !formData.blockId ||
+                apartmentOptions.length === 0
+              }
             >
-              <option value="">Daire seçiniz</option>
+              <option value="">{apartmentPlaceholder}</option>
 
-              {apartments.map((apartment) => (
+              {apartmentOptions.map((apartment) => (
                 <option key={apartment.id} value={apartment.id}>
-                  {apartment.block?.site?.name ?? "Site"} /{" "}
-                  {apartment.block?.name ?? "Blok"} / Daire {apartment.number}
+                  Daire {apartment.number}
                 </option>
               ))}
             </select>
@@ -111,7 +243,11 @@ function ResidentForm({
               name="password"
               value={formData.password}
               onChange={onInputChange}
-              placeholder="En az 8 karakter"
+              placeholder={
+                editingResident
+                  ? "Değiştirmek istemiyorsanız boş bırakın"
+                  : "En az 8 karakter"
+              }
               required={!editingResident}
               disabled={isSaving}
             />
@@ -145,7 +281,11 @@ function ResidentForm({
             className="dashboard-action-button"
             disabled={isSaving}
           >
-            {isSaving ? "Kaydediliyor..." : editingResident ? "Sakini Güncelle" : "Sakini Kaydet"}
+            {isSaving
+              ? "Kaydediliyor..."
+              : editingResident
+                ? "Sakini Güncelle"
+                : "Sakini Kaydet"}
           </button>
         </div>
       </form>

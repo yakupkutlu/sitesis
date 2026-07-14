@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   BarChart3,
@@ -52,6 +52,8 @@ const labelToType = {
 const emptyFormData = {
   fullName: "",
   type: "TENANT",
+  siteId: "",
+  blockId: "",
   apartmentId: "",
   phone: "",
   email: "",
@@ -68,6 +70,40 @@ function getDataArray(result) {
   if (Array.isArray(data?.apartments)) return data.apartments;
 
   return [];
+}
+
+async function getAllPaginatedData(requestFunction, params = {}) {
+  const firstResult = await requestFunction({
+    ...params,
+    page: 1,
+    limit: 100,
+  });
+
+  const firstPageData = getDataArray(firstResult);
+  const totalPages = Number(firstResult?.pagination?.totalPages ?? 1);
+
+  if (totalPages <= 1) {
+    return firstPageData;
+  }
+
+  const remainingResults = await Promise.all(
+    Array.from({ length: totalPages - 1 }, (_, index) =>
+      requestFunction({
+        ...params,
+        page: index + 2,
+        limit: 100,
+      })
+    )
+  );
+
+  const allItems = [
+    ...firstPageData,
+    ...remainingResults.flatMap((result) => getDataArray(result)),
+  ];
+
+  return Array.from(
+    new Map(allItems.map((item) => [item.id, item])).values()
+  );
 }
 
 function formatDate(value) {
@@ -129,29 +165,26 @@ function ResidentsPage() {
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
-  async function loadResidents() {
-    const result = await getApartmentResidents({
-      page: 1,
-      limit: 100,
-      search: searchTerm.trim(),
-    });
+const loadResidents = useCallback(async () => {
+  const residentList = await getAllPaginatedData(getApartmentResidents);
 
-    const nextResidents = getDataArray(result).map(mapApartmentResidentToViewModel);
-    setResidents(nextResidents);
-  }
+  setResidents(
+    residentList.map(mapApartmentResidentToViewModel)
+  );
+}, []);
 
-  async function loadApartments() {
-    const result = await getApartments({
-      page: 1,
-      limit: 100,
-    });
+const loadApartments = useCallback(async () => {
+  const apartmentList = await getAllPaginatedData(getApartments);
 
-    setApartments(getDataArray(result));
-  }
+  setApartments(apartmentList);
+}, []);
 
-  async function loadPageData() {
-    await Promise.all([loadResidents(), loadApartments()]);
-  }
+const loadPageData = useCallback(async () => {
+  await Promise.all([
+    loadResidents(),
+    loadApartments(),
+  ]);
+}, [loadResidents, loadApartments]);
 
   useEffect(() => {
     let isMounted = true;
@@ -177,7 +210,7 @@ function ResidentsPage() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [loadPageData]);
 
   const filteredResidents = useMemo(() => {
     return residents.filter((resident) => {
@@ -217,10 +250,14 @@ function ResidentsPage() {
   function openEditForm(resident) {
     setEditingResident(resident);
 
+    const currentApartment = resident.raw?.apartment;
+
     setFormData({
       fullName: resident.name,
       type: labelToType[resident.role] ?? "TENANT",
-      apartmentId: resident.raw?.apartmentId ?? resident.raw?.apartment?.id ?? "",
+      siteId: currentApartment?.block?.site?.id ?? "",
+      blockId: currentApartment?.block?.id ?? "",
+      apartmentId: resident.raw?.apartmentId ?? currentApartment?.id ?? "",
       phone: resident.phone === "-" ? "" : resident.phone,
       email: resident.email,
       password: "",
@@ -242,14 +279,43 @@ function ResidentsPage() {
   function handleInputChange(event) {
     const { name, value } = event.target;
 
-    setFormData((currentData) => ({
-      ...currentData,
-      [name]: value,
-    }));
+    setFormData((currentData) => {
+      if (name === "siteId") {
+        return {
+          ...currentData,
+          siteId: value,
+          blockId: "",
+          apartmentId: "",
+        };
+      }
+
+      if (name === "blockId") {
+        return {
+          ...currentData,
+          blockId: value,
+          apartmentId: "",
+        };
+      }
+
+      return {
+        ...currentData,
+        [name]: value,
+      };
+    });
   }
 
   async function handleSubmit(event) {
     event.preventDefault();
+
+    if (!formData.siteId) {
+      setErrorMessage("Site seçimi zorunludur.");
+      return;
+    }
+
+    if (!formData.blockId) {
+      setErrorMessage("Blok seçimi zorunludur.");
+      return;
+    }
 
     if (!formData.apartmentId) {
       setErrorMessage("Daire seçimi zorunludur.");
@@ -432,7 +498,3 @@ function ResidentsPage() {
 }
 
 export default ResidentsPage;
-
-
-
-

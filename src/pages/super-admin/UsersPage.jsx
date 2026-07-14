@@ -34,7 +34,12 @@ const navItems = [
   { label: "Site / Apartmanlar", path: "/super-admin/buildings", icon: Building2 },
   { label: "Yöneticiler", path: "/super-admin/managers", icon: Users },
   { label: "Kullanıcılar / Sakinler", path: "/super-admin/users", icon: UserRound },
-  { label: "Duyurular", path: "/super-admin/announcements", icon: Bell },  { label: "İletişim Mesajları", path: "/super-admin/contact-messages", icon: MessageSquareText },
+  { label: "Duyurular", path: "/super-admin/announcements", icon: Bell },
+  {
+    label: "İletişim Mesajları",
+    path: "/super-admin/contact-messages",
+    icon: MessageSquareText,
+  },
 
   { label: "AI API Ayarları", path: "/super-admin/ai-settings", icon: BrainCircuit },
   { label: "SMS / E-posta", path: "/super-admin/notifications", icon: Mail },
@@ -47,6 +52,8 @@ const emptyFormData = {
   phone: "",
   password: "",
   residentType: "TENANT",
+  siteId: "",
+  blockId: "",
   apartmentId: "",
 };
 
@@ -159,14 +166,14 @@ function UsersPage() {
   const [errorMessage, setErrorMessage] = useState("");
 
   async function loadUsersPageData() {
-  const [residents, apartmentList] = await Promise.all([
-    getAllPaginatedData(getApartmentResidents),
-    getAllPaginatedData(getApartments),
-  ]);
+    const [residents, apartmentList] = await Promise.all([
+      getAllPaginatedData(getApartmentResidents),
+      getAllPaginatedData(getApartments),
+    ]);
 
-  setUserList(residents.map(mapApartmentResidentToUser));
-  setApartments(apartmentList);
-}
+    setUserList(residents.map(mapApartmentResidentToUser));
+    setApartments(apartmentList);
+  }
 
   useEffect(() => {
     let isMounted = true;
@@ -243,10 +250,29 @@ function UsersPage() {
   function handleInputChange(event) {
     const { name, value } = event.target;
 
-    setFormData((currentData) => ({
-      ...currentData,
-      [name]: value,
-    }));
+    setFormData((currentData) => {
+      if (name === "siteId") {
+        return {
+          ...currentData,
+          siteId: value,
+          blockId: "",
+          apartmentId: "",
+        };
+      }
+
+      if (name === "blockId") {
+        return {
+          ...currentData,
+          blockId: value,
+          apartmentId: "",
+        };
+      }
+
+      return {
+        ...currentData,
+        [name]: value,
+      };
+    });
   }
 
   async function handleSubmit(event) {
@@ -260,6 +286,18 @@ function UsersPage() {
 
     if (!formData.email.trim()) {
       setErrorMessage("E-posta zorunludur.");
+      setMessage("");
+      return;
+    }
+
+    if (!formData.siteId) {
+      setErrorMessage("Site seçimi zorunludur.");
+      setMessage("");
+      return;
+    }
+
+    if (!formData.blockId) {
+      setErrorMessage("Blok seçimi zorunludur.");
       setMessage("");
       return;
     }
@@ -331,13 +369,17 @@ function UsersPage() {
 
     setEditingUser(userRow);
 
+    const currentApartment = rawRecord?.apartment;
+
     setFormData({
       fullName: userRow.name || "",
       email: userRow.email || "",
       phone: userRow.phone === "-" ? "" : userRow.phone || "",
       password: "",
       residentType: rawRecord?.type ?? "TENANT",
-      apartmentId: rawRecord?.apartmentId ?? "",
+      siteId: currentApartment?.block?.site?.id ?? "",
+      blockId: currentApartment?.block?.id ?? "",
+      apartmentId: rawRecord?.apartmentId ?? currentApartment?.id ?? "",
     });
 
     setIsFormOpen(true);
@@ -496,8 +538,3 @@ function UsersPage() {
 }
 
 export default UsersPage;
-
-
-
-
-
