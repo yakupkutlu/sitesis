@@ -17,3 +17,9 @@ export async function updateSmsSetting(smsSettingId, payload) {
     body: payload,
   });
 }
+
+export async function deleteSmsSetting(smsSettingId) {
+  return apiRequest(`/sms-settings/${smsSettingId}`, {
+    method: "DELETE",
+  });
+}

@@ -32,7 +32,7 @@ function SmsSettingsForm({
 
           <div>
             <span className="section-kicker">SMS Ayarları</span>
-            <h3>SMS Gönderim Ayarları</h3>
+            <h3>{formData.id ? "SMS Ayarını Düzenle" : "Yeni SMS Ayarı"}</h3>
           </div>
         </div>
 
@@ -46,7 +46,8 @@ function SmsSettingsForm({
       </div>
 
       <p className="notification-card-description">
-        SMS sağlayıcısı, gönderici başlığı ve API bilgileri buradan tanımlanır.
+        SMS sağlayıcısı, gönderici başlığı, son kullanım tarihi ve gizli API
+        bilgileri tanımlanır.
       </p>
 
       <form className="notification-form" onSubmit={onSubmit}>
@@ -81,6 +82,17 @@ function SmsSettingsForm({
                 </option>
               ))}
             </select>
+          </label>
+
+          <label>
+            Son Kullanım Tarihi
+            <input
+              name="expiresAt"
+              type="date"
+              value={formData.expiresAt}
+              onChange={onInputChange}
+              disabled={isSaving}
+            />
           </label>
 
           <label>
@@ -191,6 +203,7 @@ function SmsSettingsForm({
         </div>
 
         <div className="notification-form-actions">
+
           <button
             type="button"
             className="secondary-form-button"
@@ -207,7 +220,11 @@ function SmsSettingsForm({
             disabled={isSaving}
           >
             <CheckCircle2 size={18} />
-            {isSaving ? "Kaydediliyor..." : "SMS Ayarlarını Kaydet"}
+            {isSaving
+              ? "Kaydediliyor..."
+              : formData.id
+                ? "SMS Ayarını Güncelle"
+                : "SMS Ayarını Ekle"}
           </button>
         </div>
       </form>

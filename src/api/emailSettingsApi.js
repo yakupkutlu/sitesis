@@ -17,3 +17,9 @@ export async function updateEmailSetting(emailSettingId, payload) {
     body: payload,
   });
 }
+
+export async function deleteEmailSetting(emailSettingId) {
+  return apiRequest(`/email-settings/${emailSettingId}`, {
+    method: "DELETE",
+  });
+}

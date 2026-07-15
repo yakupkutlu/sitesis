@@ -21,6 +21,7 @@ const smsSettingSelect = {
   id: true,
   provider: true,
   status: true,
+  expiresAt: true,
   senderName: true,
   fromPhone: true,
   apiKeyEncrypted: true,
@@ -52,6 +53,7 @@ const smsSettingSelect = {
 const createSmsSettingSchema = z.object({
   provider: z.enum(["ILETIMERKEZI", "NETGSM", "TWILIO"]),
   status: z.enum(["ACTIVE", "PASSIVE"]).optional().default("PASSIVE"),
+  expiresAt: z.coerce.date().nullable().optional(),
   senderName: z.string().trim().optional(),
   apiKey: z.string().trim().optional(),
   apiSecret: z.string().trim().optional(),
@@ -66,6 +68,7 @@ const updateSmsSettingSchema = z
   .object({
     provider: z.enum(["ILETIMERKEZI", "NETGSM", "TWILIO"]).optional(),
     status: z.enum(["ACTIVE", "PASSIVE"]).optional(),
+    expiresAt: z.coerce.date().nullable().optional(),
     senderName: z.string().trim().nullable().optional(),
     apiKey: z.string().trim().nullable().optional(),
     apiSecret: z.string().trim().nullable().optional(),
@@ -134,15 +137,23 @@ function serializeSmsSetting<T extends {
 }
 
 function encryptOptionalSecret(value: string | null | undefined) {
-  if (value === undefined) {
-    return undefined;
-  }
+  if (value === undefined) return undefined;
+  if (value === null || value.length === 0) return null;
+  return encryptText(value);
+}
 
-  if (value === null || value.length === 0) {
+function serializeOptionalDate(value: unknown) {
+  if (!value) {
     return null;
   }
 
-  return encryptText(value);
+  const date = value instanceof Date ? value : new Date(String(value));
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date.toISOString();
 }
 
 router.get(
@@ -184,6 +195,7 @@ router.post(
     const {
       provider,
       status,
+      expiresAt,
       senderName,
       apiKey,
       apiSecret,
@@ -198,6 +210,7 @@ router.post(
       data: {
         provider,
         status,
+        expiresAt: expiresAt ?? null,
         senderName,
         fromPhone,
         apiKeyEncrypted: encryptOptionalSecret(apiKey),
@@ -221,6 +234,7 @@ router.post(
       metadata: {
         provider: setting.provider,
         status: setting.status,
+        expiresAt: serializeOptionalDate(setting.expiresAt),
         hasSecrets: hideSmsSecrets(setting),
       },
     });
@@ -274,6 +288,7 @@ router.patch(
     const {
       provider,
       status,
+      expiresAt,
       senderName,
       apiKey,
       apiSecret,
@@ -291,9 +306,12 @@ router.patch(
       data: {
         ...(provider !== undefined ? { provider } : {}),
         ...(status !== undefined ? { status } : {}),
+        ...(expiresAt !== undefined ? { expiresAt } : {}),
         ...(senderName !== undefined ? { senderName: senderName || null } : {}),
         ...(fromPhone !== undefined ? { fromPhone: fromPhone || null } : {}),
-        ...(apiKey !== undefined ? { apiKeyEncrypted: encryptOptionalSecret(apiKey) } : {}),
+        ...(apiKey !== undefined
+          ? { apiKeyEncrypted: encryptOptionalSecret(apiKey) }
+          : {}),
         ...(apiSecret !== undefined
           ? { apiSecretEncrypted: encryptOptionalSecret(apiSecret) }
           : {}),
@@ -324,6 +342,7 @@ router.patch(
         previous: {
           provider: targetSetting.provider,
           status: targetSetting.status,
+          expiresAt: serializeOptionalDate(targetSetting.expiresAt),
           senderName: targetSetting.senderName,
           fromPhone: targetSetting.fromPhone,
           hasSecrets: hideSmsSecrets(targetSetting),
@@ -331,6 +350,7 @@ router.patch(
         current: {
           provider: setting.provider,
           status: setting.status,
+          expiresAt: serializeOptionalDate(setting.expiresAt),
           senderName: setting.senderName,
           fromPhone: setting.fromPhone,
           hasSecrets: hideSmsSecrets(setting),
@@ -342,6 +362,64 @@ router.patch(
       success: true,
       message: "SMS ayarları başarıyla güncellendi.",
       data: serializeSmsSetting(setting),
+    });
+  })
+);
+
+
+router.delete(
+  "/:smsSettingId",
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    const paramsResult = smsSettingParamsSchema.safeParse(request.params);
+
+    if (!paramsResult.success) {
+      throw new HttpError(400, "SMS ayarı bilgisi geçersiz.");
+    }
+
+    const { smsSettingId } = paramsResult.data;
+
+    const targetSetting = await prisma.smsSetting.findUnique({
+      where: {
+        id: smsSettingId,
+      },
+      select: smsSettingSelect,
+    });
+
+    if (!targetSetting) {
+      throw new HttpError(404, "SMS ayarı bulunamadı.");
+    }
+
+    await prisma.smsSetting.delete({
+      where: {
+        id: smsSettingId,
+      },
+    });
+
+    await createAuditLog({
+      request,
+      userId: authenticatedRequest.user.id,
+      action: "DELETE_SMS_SETTING",
+      entityType: "SmsSetting",
+      entityId: smsSettingId,
+      metadata: {
+        provider: targetSetting.provider,
+        status: targetSetting.status,
+        expiresAt: serializeOptionalDate(targetSetting.expiresAt),
+        senderName: targetSetting.senderName,
+        fromPhone: targetSetting.fromPhone,
+        hasSecrets: hideSmsSecrets(targetSetting),
+      },
+    });
+
+    response.status(200).json({
+      success: true,
+      message: "SMS ayarı başarıyla silindi.",
     });
   })
 );

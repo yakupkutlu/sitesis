@@ -4,6 +4,7 @@ import {
   Bell,
   Building2,
   ChevronLeft,
+  CircleHelp,
   LogOut,
   Menu,
   ShieldCheck,
@@ -104,6 +105,8 @@ function DashboardLayout({
   navItems,
   theme,
   isDarkMode,
+  helpTitle = "Yardım",
+  helpContent,
   children,
 }) {
   const navigate = useNavigate();
@@ -112,6 +115,7 @@ function DashboardLayout({
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isNotificationMenuOpen, setIsNotificationMenuOpen] = useState(false);
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const dashboardIsDarkMode =
@@ -132,6 +136,22 @@ function DashboardLayout({
     };
   }, []);
 
+  useEffect(() => {
+    function handleEscape(event) {
+      if (event.key === "Escape") {
+        setIsHelpOpen(false);
+      }
+    }
+
+    if (isHelpOpen) {
+      document.addEventListener("keydown", handleEscape);
+    }
+
+    return () => {
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [isHelpOpen]);
+
   function closeSidebar() {
     setIsSidebarOpen(false);
   }
@@ -139,16 +159,25 @@ function DashboardLayout({
   function closeTopbarMenus() {
     setIsProfileMenuOpen(false);
     setIsNotificationMenuOpen(false);
+    setIsHelpOpen(false);
   }
 
   function toggleProfileMenu() {
     setIsProfileMenuOpen((currentValue) => !currentValue);
     setIsNotificationMenuOpen(false);
+    setIsHelpOpen(false);
   }
 
   function toggleNotificationMenu() {
     setIsNotificationMenuOpen((currentValue) => !currentValue);
     setIsProfileMenuOpen(false);
+    setIsHelpOpen(false);
+  }
+
+  function toggleHelp() {
+    setIsHelpOpen((currentValue) => !currentValue);
+    setIsProfileMenuOpen(false);
+    setIsNotificationMenuOpen(false);
   }
 
   async function handleLogout() {
@@ -164,6 +193,7 @@ function DashboardLayout({
       setIsSidebarOpen(false);
       setIsProfileMenuOpen(false);
       setIsNotificationMenuOpen(false);
+      setIsHelpOpen(false);
 
       await logout();
 
@@ -270,6 +300,19 @@ function DashboardLayout({
           </div>
 
           <div className="topbar-actions">
+            {helpContent && (
+              <button
+                type="button"
+                className="topbar-help-icon-button"
+                onClick={toggleHelp}
+                aria-label="Yardım penceresini aç"
+                aria-expanded={isHelpOpen}
+                title="Yardım"
+              >
+                <CircleHelp size={21} />
+              </button>
+            )}
+
             <div className="topbar-menu-wrapper">
               <button
                 type="button"
@@ -371,6 +414,43 @@ function DashboardLayout({
 
         <main className="dashboard-content">{children}</main>
       </div>
+
+      {isHelpOpen && (
+        <div
+          className="dashboard-help-overlay"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setIsHelpOpen(false);
+            }
+          }}
+        >
+          <section
+            className="dashboard-help-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="dashboard-help-title"
+          >
+            <div className="dashboard-help-header">
+              <div>
+                <span className="section-kicker">Yardım Merkezi</span>
+                <h2 id="dashboard-help-title">{helpTitle}</h2>
+              </div>
+
+              <button
+                type="button"
+                className="modal-close-button"
+                onClick={() => setIsHelpOpen(false)}
+                aria-label="Yardım penceresini kapat"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="dashboard-help-content">{helpContent}</div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

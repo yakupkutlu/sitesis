@@ -43,7 +43,26 @@ function getErrorMessage(error: unknown) {
   return "Bilinmeyen hata oluştu.";
 }
 
+function getValidSettingWhere() {
+  return {
+    status: "ACTIVE" as const,
+    OR: [
+      {
+        expiresAt: null,
+      },
+      {
+        expiresAt: {
+          gte: new Date(),
+        },
+      },
+    ],
+  };
+}
+
 export async function createNotificationLog(input: CreateNotificationLogInput) {
+  if (!input.recipientUserId && !input.recipientEmail && !input.recipientPhone) {
+    throw new Error("En az bir alıcı bilgisi gönderilmelidir.");
+  }
 
   return prisma.notificationLog.create({
     data: {
@@ -86,9 +105,7 @@ export async function queueEmailNotification(input: {
   createdByUserId?: string;
 }) {
   const activeEmailSetting = await prisma.emailSetting.findFirst({
-    where: {
-      status: "ACTIVE",
-    },
+    where: getValidSettingWhere(),
     orderBy: {
       createdAt: "desc",
     },
@@ -108,7 +125,8 @@ export async function queueEmailNotification(input: {
       message: input.message,
       entityType: input.entityType,
       entityId: input.entityId,
-      errorMessage: "Aktif e-posta ayarı bulunamadı.",
+      errorMessage:
+        "Aktif ve son kullanım tarihi geçmemiş e-posta ayarı bulunamadı.",
       metadata: input.metadata,
       createdByUserId: input.createdByUserId,
     });
@@ -126,7 +144,8 @@ export async function queueEmailNotification(input: {
       provider: activeEmailSetting.provider,
       entityType: input.entityType,
       entityId: input.entityId,
-      errorMessage: "Bu e-posta sağlayıcısı için gerçek gönderim henüz aktif değildir.",
+      errorMessage:
+        "Bu e-posta sağlayıcısı için gerçek gönderim henüz aktif değildir.",
       metadata: input.metadata,
       createdByUserId: input.createdByUserId,
     });
@@ -184,9 +203,7 @@ export async function queueSmsNotification(input: {
   createdByUserId?: string;
 }) {
   const activeSmsSetting = await prisma.smsSetting.findFirst({
-    where: {
-      status: "ACTIVE",
-    },
+    where: getValidSettingWhere(),
     orderBy: {
       createdAt: "desc",
     },
@@ -205,7 +222,8 @@ export async function queueSmsNotification(input: {
       message: input.message,
       entityType: input.entityType,
       entityId: input.entityId,
-      errorMessage: "Aktif SMS ayarı bulunamadı.",
+      errorMessage:
+        "Aktif ve son kullanım tarihi geçmemiş SMS ayarı bulunamadı.",
       metadata: input.metadata,
       createdByUserId: input.createdByUserId,
     });
@@ -225,5 +243,3 @@ export async function queueSmsNotification(input: {
     createdByUserId: input.createdByUserId,
   });
 }
-
-

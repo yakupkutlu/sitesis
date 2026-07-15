@@ -21,6 +21,7 @@ const emailSettingSelect = {
   id: true,
   provider: true,
   status: true,
+  expiresAt: true,
   fromEmail: true,
   fromName: true,
   smtpHost: true,
@@ -53,6 +54,7 @@ const createEmailSettingSchema = z
   .object({
     provider: z.enum(["SMTP", "SENDGRID"]),
     status: z.enum(["ACTIVE", "PASSIVE"]).optional().default("PASSIVE"),
+    expiresAt: z.coerce.date().nullable().optional(),
     fromEmail: z.string().trim().email(),
     fromName: z.string().trim().optional(),
 
@@ -112,6 +114,7 @@ const updateEmailSettingSchema = z
   .object({
     provider: z.enum(["SMTP", "SENDGRID"]).optional(),
     status: z.enum(["ACTIVE", "PASSIVE"]).optional(),
+    expiresAt: z.coerce.date().nullable().optional(),
     fromEmail: z.string().trim().email().optional(),
     fromName: z.string().trim().nullable().optional(),
 
@@ -133,15 +136,23 @@ const emailSettingParamsSchema = z.object({
 });
 
 function encryptOptionalSecret(value: string | null | undefined) {
-  if (value === undefined) {
-    return undefined;
-  }
+  if (value === undefined) return undefined;
+  if (value === null || value.length === 0) return null;
+  return encryptText(value);
+}
 
-  if (value === null || value.length === 0) {
+function serializeOptionalDate(value: unknown) {
+  if (!value) {
     return null;
   }
 
-  return encryptText(value);
+  const date = value instanceof Date ? value : new Date(String(value));
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date.toISOString();
 }
 
 function hideEmailSecrets(setting: {
@@ -217,6 +228,7 @@ router.post(
     const {
       provider,
       status,
+      expiresAt,
       fromEmail,
       fromName,
       smtpHost,
@@ -231,6 +243,7 @@ router.post(
       data: {
         provider,
         status,
+        expiresAt: expiresAt ?? null,
         fromEmail,
         fromName,
         smtpHost,
@@ -254,6 +267,7 @@ router.post(
       metadata: {
         provider: setting.provider,
         status: setting.status,
+        expiresAt: serializeOptionalDate(setting.expiresAt),
         fromEmail: setting.fromEmail,
         hasSecrets: hideEmailSecrets(setting),
       },
@@ -308,6 +322,7 @@ router.patch(
     const {
       provider,
       status,
+      expiresAt,
       fromEmail,
       fromName,
       smtpHost,
@@ -325,6 +340,7 @@ router.patch(
       data: {
         ...(provider !== undefined ? { provider } : {}),
         ...(status !== undefined ? { status } : {}),
+        ...(expiresAt !== undefined ? { expiresAt } : {}),
         ...(fromEmail !== undefined ? { fromEmail } : {}),
         ...(fromName !== undefined ? { fromName: fromName || null } : {}),
         ...(smtpHost !== undefined ? { smtpHost: smtpHost || null } : {}),
@@ -354,6 +370,7 @@ router.patch(
         previous: {
           provider: targetSetting.provider,
           status: targetSetting.status,
+          expiresAt: serializeOptionalDate(targetSetting.expiresAt),
           fromEmail: targetSetting.fromEmail,
           smtpHost: targetSetting.smtpHost,
           smtpPort: targetSetting.smtpPort,
@@ -363,6 +380,7 @@ router.patch(
         current: {
           provider: setting.provider,
           status: setting.status,
+          expiresAt: serializeOptionalDate(setting.expiresAt),
           fromEmail: setting.fromEmail,
           smtpHost: setting.smtpHost,
           smtpPort: setting.smtpPort,
@@ -376,6 +394,64 @@ router.patch(
       success: true,
       message: "E-posta ayarları başarıyla güncellendi.",
       data: serializeEmailSetting(setting),
+    });
+  })
+);
+
+
+router.delete(
+  "/:emailSettingId",
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    const paramsResult = emailSettingParamsSchema.safeParse(request.params);
+
+    if (!paramsResult.success) {
+      throw new HttpError(400, "E-posta ayarı bilgisi geçersiz.");
+    }
+
+    const { emailSettingId } = paramsResult.data;
+
+    const targetSetting = await prisma.emailSetting.findUnique({
+      where: {
+        id: emailSettingId,
+      },
+      select: emailSettingSelect,
+    });
+
+    if (!targetSetting) {
+      throw new HttpError(404, "E-posta ayarı bulunamadı.");
+    }
+
+    await prisma.emailSetting.delete({
+      where: {
+        id: emailSettingId,
+      },
+    });
+
+    await createAuditLog({
+      request,
+      userId: authenticatedRequest.user.id,
+      action: "DELETE_EMAIL_SETTING",
+      entityType: "EmailSetting",
+      entityId: emailSettingId,
+      metadata: {
+        provider: targetSetting.provider,
+        status: targetSetting.status,
+        expiresAt: serializeOptionalDate(targetSetting.expiresAt),
+        fromEmail: targetSetting.fromEmail,
+        fromName: targetSetting.fromName,
+        hasSecrets: hideEmailSecrets(targetSetting),
+      },
+    });
+
+    response.status(200).json({
+      success: true,
+      message: "E-posta ayarı başarıyla silindi.",
     });
   })
 );

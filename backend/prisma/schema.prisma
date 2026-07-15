@@ -470,8 +470,9 @@ model ResidentRequest {
 model SmsSetting {
   id String @id @default(uuid())
 
-  provider SmsProvider
-  status   IntegrationStatus @default(PASSIVE)
+  provider  SmsProvider
+  status    IntegrationStatus @default(PASSIVE)
+  expiresAt DateTime?
 
   senderName          String?
   apiKeyEncrypted     String?
@@ -493,6 +494,7 @@ model SmsSetting {
 
   @@index([provider])
   @@index([status])
+  @@index([expiresAt])
   @@index([createdByUserId])
   @@index([updatedByUserId])
 }
@@ -500,8 +502,9 @@ model SmsSetting {
 model EmailSetting {
   id String @id @default(uuid())
 
-  provider EmailProvider
-  status   IntegrationStatus @default(PASSIVE)
+  provider  EmailProvider
+  status    IntegrationStatus @default(PASSIVE)
+  expiresAt DateTime?
 
   fromEmail String
   fromName  String?
@@ -525,6 +528,7 @@ model EmailSetting {
 
   @@index([provider])
   @@index([status])
+  @@index([expiresAt])
   @@index([createdByUserId])
   @@index([updatedByUserId])
 }

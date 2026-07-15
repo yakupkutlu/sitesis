@@ -34,7 +34,9 @@ function EmailSettingsForm({
 
           <div>
             <span className="section-kicker">E-posta Ayarları</span>
-            <h3>E-posta Gönderim Ayarları</h3>
+            <h3>
+              {formData.id ? "E-posta Ayarını Düzenle" : "Yeni E-posta Ayarı"}
+            </h3>
           </div>
         </div>
 
@@ -48,7 +50,8 @@ function EmailSettingsForm({
       </div>
 
       <p className="notification-card-description">
-        SMTP veya SendGrid üzerinden e-posta gönderim ayarları yapılır.
+        SMTP veya SendGrid üzerinden gönderim, güvenlik ve son kullanım tarihi
+        ayarları yapılır.
       </p>
 
       <form className="notification-form" onSubmit={onSubmit}>
@@ -86,6 +89,17 @@ function EmailSettingsForm({
           </label>
 
           <label>
+            Son Kullanım Tarihi
+            <input
+              name="expiresAt"
+              type="date"
+              value={formData.expiresAt}
+              onChange={onInputChange}
+              disabled={isSaving}
+            />
+          </label>
+
+          <label>
             Gönderen E-posta
             <input
               name="fromEmail"
@@ -94,6 +108,7 @@ function EmailSettingsForm({
               value={formData.fromEmail}
               onChange={onInputChange}
               disabled={isSaving}
+              required
             />
           </label>
 
@@ -222,6 +237,7 @@ function EmailSettingsForm({
         </div>
 
         <div className="notification-form-actions">
+
           <button
             type="button"
             className="secondary-form-button"
@@ -238,7 +254,11 @@ function EmailSettingsForm({
             disabled={isSaving}
           >
             <CheckCircle2 size={18} />
-            {isSaving ? "Kaydediliyor..." : "E-posta Ayarlarını Kaydet"}
+            {isSaving
+              ? "Kaydediliyor..."
+              : formData.id
+                ? "E-posta Ayarını Güncelle"
+                : "E-posta Ayarını Ekle"}
           </button>
         </div>
       </form>
