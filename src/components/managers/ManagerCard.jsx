@@ -1,12 +1,53 @@
-import { Eye, Mail, Pencil, Phone, Power, UserRound } from "lucide-react";
+import {
+  Eye,
+  Mail,
+  Pencil,
+  Phone,
+  Power,
+  Trash2,
+  UserRound,
+} from "lucide-react";
 
 function getManagerStatusClass(status) {
   return status === "Aktif" ? "active" : "passive";
 }
 
-function ManagerCard({ manager, onView, onEdit, onToggleStatus }) {
+function getAssignmentLabel(assignment) {
+  if (!assignment) {
+    return "Henüz atanmadı";
+  }
+
+  if (assignment.scopeType === "SITE") {
+    return assignment.site?.name ?? "Site ataması";
+  }
+
+  const siteName = assignment.block?.site?.name;
+  const blockName = assignment.block?.name;
+
+  if (siteName && blockName) {
+    return `${siteName} / ${blockName}`;
+  }
+
+  return blockName ?? "Blok / Apartman ataması";
+}
+
+function getAssignmentTypeLabel(assignment) {
+  return assignment?.scopeType === "SITE" ? "Site" : "Blok";
+}
+
+function ManagerCard({
+  manager,
+  onView,
+  onEdit,
+  onToggleStatus,
+  onDeleteAssignment,
+  isSaving = false,
+}) {
   const statusClass = getManagerStatusClass(manager.status);
   const isActive = manager.status === "Aktif";
+  const assignments = Array.isArray(manager.assignments)
+    ? manager.assignments
+    : [];
 
   return (
     <article className="manager-card">
@@ -37,9 +78,42 @@ function ManagerCard({ manager, onView, onEdit, onToggleStatus }) {
           </div>
         </div>
 
-        <div className="manager-assigned-box">
-          <span>Atandığı Site / Apartman</span>
-          <strong>{manager.assignedBuilding || "Henüz atanmadı"}</strong>
+        <div className="manager-card-assignment-section">
+          <span className="manager-card-assignment-title">
+            Yetki Alanları
+          </span>
+
+          {assignments.length > 0 ? (
+            <div className="manager-card-assignment-list">
+              {assignments.map((assignment) => (
+                <div
+                  className="manager-card-assignment-item"
+                  key={assignment.id}
+                >
+                  <div>
+                    <span>{getAssignmentTypeLabel(assignment)}</span>
+                    <strong>{getAssignmentLabel(assignment)}</strong>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => onDeleteAssignment(assignment)}
+                    disabled={isSaving}
+                    title="Bu yetkiyi kaldır"
+                    aria-label={`${getAssignmentLabel(
+                      assignment
+                    )} yetkisini kaldır`}
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <strong className="manager-card-no-assignment">
+              Henüz atanmadı
+            </strong>
+          )}
         </div>
 
         <div className="manager-card-actions">
@@ -47,6 +121,7 @@ function ManagerCard({ manager, onView, onEdit, onToggleStatus }) {
             type="button"
             onClick={() => onView(manager)}
             aria-label={`${manager.name || "Yönetici"} detayını görüntüle`}
+            disabled={isSaving}
           >
             <Eye size={16} />
             Görüntüle
@@ -56,6 +131,7 @@ function ManagerCard({ manager, onView, onEdit, onToggleStatus }) {
             type="button"
             onClick={() => onEdit(manager)}
             aria-label={`${manager.name || "Yönetici"} düzenle`}
+            disabled={isSaving}
           >
             <Pencil size={16} />
             Düzenle
@@ -66,6 +142,7 @@ function ManagerCard({ manager, onView, onEdit, onToggleStatus }) {
             className="danger-button"
             onClick={() => onToggleStatus(manager)}
             aria-label={`${manager.name || "Yönetici"} durumunu değiştir`}
+            disabled={isSaving}
           >
             <Power size={16} />
             {isActive ? "Pasifleştir" : "Aktifleştir"}

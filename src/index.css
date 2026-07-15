@@ -13099,3 +13099,315 @@ dashboard-layout .topbar-help-button {
 .dashboard-layout.dark-mode .building-image-placeholder span {
   color: #94a3b8;
 }
+/* =================================
+   MANAGERS - LIST / CARD VIEW
+================================= */
+
+.manager-view-mode-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 18px 0;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: #ffffff;
+}
+
+.manager-view-mode-bar > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.manager-view-mode-bar > div:first-child strong {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.manager-view-mode-buttons {
+  display: inline-flex;
+  gap: 8px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--dashboard-bg-soft);
+}
+
+.manager-view-mode-buttons button {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.manager-view-mode-buttons button.active {
+  background: var(--dashboard-secondary);
+  color: #ffffff;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
+}
+
+.manager-list-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.manager-list-table-wrapper {
+  overflow-x: auto;
+}
+
+.manager-list-table {
+  width: 100%;
+  min-width: 1050px;
+  border-collapse: collapse;
+}
+
+.manager-list-table th,
+.manager-list-table td {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.manager-list-table th {
+  background: var(--dashboard-bg-soft);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.manager-list-person {
+  min-width: 210px;
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+}
+
+.manager-list-avatar {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 13px;
+  background: var(--dashboard-secondary);
+  color: #ffffff;
+}
+
+.manager-list-person strong,
+.manager-list-person span {
+  display: block;
+}
+
+.manager-list-person span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.manager-assignment-list {
+  min-width: 330px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.manager-assignment-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--dashboard-bg-soft);
+}
+
+.manager-assignment-item span,
+.manager-assignment-item strong {
+  display: block;
+}
+
+.manager-assignment-item span {
+  color: var(--dashboard-secondary);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.manager-assignment-item strong {
+  margin-top: 3px;
+  font-size: 14px;
+}
+
+.manager-assignment-remove {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.manager-no-assignment {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.manager-list-actions {
+  min-width: 155px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.manager-list-actions button {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 7px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: #ffffff;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.manager-list-actions button.danger {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.manager-card-assignment-section {
+  margin-top: 16px;
+}
+
+.manager-card-assignment-title {
+  display: block;
+  margin-bottom: 9px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.manager-card-assignment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.manager-card-assignment-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--dashboard-bg-soft);
+}
+
+.manager-card-assignment-item span,
+.manager-card-assignment-item strong {
+  display: block;
+}
+
+.manager-card-assignment-item span {
+  color: var(--dashboard-secondary);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.manager-card-assignment-item strong {
+  margin-top: 3px;
+  font-size: 13px;
+}
+
+.manager-card-assignment-item button {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  background: #fef2f2;
+  color: #b91c1c;
+  cursor: pointer;
+}
+
+.manager-card-no-assignment {
+  display: block;
+  padding: 12px;
+  border: 1px dashed var(--border);
+  border-radius: 13px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.dashboard-layout.dark-mode .manager-view-mode-bar,
+.dashboard-layout.dark-mode .manager-list-actions button {
+  border-color: #334155;
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+.dashboard-layout.dark-mode .manager-view-mode-buttons,
+.dashboard-layout.dark-mode .manager-assignment-item,
+.dashboard-layout.dark-mode .manager-card-assignment-item {
+  border-color: #334155;
+  background: #172033;
+}
+
+.dashboard-layout.dark-mode .manager-list-table th,
+.dashboard-layout.dark-mode .manager-list-table td {
+  border-color: #334155;
+}
+
+.dashboard-layout.dark-mode .manager-assignment-remove,
+.dashboard-layout.dark-mode .manager-list-actions button.danger,
+.dashboard-layout.dark-mode .manager-card-assignment-item button {
+  border-color: #7f1d1d;
+  background: rgba(127, 29, 29, 0.24);
+  color: #fecaca;
+}
+
+@media (max-width: 760px) {
+  .manager-view-mode-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .manager-view-mode-buttons {
+    width: 100%;
+  }
+
+  .manager-view-mode-buttons button {
+    flex: 1;
+  }
+}

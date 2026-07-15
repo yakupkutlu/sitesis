@@ -5,10 +5,16 @@ import {
   Bell,
   BrainCircuit,
   Building2,
+  Eye,
+  Grid2X2,
+  List,
   MessageSquareText,
   Mail,
+  Pencil,
   Plus,
+  Power,
   Settings,
+  Trash2,
   UserRound,
   Users,
 } from "lucide-react";
@@ -70,6 +76,10 @@ function formatDate(value) {
   } catch {
     return "-";
   }
+}
+
+function getAssignmentTypeLabel(assignment) {
+  return assignment?.scopeType === "SITE" ? "Site" : "Blok";
 }
 
 function getAssignmentLabel(assignment) {
@@ -170,6 +180,8 @@ function ManagersPage() {
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("Tümü");
+
+  const [viewMode, setViewMode] = useState("LIST");
 
   const [formData, setFormData] = useState(emptyFormData);
   const [isLoading, setIsLoading] = useState(true);
@@ -528,63 +540,35 @@ function ManagersPage() {
         setStatusFilter={setStatusFilter}
       />
 
-      <section className="dashboard-panel">
-        <span className="section-kicker">Yetki Kapsamları</span>
-        <h3>Yönetici Yetkileri</h3>
+      <section className="manager-view-mode-bar">
+        <div>
+          <span className="section-kicker">Gösterim Şekli</span>
+          <strong>
+            Her yönetici yalnızca bir kez gösterilir; tüm yetkileri aynı kayıt
+            içinde listelenir.
+          </strong>
+        </div>
 
-        <p>
-          Bir yönetici bir siteye veya birden fazla bloğa atanabilir. Gereksiz
-          yetkileri buradan kaldırabilirsiniz.
-        </p>
+        <div className="manager-view-mode-buttons">
+          <button
+            type="button"
+            className={viewMode === "LIST" ? "active" : ""}
+            onClick={() => setViewMode("LIST")}
+            aria-pressed={viewMode === "LIST"}
+          >
+            <List size={18} />
+            Liste
+          </button>
 
-        <div className="apartments-table-wrapper">
-          <table className="apartments-table">
-            <thead>
-              <tr>
-                <th>Yönetici</th>
-                <th>Yetki Türü</th>
-                <th>Kapsam</th>
-                <th>İşlem</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {managerList.some((manager) => manager.assignments?.length > 0) ? (
-                managerList.flatMap((manager) =>
-                  (manager.assignments || []).map((assignment) => (
-                    <tr key={assignment.id}>
-                      <td>
-                        <strong>{manager.name}</strong>
-                        <br />
-                        <span>{manager.email}</span>
-                      </td>
-
-                      <td>{assignment.scopeType === "SITE" ? "Site" : "Blok"}</td>
-
-                      <td>{getAssignmentLabel(assignment)}</td>
-
-                      <td>
-                        <button
-                          type="button"
-                          className="danger-table-button"
-                          onClick={() => handleDeleteAssignment(assignment)}
-                          disabled={isSaving}
-                        >
-                          Yetkiyi Kaldır
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )
-              ) : (
-                <tr>
-                  <td colSpan="4" className="empty-table-message">
-                    Henüz yönetici yetkisi bulunamadı.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+          <button
+            type="button"
+            className={viewMode === "CARD" ? "active" : ""}
+            onClick={() => setViewMode("CARD")}
+            aria-pressed={viewMode === "CARD"}
+          >
+            <Grid2X2 size={18} />
+            Kart
+          </button>
         </div>
       </section>
 
@@ -592,7 +576,127 @@ function ManagersPage() {
         <div className="dashboard-panel">
           <p>Yönetici kayıtları yükleniyor...</p>
         </div>
-      ) : filteredManagers.length > 0 ? (
+      ) : filteredManagers.length === 0 ? (
+        <div className="dashboard-panel">
+          <p>Yönetici kaydı bulunamadı.</p>
+        </div>
+      ) : viewMode === "LIST" ? (
+        <section className="dashboard-panel manager-list-panel">
+          <div className="manager-list-table-wrapper">
+            <table className="manager-list-table">
+              <thead>
+                <tr>
+                  <th>Yönetici</th>
+                  <th>Durum</th>
+                  <th>Yetkiler</th>
+                  <th>İşlemler</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {filteredManagers.map((manager) => (
+                  <tr key={manager.id}>
+                    <td>
+                      <div className="manager-list-person">
+                        <div className="manager-list-avatar">
+                          <UserRound size={20} />
+                        </div>
+
+                        <div>
+                          <strong>{manager.name}</strong>
+                          <span>{manager.email}</span>
+                          <span>{manager.phone}</span>
+                        </div>
+                      </div>
+                    </td>
+
+                    <td>
+                      <span
+                        className={`manager-status ${
+                          manager.status === "Aktif" ? "active" : "passive"
+                        }`}
+                      >
+                        {manager.status}
+                      </span>
+                    </td>
+
+                    <td>
+                      <div className="manager-assignment-list">
+                        {manager.assignments.length > 0 ? (
+                          manager.assignments.map((assignment) => (
+                            <div
+                              className="manager-assignment-item"
+                              key={assignment.id}
+                            >
+                              <div>
+                                <span>
+                                  {getAssignmentTypeLabel(assignment)}
+                                </span>
+                                <strong>
+                                  {getAssignmentLabel(assignment)}
+                                </strong>
+                              </div>
+
+                              <button
+                                type="button"
+                                className="manager-assignment-remove"
+                                onClick={() =>
+                                  handleDeleteAssignment(assignment)
+                                }
+                                disabled={isSaving}
+                                title="Bu yetkiyi kaldır"
+                              >
+                                <Trash2 size={15} />
+                                Yetkiyi Kaldır
+                              </button>
+                            </div>
+                          ))
+                        ) : (
+                          <span className="manager-no-assignment">
+                            Henüz atanmadı
+                          </span>
+                        )}
+                      </div>
+                    </td>
+
+                    <td>
+                      <div className="manager-list-actions">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedManager(manager)}
+                        >
+                          <Eye size={16} />
+                          Görüntüle
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleEdit(manager)}
+                        >
+                          <Pencil size={16} />
+                          Düzenle
+                        </button>
+
+                        <button
+                          type="button"
+                          className="danger"
+                          onClick={() => handleToggleStatus(manager)}
+                          disabled={isSaving}
+                        >
+                          <Power size={16} />
+                          {manager.status === "Aktif"
+                            ? "Pasifleştir"
+                            : "Aktifleştir"}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : (
         <section className="managers-grid">
           {filteredManagers.map((manager) => (
             <ManagerCard
@@ -601,13 +705,11 @@ function ManagersPage() {
               onView={setSelectedManager}
               onEdit={handleEdit}
               onToggleStatus={handleToggleStatus}
+              onDeleteAssignment={handleDeleteAssignment}
+              isSaving={isSaving}
             />
           ))}
         </section>
-      ) : (
-        <div className="dashboard-panel">
-          <p>Yönetici kaydı bulunamadı.</p>
-        </div>
       )}
 
       <ManagerDetailsModal
