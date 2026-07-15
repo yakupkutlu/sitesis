@@ -2,6 +2,8 @@
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 import ProtectedRoute from "./components/auth/ProtectedRoute";
+import ManagerScopeGate from "./components/auth/ManagerScopeGate";
+import { ManagerScopeProvider } from "./context/ManagerScopeContext";
 
 import Home from "./pages/Home";
 import Features from "./pages/Features";
@@ -32,6 +34,7 @@ import ReceiptsPage from "./pages/manager/ReceiptsPage";
 import ManagerAnnouncementsPage from "./pages/manager/ManagerAnnouncementsPage";
 import ManagerRequestsPage from "./pages/manager/ManagerRequestsPage";
 import ManagerSettingsPage from "./pages/manager/ManagerSettingsPage";
+import ManagerScopeSelectPage from "./pages/manager/ManagerScopeSelectPage";
 
 import ResidentPaymentsPage from "./pages/resident/ResidentPaymentsPage";
 import ResidentReceiptsPage from "./pages/resident/ResidentReceiptsPage";
@@ -47,6 +50,13 @@ function protect(allowedRoles, element) {
   );
 }
 
+function protectManager(element) {
+  return protect(
+    ["MANAGER"],
+    <ManagerScopeGate>{element}</ManagerScopeGate>
+  );
+}
+
 function App() {
   const location = useLocation();
 
@@ -57,6 +67,7 @@ function App() {
 
   return (
     <div className="app">
+      <ManagerScopeProvider>
       {!isDashboardRoute && <Navbar />}
 
       <Routes>
@@ -67,7 +78,7 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
-        
+
         <Route path="/super-admin/dashboard" element={protect(["SUPER_ADMIN"], <SuperAdminDashboard />)} />
         <Route path="/super-admin/buildings" element={protect(["SUPER_ADMIN"], <BuildingsPage />)} />
         <Route path="/super-admin/managers" element={protect(["SUPER_ADMIN"], <ManagersPage />)} />
@@ -77,14 +88,15 @@ function App() {
         <Route path="/super-admin/settings" element={protect(["SUPER_ADMIN"], <SettingsPage />)} />
         <Route path="/super-admin/users" element={protect(["SUPER_ADMIN"], <UsersPage />)} />
 
-        <Route path="/manager/dashboard" element={protect(["MANAGER"], <ManagerDashboard />)} />
-        <Route path="/manager/apartments" element={protect(["MANAGER"], <ApartmentsPage />)} />
-        <Route path="/manager/residents" element={protect(["MANAGER"], <ResidentsPage />)} />
-        <Route path="/manager/payments" element={protect(["MANAGER"], <PaymentsPage />)} />
-        <Route path="/manager/receipts" element={protect(["MANAGER"], <ReceiptsPage />)} />
-        <Route path="/manager/announcements" element={protect(["MANAGER"], <ManagerAnnouncementsPage />)} />
-        <Route path="/manager/requests" element={protect(["MANAGER"], <ManagerRequestsPage />)} />
-        <Route path="/manager/settings" element={protect(["MANAGER"], <ManagerSettingsPage />)} />
+        <Route path="/manager/select-scope" element={protect(["MANAGER"], <ManagerScopeSelectPage />)} />
+        <Route path="/manager/dashboard" element={protectManager(<ManagerDashboard />)} />
+        <Route path="/manager/apartments" element={protectManager(<ApartmentsPage />)} />
+        <Route path="/manager/residents" element={protectManager(<ResidentsPage />)} />
+        <Route path="/manager/payments" element={protectManager(<PaymentsPage />)} />
+        <Route path="/manager/receipts" element={protectManager(<ReceiptsPage />)} />
+        <Route path="/manager/announcements" element={protectManager(<ManagerAnnouncementsPage />)} />
+        <Route path="/manager/requests" element={protectManager(<ManagerRequestsPage />)} />
+        <Route path="/manager/settings" element={protectManager(<ManagerSettingsPage />)} />
 
         <Route path="/resident/dashboard" element={protect(["RESIDENT"], <ResidentDashboard />)} />
         <Route path="/resident/payments" element={protect(["RESIDENT"], <ResidentPaymentsPage />)} />
@@ -98,6 +110,7 @@ function App() {
       </Routes>
 
       {!isDashboardRoute && <Footer />}
+      </ManagerScopeProvider>
     </div>
   );
 }

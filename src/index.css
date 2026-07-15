@@ -13411,3 +13411,306 @@ dashboard-layout .topbar-help-button {
     flex: 1;
   }
 }
+/* =================================
+   MANAGER ACTIVE SCOPE SELECTION
+================================= */
+
+.topbar-manager-scope-button {
+  max-width: 280px;
+  min-height: 46px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #ffffff;
+  color: var(--dashboard-secondary);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.topbar-manager-scope-button > span {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar-manager-scope-button small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.topbar-manager-scope-button strong {
+  max-width: 210px;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar-manager-scope-button:hover {
+  border-color: var(--dashboard-accent);
+  background: var(--dashboard-bg-soft);
+}
+
+.manager-scope-select-page {
+  min-height: 100vh;
+  padding: 28px;
+  background:
+    radial-gradient(
+      circle at top right,
+      rgba(14, 165, 233, 0.12),
+      transparent 34%
+    ),
+    linear-gradient(135deg, #f8fafc, #eef4f8);
+}
+
+.manager-scope-select-shell {
+  width: min(1120px, 100%);
+  margin: 0 auto;
+}
+
+.manager-scope-select-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.manager-scope-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.manager-scope-brand > span {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 15px;
+  background: linear-gradient(135deg, #0284c7, #0f766e);
+  color: #ffffff;
+}
+
+.manager-scope-brand strong,
+.manager-scope-brand small {
+  display: block;
+}
+
+.manager-scope-brand strong {
+  font-size: 18px;
+}
+
+.manager-scope-brand small {
+  margin-top: 3px;
+  color: #64748b;
+  font-weight: 700;
+}
+
+.manager-scope-logout {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #b91c1c;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.manager-scope-select-intro {
+  max-width: 760px;
+  margin: 70px auto 32px;
+  text-align: center;
+}
+
+.manager-scope-select-intro h1 {
+  margin: 10px 0;
+  color: #0f172a;
+  font-size: clamp(30px, 4vw, 46px);
+}
+
+.manager-scope-select-intro p {
+  margin: 0;
+  color: #64748b;
+  font-size: 16px;
+  line-height: 1.8;
+}
+
+.manager-scope-option-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.manager-scope-option-card {
+  padding: 24px;
+  border: 1px solid #dbe4ee;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.07);
+}
+
+.manager-scope-option-card.active {
+  border-color: #0ea5e9;
+  box-shadow: 0 18px 50px rgba(14, 165, 233, 0.14);
+}
+
+.manager-scope-option-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.manager-scope-option-icon {
+  width: 50px;
+  height: 50px;
+  display: grid;
+  place-items: center;
+  border-radius: 15px;
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.manager-scope-type {
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: #ecfeff;
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.manager-scope-option-card h2 {
+  margin: 22px 0 10px;
+  color: #0f172a;
+  font-size: 22px;
+}
+
+.manager-scope-option-card > p {
+  min-height: 48px;
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 0 0 20px;
+  color: #64748b;
+  line-height: 1.6;
+}
+
+.manager-scope-option-card .dashboard-action-button {
+  width: 100%;
+  justify-content: center;
+}
+
+.manager-scope-empty,
+.manager-scope-gate-screen {
+  width: min(650px, calc(100% - 32px));
+  margin: 12vh auto;
+  padding: 36px;
+  border: 1px solid #dbe4ee;
+  border-radius: 24px;
+  background: #ffffff;
+  color: #0f172a;
+  text-align: center;
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.07);
+}
+
+.manager-scope-empty p,
+.manager-scope-gate-screen p {
+  color: #64748b;
+  line-height: 1.7;
+}
+
+.manager-dashboard-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.manager-current-scope-badge {
+  max-width: 280px;
+  padding: 9px 13px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.manager-current-scope-badge span,
+.manager-current-scope-badge strong {
+  display: block;
+}
+
+.manager-current-scope-badge span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.manager-current-scope-badge strong {
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--dashboard-secondary);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-layout.dark-mode .topbar-manager-scope-button,
+.dashboard-layout.dark-mode .manager-current-scope-badge {
+  border-color: #334155;
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+@media (max-width: 800px) {
+  .manager-scope-option-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .manager-scope-select-page {
+    padding: 18px;
+  }
+
+  .manager-dashboard-header-actions {
+    width: 100%;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .manager-current-scope-badge {
+    max-width: none;
+  }
+
+  .topbar-manager-scope-button {
+    max-width: 180px;
+  }
+}
+
+@media (max-width: 560px) {
+  .manager-scope-select-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .manager-scope-logout {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .manager-scope-select-intro {
+    margin-top: 42px;
+  }
+
+  .topbar-manager-scope-button {
+    display: none;
+  }
+}

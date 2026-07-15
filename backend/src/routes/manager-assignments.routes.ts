@@ -14,7 +14,40 @@ import { HttpError } from "../utils/http-error.js";
 const router = express.Router();
 
 router.use(requireAuth);
-router.use(requireRole("SUPER_ADMIN"));
+
+const managerAssignmentInclude = {
+  manager: {
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      phone: true,
+      role: true,
+      status: true,
+    },
+  },
+  site: {
+    select: {
+      id: true,
+      name: true,
+      address: true,
+    },
+  },
+  block: {
+    select: {
+      id: true,
+      name: true,
+      siteId: true,
+      site: {
+        select: {
+          id: true,
+          name: true,
+          address: true,
+        },
+      },
+    },
+  },
+} as const;
 
 const createManagerAssignmentSchema = z.object({
   managerId: z.string().uuid(),
@@ -23,21 +56,162 @@ const createManagerAssignmentSchema = z.object({
   blockId: z.string().uuid().optional(),
 });
 
+const selectActiveAssignmentSchema = z
+  .object({
+    assignmentId: z.string().uuid(),
+  })
+  .strict();
+
+function getAuthenticatedUser(request: Request) {
+  const authenticatedRequest = request as AuthenticatedRequest;
+
+  if (!authenticatedRequest.user) {
+    throw new HttpError(401, "Oturum bulunamadı.");
+  }
+
+  return authenticatedRequest.user;
+}
+
+async function makeFirstAssignmentActive(
+  managerId: string,
+  assignmentId: string
+) {
+  const assignmentCount = await prisma.managerAssignment.count({
+    where: {
+      managerId,
+    },
+  });
+
+  if (assignmentCount !== 1) {
+    return;
+  }
+
+  await prisma.user.update({
+    where: {
+      id: managerId,
+    },
+    data: {
+      activeManagerAssignmentId: assignmentId,
+    },
+  });
+}
+
+/*
+ * MANAGER ROUTES
+ * Bunlar SUPER_ADMIN middleware'inden önce olmalıdır.
+ */
+
 router.get(
-  "/",
-  asyncHandler(async (_request: Request, response: Response) => {
-    const assignments = await prisma.managerAssignment.findMany({
-      include: {
-        manager: {
-          select: {
-            id: true,
-            fullName: true,
-            email: true,
-            phone: true,
-            role: true,
-            status: true,
+  "/me",
+  requireRole("MANAGER"),
+  asyncHandler(async (request: Request, response: Response) => {
+    const manager = getAuthenticatedUser(request);
+
+    const managerRecord = await prisma.user.findUnique({
+      where: {
+        id: manager.id,
+      },
+      select: {
+        activeManagerAssignmentId: true,
+        managerAssignments: {
+          include: {
+            site: {
+              select: {
+                id: true,
+                name: true,
+                address: true,
+              },
+            },
+            block: {
+              select: {
+                id: true,
+                name: true,
+                siteId: true,
+                site: {
+                  select: {
+                    id: true,
+                    name: true,
+                    address: true,
+                  },
+                },
+              },
+            },
+          },
+          orderBy: {
+            createdAt: "asc",
           },
         },
+      },
+    });
+
+    if (!managerRecord) {
+      throw new HttpError(404, "Yönetici kullanıcısı bulunamadı.");
+    }
+
+    const assignments = managerRecord.managerAssignments;
+
+    const savedActiveAssignment = assignments.find(
+      (assignment) =>
+        assignment.id === managerRecord.activeManagerAssignmentId
+    );
+
+    let activeAssignmentId = savedActiveAssignment?.id ?? null;
+
+    if (!activeAssignmentId && assignments.length === 1) {
+      activeAssignmentId = assignments[0].id;
+
+      await prisma.user.update({
+        where: {
+          id: manager.id,
+        },
+        data: {
+          activeManagerAssignmentId: activeAssignmentId,
+        },
+      });
+    }
+
+    response.status(200).json({
+      success: true,
+      data: {
+        assignments,
+        activeAssignmentId,
+        activeAssignment:
+          assignments.find(
+            (assignment) => assignment.id === activeAssignmentId
+          ) ?? null,
+        requiresSelection:
+          assignments.length > 1 && activeAssignmentId === null,
+      },
+    });
+  })
+);
+
+router.patch(
+  "/me/active",
+  requireRole("MANAGER"),
+  asyncHandler(async (request: Request, response: Response) => {
+    const manager = getAuthenticatedUser(request);
+
+    const validationResult = selectActiveAssignmentSchema.safeParse(
+      request.body
+    );
+
+    if (!validationResult.success) {
+      throw new HttpError(
+        400,
+        "Çalışma alanı seçimi geçersiz.",
+        validationResult.error.flatten().fieldErrors
+      );
+    }
+
+    const { assignmentId } = validationResult.data;
+
+    const assignment = await prisma.managerAssignment.findFirst({
+      where: {
+        id: assignmentId,
+        managerId: manager.id,
+      },
+      include: {
         site: {
           select: {
             id: true,
@@ -49,6 +223,7 @@ router.get(
           select: {
             id: true,
             name: true,
+            siteId: true,
             site: {
               select: {
                 id: true,
@@ -59,6 +234,71 @@ router.get(
           },
         },
       },
+    });
+
+    if (!assignment) {
+      throw new HttpError(
+        404,
+        "Seçilen çalışma alanı bu yöneticiye ait değil."
+      );
+    }
+
+    const currentUser = await prisma.user.findUnique({
+      where: {
+        id: manager.id,
+      },
+      select: {
+        activeManagerAssignmentId: true,
+      },
+    });
+
+    await prisma.user.update({
+      where: {
+        id: manager.id,
+      },
+      data: {
+        activeManagerAssignmentId: assignment.id,
+      },
+    });
+
+    await createAuditLog({
+      request,
+      userId: manager.id,
+      action: "SELECT_MANAGER_WORK_SCOPE",
+      entityType: "ManagerAssignment",
+      entityId: assignment.id,
+      metadata: {
+        previousAssignmentId:
+          currentUser?.activeManagerAssignmentId ?? null,
+        currentAssignmentId: assignment.id,
+        scopeType: assignment.scopeType,
+        siteId: assignment.siteId,
+        blockId: assignment.blockId,
+      },
+    });
+
+    response.status(200).json({
+      success: true,
+      message: "Çalışma alanı başarıyla seçildi.",
+      data: {
+        activeAssignmentId: assignment.id,
+        activeAssignment: assignment,
+      },
+    });
+  })
+);
+
+/*
+ * SUPER ADMIN ROUTES
+ */
+
+router.use(requireRole("SUPER_ADMIN"));
+
+router.get(
+  "/",
+  asyncHandler(async (_request: Request, response: Response) => {
+    const assignments = await prisma.managerAssignment.findMany({
+      include: managerAssignmentInclude,
       orderBy: {
         createdAt: "desc",
       },
@@ -80,7 +320,9 @@ router.post(
       throw new HttpError(401, "Oturum bulunamadı.");
     }
 
-    const validationResult = createManagerAssignmentSchema.safeParse(request.body);
+    const validationResult = createManagerAssignmentSchema.safeParse(
+      request.body
+    );
 
     if (!validationResult.success) {
       throw new HttpError(
@@ -120,11 +362,17 @@ router.post(
 
     if (scopeType === "SITE") {
       if (!siteId) {
-        throw new HttpError(400, "Site yetkisi için site seçimi zorunludur.");
+        throw new HttpError(
+          400,
+          "Site yetkisi için site seçimi zorunludur."
+        );
       }
 
       if (blockId) {
-        throw new HttpError(400, "Site yetkisinde blockId gönderilmemelidir.");
+        throw new HttpError(
+          400,
+          "Site yetkisinde blockId gönderilmemelidir."
+        );
       }
 
       const site = await prisma.site.findUnique({
@@ -152,7 +400,10 @@ router.post(
       });
 
       if (existingAssignment) {
-        throw new HttpError(409, "Bu yönetici zaten bu siteye atanmış.");
+        throw new HttpError(
+          409,
+          "Bu yönetici zaten bu siteye atanmış."
+        );
       }
 
       const assignment = await prisma.managerAssignment.create({
@@ -161,25 +412,10 @@ router.post(
           scopeType,
           siteId,
         },
-        include: {
-          manager: {
-            select: {
-              id: true,
-              fullName: true,
-              email: true,
-              role: true,
-              status: true,
-            },
-          },
-          site: {
-            select: {
-              id: true,
-              name: true,
-              address: true,
-            },
-          },
-        },
+        include: managerAssignmentInclude,
       });
+
+      await makeFirstAssignmentActive(managerId, assignment.id);
 
       await createAuditLog({
         request,
@@ -204,11 +440,17 @@ router.post(
     }
 
     if (!blockId) {
-      throw new HttpError(400, "Blok/Apartman yetkisi için block seçimi zorunludur.");
+      throw new HttpError(
+        400,
+        "Blok/Apartman yetkisi için block seçimi zorunludur."
+      );
     }
 
     if (siteId) {
-      throw new HttpError(400, "Blok yetkisinde siteId gönderilmemelidir.");
+      throw new HttpError(
+        400,
+        "Blok yetkisinde siteId gönderilmemelidir."
+      );
     }
 
     const block = await prisma.block.findUnique({
@@ -236,7 +478,10 @@ router.post(
     });
 
     if (existingAssignment) {
-      throw new HttpError(409, "Bu yönetici zaten bu blok/apartmana atanmış.");
+      throw new HttpError(
+        409,
+        "Bu yönetici zaten bu blok/apartmana atanmış."
+      );
     }
 
     const assignment = await prisma.managerAssignment.create({
@@ -245,31 +490,10 @@ router.post(
         scopeType,
         blockId,
       },
-      include: {
-        manager: {
-          select: {
-            id: true,
-            fullName: true,
-            email: true,
-            role: true,
-            status: true,
-          },
-        },
-        block: {
-          select: {
-            id: true,
-            name: true,
-            site: {
-              select: {
-                id: true,
-                name: true,
-                address: true,
-              },
-            },
-          },
-        },
-      },
+      include: managerAssignmentInclude,
     });
+
+    await makeFirstAssignmentActive(managerId, assignment.id);
 
     await createAuditLog({
       request,
@@ -304,16 +528,18 @@ router.delete(
     const assignmentIdParam = request.params.assignmentId;
 
     if (
-          typeof assignmentIdParam !== "string" ||
-          assignmentIdParam.trim().length === 0
+      typeof assignmentIdParam !== "string" ||
+      assignmentIdParam.trim().length === 0
     ) {
-  throw new HttpError(400, "Yönetici yetki id bilgisi zorunludur.");
-}
+      throw new HttpError(
+        400,
+        "Yönetici yetki id bilgisi zorunludur."
+      );
+    }
 
-const assignmentId = assignmentIdParam;
     const assignment = await prisma.managerAssignment.findUnique({
       where: {
-        id: assignmentId,
+        id: assignmentIdParam,
       },
       select: {
         id: true,
@@ -328,11 +554,21 @@ const assignmentId = assignmentIdParam;
       throw new HttpError(404, "Yönetici yetki kaydı bulunamadı.");
     }
 
-    await prisma.managerAssignment.delete({
-      where: {
-        id: assignmentId,
-      },
-    });
+    await prisma.$transaction([
+      prisma.user.updateMany({
+        where: {
+          activeManagerAssignmentId: assignment.id,
+        },
+        data: {
+          activeManagerAssignmentId: null,
+        },
+      }),
+      prisma.managerAssignment.delete({
+        where: {
+          id: assignment.id,
+        },
+      }),
+    ]);
 
     await createAuditLog({
       request,
@@ -356,4 +592,3 @@ const assignmentId = assignmentIdParam;
 );
 
 export default router;
-

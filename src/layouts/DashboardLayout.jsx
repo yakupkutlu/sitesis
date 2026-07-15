@@ -1,11 +1,12 @@
 ﻿import { useEffect, useState } from "react";
-import { Link, NavLink, useNavigate } from "react-router-dom";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   Bell,
   Building2,
   ChevronLeft,
   CircleHelp,
   LogOut,
+  MapPin,
   Menu,
   ShieldCheck,
   UserRound,
@@ -13,6 +14,7 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "../context/AuthContext";
+import { useManagerScope } from "../hooks/useManagerScope";
 
 const notificationsByRole = {
   "Süper Admin": [
@@ -110,7 +112,12 @@ function DashboardLayout({
   children,
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { logout } = useAuth();
+  const {
+    activeAssignment,
+    activeAssignmentLabel,
+  } = useManagerScope();
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
@@ -172,6 +179,16 @@ function DashboardLayout({
     setIsNotificationMenuOpen((currentValue) => !currentValue);
     setIsProfileMenuOpen(false);
     setIsHelpOpen(false);
+  }
+
+  function openManagerScopeSelector() {
+    closeTopbarMenus();
+
+    navigate("/manager/select-scope", {
+      state: {
+        from: location.pathname,
+      },
+    });
   }
 
   function toggleHelp() {
@@ -300,6 +317,22 @@ function DashboardLayout({
           </div>
 
           <div className="topbar-actions">
+            {roleBadge === "Yönetici" && activeAssignment && (
+              <button
+                type="button"
+                className="topbar-manager-scope-button"
+                onClick={openManagerScopeSelector}
+                title="Çalışma alanını değiştir"
+              >
+                <MapPin size={18} />
+
+                <span>
+                  <small>Çalışma Alanı</small>
+                  <strong>{activeAssignmentLabel}</strong>
+                </span>
+              </button>
+            )}
+
             {helpContent && (
               <button
                 type="button"

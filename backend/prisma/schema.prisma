@@ -132,6 +132,8 @@ model User {
   uploadedReceipts              PaymentReceipt[]        @relation("UploadedReceipts")
   reviewedReceipts              PaymentReceipt[]        @relation("ReviewedReceipts")
   managerAssignments            ManagerAssignment[]     @relation("ManagerAssignments")
+  activeManagerAssignmentId     String?                 @unique
+  activeManagerAssignment       ManagerAssignment?      @relation("ActiveManagerAssignment", fields: [activeManagerAssignmentId], references: [id], onDelete: SetNull)
   auditLogs                     AuditLog[]              @relation("UserAuditLogs")
   announcements                 Announcement[]          @relation("UserAnnouncements")
   announcementReads             AnnouncementRead[]      @relation("UserAnnouncementReads")
@@ -350,8 +352,9 @@ model ManagerAssignment {
   blockId String?
   block   Block?  @relation(fields: [blockId], references: [id], onDelete: Cascade)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  activeForUser User?    @relation("ActiveManagerAssignment")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@index([managerId])
   @@index([siteId])

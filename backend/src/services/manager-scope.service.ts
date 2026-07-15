@@ -5,29 +5,61 @@ export type ManagerScope = {
   blockIds: string[];
 };
 
-export async function getManagerScope(managerId: string): Promise<ManagerScope> {
-  const assignments = await prisma.managerAssignment.findMany({
+export async function getManagerScope(
+  managerId: string
+): Promise<ManagerScope> {
+  const manager = await prisma.user.findUnique({
     where: {
-      managerId,
+      id: managerId,
     },
     select: {
-      scopeType: true,
-      siteId: true,
-      blockId: true,
+      activeManagerAssignmentId: true,
+      managerAssignments: {
+        select: {
+          id: true,
+          scopeType: true,
+          siteId: true,
+          blockId: true,
+        },
+        orderBy: {
+          createdAt: "asc",
+        },
+      },
     },
   });
 
-  const siteIds = assignments
-    .filter((assignment) => assignment.scopeType === "SITE" && assignment.siteId)
-    .map((assignment) => assignment.siteId as string);
+  if (!manager || manager.managerAssignments.length === 0) {
+    return {
+      siteIds: [],
+      blockIds: [],
+    };
+  }
 
-  const blockIds = assignments
-    .filter((assignment) => assignment.scopeType === "BLOCK" && assignment.blockId)
-    .map((assignment) => assignment.blockId as string);
+  let activeAssignment = manager.managerAssignments.find(
+    (assignment) =>
+      assignment.id === manager.activeManagerAssignmentId
+  );
+
+  if (!activeAssignment && manager.managerAssignments.length === 1) {
+    activeAssignment = manager.managerAssignments[0];
+  }
+
+  if (!activeAssignment) {
+    return {
+      siteIds: [],
+      blockIds: [],
+    };
+  }
 
   return {
-    siteIds,
-    blockIds,
+    siteIds:
+      activeAssignment.scopeType === "SITE" && activeAssignment.siteId
+        ? [activeAssignment.siteId]
+        : [],
+    blockIds:
+      activeAssignment.scopeType === "BLOCK" && activeAssignment.blockId
+        ? [activeAssignment.blockId]
+        : [],
   };
 }
 

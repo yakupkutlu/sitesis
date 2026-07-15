@@ -19,6 +19,7 @@ import {
 
 import { getManagerDashboardSummary } from "../../api/dashboardSummaryApi";
 import { useAuth } from "../../context/AuthContext";
+import { useManagerScope } from "../../hooks/useManagerScope";
 
 const navItems = [
   { label: "Panel", path: "/manager/dashboard", icon: BarChart3 },
@@ -70,13 +71,20 @@ function formatNumber(value) {
 
 function ManagerDashboard() {
   const { user } = useAuth();
+  const {
+    activeAssignmentId,
+    activeAssignmentLabel,
+  } = useManagerScope();
 
   const [summary, setSummary] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
 
-  useEffect(() => {
-    let isMounted = true;
+useEffect(() => {
+  let isMounted = true;
+
+  const timeoutId = window.setTimeout(() => {
+    setIsLoading(true);
 
     getManagerDashboardSummary()
       .then((result) => {
@@ -97,11 +105,13 @@ function ManagerDashboard() {
 
         setIsLoading(false);
       });
+  }, 0);
 
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  return () => {
+    isMounted = false;
+    window.clearTimeout(timeoutId);
+  };
+}, [activeAssignmentId]);
 
   const stats = useMemo(
     () => [
@@ -195,10 +205,17 @@ function ManagerDashboard() {
           </p>
         </div>
 
-        <Link to="/manager/payments" className="dashboard-action-button">
-          <Plus size={18} />
-          Yeni Aidat / Gider
-        </Link>
+        <div className="manager-dashboard-header-actions">
+          <div className="manager-current-scope-badge">
+            <span>Aktif Çalışma Alanı</span>
+            <strong>{activeAssignmentLabel}</strong>
+          </div>
+
+          <Link to="/manager/payments" className="dashboard-action-button">
+            <Plus size={18} />
+            Yeni Aidat / Gider
+          </Link>
+        </div>
       </div>
 
       {errorMessage && (

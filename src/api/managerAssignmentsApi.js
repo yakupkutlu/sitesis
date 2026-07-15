@@ -16,3 +16,16 @@ export async function deleteManagerAssignment(assignmentId) {
     method: "DELETE",
   });
 }
+
+export async function getMyManagerAssignments() {
+  return apiRequest("/manager-assignments/me");
+}
+
+export async function selectMyManagerAssignment(assignmentId) {
+  return apiRequest("/manager-assignments/me/active", {
+    method: "PATCH",
+    body: {
+      assignmentId,
+    },
+  });
+}
