@@ -12703,3 +12703,399 @@ dashboard-layout .topbar-help-button {
   background: #1e293b;
   border-color: var(--dashboard-accent);
 }
+.ai-help-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.ai-settings-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.ai-settings-summary > div {
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  background: #ffffff;
+  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.04);
+}
+
+.ai-settings-summary span {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.ai-settings-summary strong {
+  display: block;
+  margin-top: 8px;
+  color: var(--dashboard-secondary);
+  font-size: 28px;
+}
+
+.ai-settings-list-card {
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 26px;
+  background: #ffffff;
+  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.04);
+}
+
+.ai-settings-list-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.ai-settings-list-header h3 {
+  margin: 8px 0 0;
+  font-size: 24px;
+}
+
+.ai-settings-list-header p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.ai-settings-table-wrapper {
+  overflow-x: auto;
+}
+
+.ai-settings-table {
+  width: 100%;
+  min-width: 1100px;
+  border-collapse: collapse;
+}
+
+.ai-settings-table th,
+.ai-settings-table td {
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.ai-settings-table th {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.ai-settings-table td > strong {
+  display: block;
+}
+
+.ai-expiry-badge {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 6px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.ai-expiry-badge.valid {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.ai-expiry-badge.soon {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.ai-expiry-badge.expired {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.ai-expiry-badge.none {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.ai-table-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ai-table-action {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: #ffffff;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.ai-table-action:hover {
+  background: var(--dashboard-bg-soft);
+  border-color: var(--dashboard-accent);
+}
+
+.ai-table-action.test {
+  color: var(--dashboard-secondary);
+}
+
+.ai-table-action.delete {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.ai-table-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.ai-empty-state {
+  margin: 0;
+  padding: 20px;
+  border: 1px dashed var(--border);
+  border-radius: 18px;
+  color: var(--muted);
+  text-align: center;
+  font-weight: 800;
+}
+
+.ai-settings-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 160;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.64);
+}
+
+.ai-settings-modal {
+  position: relative;
+  width: min(940px, 100%);
+  max-height: 92vh;
+  overflow: auto;
+}
+
+.ai-settings-modal .ai-settings-card {
+  margin: 0;
+  background: #ffffff;
+}
+
+.ai-modal-close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 4;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #ffffff;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.ai-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 22px;
+  flex-wrap: wrap;
+}
+
+.ai-form-actions .secondary-form-button,
+.ai-form-actions .dashboard-action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+}
+
+.dashboard-layout.dark-mode .ai-settings-summary > div,
+.dashboard-layout.dark-mode .ai-settings-list-card,
+.dashboard-layout.dark-mode .ai-settings-modal .ai-settings-card,
+.dashboard-layout.dark-mode .ai-table-action,
+.dashboard-layout.dark-mode .ai-modal-close {
+  border-color: #334155;
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+.dashboard-layout.dark-mode .ai-settings-table th,
+.dashboard-layout.dark-mode .ai-settings-table td {
+  border-color: #334155;
+}
+
+.dashboard-layout.dark-mode .ai-table-action.delete {
+  border-color: #7f1d1d;
+  background: rgba(127, 29, 29, 0.24);
+  color: #fecaca;
+}
+
+.dashboard-layout.dark-mode .ai-expiry-badge.none {
+  background: #334155;
+  color: #e2e8f0;
+}
+
+@media (max-width: 850px) {
+  .ai-help-grid,
+  .ai-settings-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-settings-modal-overlay {
+    padding: 12px;
+  }
+
+  .ai-form-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ai-form-actions button {
+    width: 100%;
+  }
+}
+/* ================================
+   GENERAL SETTINGS - SMALLER FONTS
+================================ */
+
+.general-settings-page .dashboard-page-header h2 {
+  font-size: 30px;
+}
+
+.general-settings-page .dashboard-page-header p {
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+/* Bilgilendirme kartı başlıkları */
+.general-settings-page .notification-info-card h3,
+.general-settings-page .settings-info-card h3 {
+  font-size: 18px;
+  line-height: 1.3;
+}
+
+/* Kart açıklamaları */
+.general-settings-page .notification-info-card p,
+.general-settings-page .settings-info-card p {
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+/* Kart liste yazıları */
+.general-settings-page .notification-info-card li,
+.general-settings-page .settings-info-card li {
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+/* Kartlar arasındaki dikey boşluğu biraz azaltır */
+.general-settings-page .notification-info-card ul,
+.general-settings-page .settings-info-card ul {
+  margin-top: 12px;
+  padding-left: 20px;
+}
+
+.general-settings-page .notification-info-card li + li,
+.general-settings-page .settings-info-card li + li {
+  margin-top: 7px;
+}
+/* =================================
+   BUILDING CARD - IMAGE PLACEHOLDER
+================================= */
+
+.building-image {
+  position: relative;
+  height: 230px;
+  overflow: hidden;
+  background: #f8fafc;
+}
+
+.building-image > img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.building-image-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
+  background:
+    radial-gradient(
+      circle at top right,
+      rgba(217, 119, 6, 0.16),
+      transparent 38%
+    ),
+    linear-gradient(135deg, #f8fafc, #eef2f7);
+  color: var(--dashboard-secondary);
+}
+
+.building-image-placeholder-icon {
+  width: 94px;
+  height: 94px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 4px;
+  border: 1px solid rgba(217, 119, 6, 0.22);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.1);
+}
+
+.building-image-placeholder strong {
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.building-image-placeholder span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.dashboard-layout.dark-mode .building-image-placeholder {
+  background:
+    radial-gradient(
+      circle at top right,
+      rgba(245, 158, 11, 0.14),
+      transparent 38%
+    ),
+    linear-gradient(135deg, #0f172a, #172033);
+  color: var(--dashboard-accent);
+}
+
+.dashboard-layout.dark-mode .building-image-placeholder-icon {
+  border-color: #334155;
+  background: #1e293b;
+}
+
+.dashboard-layout.dark-mode .building-image-placeholder span {
+  color: #94a3b8;
+}

@@ -536,14 +536,23 @@ model EmailSetting {
 model AiSetting {
   id String @id @default(uuid())
 
-  provider AiProvider
-  status   IntegrationStatus @default(PASSIVE)
+  provider  AiProvider
+  status    IntegrationStatus @default(PASSIVE)
+  priority  Int               @default(100)
+  expiresAt DateTime?
 
   name      String?
   modelName String?
   baseUrl   String?
 
   apiKeyEncrypted String?
+
+  consecutiveFailureCount Int       @default(0)
+  cooldownUntil           DateTime?
+  lastSuccessAt           DateTime?
+  lastFailureAt           DateTime?
+  lastFailureCode         String?
+  lastFailureMessage      String?
 
   createdByUserId String?
   createdByUser   User?   @relation("UserCreatedAiSettings", fields: [createdByUserId], references: [id], onDelete: SetNull)
@@ -556,6 +565,9 @@ model AiSetting {
 
   @@index([provider])
   @@index([status])
+  @@index([priority])
+  @@index([expiresAt])
+  @@index([cooldownUntil])
   @@index([createdByUserId])
   @@index([updatedByUserId])
 }

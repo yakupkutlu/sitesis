@@ -17,3 +17,25 @@ export async function updateAiSetting(aiSettingId, payload) {
     body: payload,
   });
 }
+
+export async function deleteAiSetting(aiSettingId) {
+  return apiRequest(`/ai-settings/${aiSettingId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function testAiSettingConnection(payload) {
+  return apiRequest("/ai-settings/test", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function reorderAiSettings(orderedIds) {
+  return apiRequest("/ai-settings/reorder", {
+    method: "PATCH",
+    body: {
+      orderedIds,
+    },
+  });
+}

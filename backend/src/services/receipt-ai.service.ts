@@ -2,6 +2,13 @@
 
 import prisma from "../db/prisma.js";
 import { decryptText } from "../utils/crypto.js";
+import {
+  AiProviderRequestError,
+  createAiProviderHttpError,
+  createAiTimeoutError,
+  markAiSettingFailure,
+  markAiSettingSuccess,
+} from "./ai-setting-health.service.js";
 
 type ReceiptAiAnalyzeInput = {
   filePath: string;
@@ -64,23 +71,19 @@ Kurallar:
 `;
 }
 
-
 function maskSensitiveReceiptText(value: string | null) {
   if (!value) {
     return null;
   }
 
   return value
-    // TCKN / 11 haneli kimlik numarası
     .replace(/\b\d{11}\b/g, "[TCKN GİZLENDİ]")
-    // IBAN
     .replace(/\bTR\d{2}[\s\d]{10,}\b/gi, "[IBAN GİZLENDİ]")
-    // Uzun banka / referans / işlem numaraları
     .replace(/\b\d{12,}\b/g, "[NUMARA GİZLENDİ]")
-    // Türkiye telefon numarası benzeri değerler
     .replace(/\b0?5\d{9}\b/g, "[TELEFON GİZLENDİ]")
     .trim();
 }
+
 function normalizeAiJson(rawText: string) {
   const cleanedText = rawText
     .trim()
@@ -109,18 +112,56 @@ function normalizeAiJson(rawText: string) {
         ? parsed.apartmentNumber.trim()
         : null,
     description:
-      typeof parsed.description === "string" && parsed.description.trim().length > 0
+      typeof parsed.description === "string" &&
+      parsed.description.trim().length > 0
         ? maskSensitiveReceiptText(parsed.description.trim())
         : null,
     paymentDate:
-      typeof parsed.paymentDate === "string" && parsed.paymentDate.trim().length > 0
+      typeof parsed.paymentDate === "string" &&
+      parsed.paymentDate.trim().length > 0
         ? parsed.paymentDate.trim()
         : null,
     confidence:
-      typeof parsed.confidence === "number" && Number.isFinite(parsed.confidence)
+      typeof parsed.confidence === "number" &&
+      Number.isFinite(parsed.confidence)
         ? Math.max(0, Math.min(1, parsed.confidence))
         : 0,
   };
+}
+
+async function fetchWithTimeout(
+  provider: string,
+  url: string,
+  init: RequestInit,
+  timeoutMs = 30_000
+) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw createAiTimeoutError(provider);
+    }
+
+    if (error instanceof AiProviderRequestError) {
+      throw error;
+    }
+
+    throw new AiProviderRequestError({
+      message:
+        error instanceof Error
+          ? error.message
+          : `${provider} servisine bağlanılamadı.`,
+      code: "NETWORK_ERROR",
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function callOpenAiVision(params: {
@@ -129,8 +170,11 @@ async function callOpenAiVision(params: {
   fileBase64: string;
   mimeType: string;
 }) {
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
+  const response = await fetchWithTimeout(
+    "OpenAI",
+    "https://api.openai.com/v1/chat/completions",
+    {
+      method: "POST",
     headers: {
       Authorization: `Bearer ${params.apiKey}`,
       "Content-Type": "application/json",
@@ -157,18 +201,26 @@ async function callOpenAiVision(params: {
           ],
         },
       ],
-    }),
-  });
+      }),
+    }
+  );
 
   if (!response.ok) {
-    throw new Error(`OpenAI isteği başarısız: ${response.status}`);
+    throw createAiProviderHttpError({
+      provider: "OpenAI",
+      status: response.status,
+      retryAfterHeader: response.headers.get("retry-after"),
+    });
   }
 
   const result = await response.json();
   const text = result?.choices?.[0]?.message?.content;
 
   if (typeof text !== "string") {
-    throw new Error("OpenAI cevabı okunamadı.");
+    throw new AiProviderRequestError({
+      message: "OpenAI cevabı okunamadı.",
+      code: "INVALID_RESPONSE",
+    });
   }
 
   return normalizeAiJson(text);
@@ -180,8 +232,11 @@ async function callGeminiVision(params: {
   fileBase64: string;
   mimeType: string;
 }) {
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${params.modelName}:generateContent?key=${params.apiKey}`,
+  const response = await fetchWithTimeout(
+    "Gemini",
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+      params.modelName
+    )}:generateContent?key=${encodeURIComponent(params.apiKey)}`,
     {
       method: "POST",
       headers: {
@@ -208,14 +263,21 @@ async function callGeminiVision(params: {
   );
 
   if (!response.ok) {
-    throw new Error(`Gemini isteği başarısız: ${response.status}`);
+    throw createAiProviderHttpError({
+      provider: "Gemini",
+      status: response.status,
+      retryAfterHeader: response.headers.get("retry-after"),
+    });
   }
 
   const result = await response.json();
   const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
 
   if (typeof text !== "string") {
-    throw new Error("Gemini cevabı okunamadı.");
+    throw new AiProviderRequestError({
+      message: "Gemini cevabı okunamadı.",
+      code: "INVALID_RESPONSE",
+    });
   }
 
   return normalizeAiJson(text);
@@ -229,8 +291,11 @@ async function callCustomVision(params: {
   mimeType: string;
   originalFileName: string;
 }) {
-  const response = await fetch(params.baseUrl, {
-    method: "POST",
+  const response = await fetchWithTimeout(
+    "CUSTOM AI",
+    params.baseUrl,
+    {
+      method: "POST",
     headers: {
       Authorization: `Bearer ${params.apiKey}`,
       "Content-Type": "application/json",
@@ -243,15 +308,21 @@ async function callCustomVision(params: {
         mimeType: params.mimeType,
         base64: params.fileBase64,
       },
-    }),
-  });
+      }),
+    }
+  );
 
   if (!response.ok) {
-    throw new Error(`CUSTOM AI isteği başarısız: ${response.status}`);
+    throw createAiProviderHttpError({
+      provider: "CUSTOM AI",
+      status: response.status,
+      retryAfterHeader: response.headers.get("retry-after"),
+    });
   }
 
   const result = await response.json();
-  const text = typeof result === "string" ? result : result?.text ?? result?.content;
+  const text =
+    typeof result === "string" ? result : result?.text ?? result?.content;
 
   if (typeof text !== "string") {
     return normalizeAiJson(JSON.stringify(result));
@@ -274,24 +345,58 @@ export async function analyzeReceiptWithAiFallback(
     };
   }
 
+  const now = new Date();
+
   const settings = await prisma.aiSetting.findMany({
     where: {
       status: "ACTIVE",
       apiKeyEncrypted: {
         not: null,
       },
+      AND: [
+        {
+          OR: [
+            {
+              expiresAt: null,
+            },
+            {
+              expiresAt: {
+                gte: now,
+              },
+            },
+          ],
+        },
+        {
+          OR: [
+            {
+              cooldownUntil: null,
+            },
+            {
+              cooldownUntil: {
+                lte: now,
+              },
+            },
+          ],
+        },
+      ],
     },
     select: {
       id: true,
       provider: true,
+      priority: true,
       modelName: true,
       baseUrl: true,
       apiKeyEncrypted: true,
       createdAt: true,
     },
-    orderBy: {
-      createdAt: "asc",
-    },
+    orderBy: [
+      {
+        priority: "asc",
+      },
+      {
+        createdAt: "asc",
+      },
+    ],
   });
 
   if (settings.length === 0) {
@@ -310,7 +415,9 @@ export async function analyzeReceiptWithAiFallback(
       const apiKey = decryptText(setting.apiKeyEncrypted);
       const modelName =
         setting.modelName ||
-        (setting.provider === "GEMINI" ? "gemini-2.5-flash" : "gpt-4o-mini");
+        (setting.provider === "GEMINI"
+          ? "gemini-2.5-flash"
+          : "gpt-4o-mini");
 
       let extracted;
 
@@ -341,23 +448,29 @@ export async function analyzeReceiptWithAiFallback(
         continue;
       }
 
+      await markAiSettingSuccess(setting.id);
+
       return {
         ...extracted,
         provider: setting.provider,
         modelName,
       };
     } catch (error) {
-      console.error("AI dekont analizi başarısız, sonraki sağlayıcı deneniyor:", {
-        provider: setting.provider,
-        modelName: setting.modelName,
-        error,
-      });
+      const normalizedError = await markAiSettingFailure(setting.id, error);
+
+      console.error(
+        "AI dekont analizi başarısız, sonraki sağlayıcı deneniyor:",
+        {
+          aiSettingId: setting.id,
+          priority: setting.priority,
+          provider: setting.provider,
+          modelName: setting.modelName,
+          errorCode: normalizedError.code,
+          error: normalizedError.message,
+        }
+      );
     }
   }
 
   return emptyAiResult;
 }
-
-
-
-

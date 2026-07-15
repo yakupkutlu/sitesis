@@ -1,10 +1,16 @@
-﻿import { Bot, CheckCircle2, Eye, EyeOff, KeyRound } from "lucide-react";
+﻿import {
+  Bot,
+  CheckCircle2,
+  Eye,
+  EyeOff,
+  KeyRound,
+} from "lucide-react";
 import { useState } from "react";
 
 const providerOptions = [
-  { value: "OPENAI", label: "OpenAI / ChatGPT" },
   { value: "GEMINI", label: "Google Gemini" },
-  { value: "CUSTOM", label: "Custom API" },
+  { value: "OPENAI", label: "OpenAI" },
+  { value: "CUSTOM", label: "Özel Sağlayıcı" },
 ];
 
 const statusOptions = [
@@ -18,8 +24,10 @@ function AiProviderForm({
   onSubmit,
   onTestConnection,
   isSaving = false,
+  isTesting = false,
 }) {
   const [showApiKey, setShowApiKey] = useState(false);
+  const isCustomProvider = formData.provider === "CUSTOM";
 
   return (
     <section className="ai-settings-card">
@@ -31,7 +39,9 @@ function AiProviderForm({
 
           <div>
             <span className="section-kicker">AI API Ayarları</span>
-            <h3>Yapay Zeka Sağlayıcı Ayarları</h3>
+            <h3>
+              {formData.id ? "AI Ayarını Düzenle" : "Yeni AI Ayarı"}
+            </h3>
           </div>
         </div>
 
@@ -45,9 +55,14 @@ function AiProviderForm({
       </div>
 
       <p className="ai-card-description">
-        Banka dekontlarını okumak ve ödeme eşleştirme önerisi oluşturmak için
-        kullanılacak yapay zeka sağlayıcısı buradan seçilir.
+        Dekont analizi için kullanılacak sağlayıcı, model, API anahtarı ve son
+        kullanım tarihi tanımlanır.
       </p>
+
+      <div className="ai-priority-form-note">
+        Kayıt eklendikten sonra kullanım sırasını tablodaki yukarı ve aşağı
+        oklarıyla değiştirebilirsiniz.
+      </div>
 
       <form className="ai-provider-form" onSubmit={onSubmit}>
         <div className="form-grid">
@@ -57,10 +72,10 @@ function AiProviderForm({
               name="provider"
               value={formData.provider}
               onChange={onInputChange}
-              disabled={isSaving}
+              disabled={isSaving || isTesting}
             >
               {providerOptions.map((option) => (
-                <option value={option.value} key={option.value}>
+                <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
               ))}
@@ -73,10 +88,10 @@ function AiProviderForm({
               name="status"
               value={formData.status}
               onChange={onInputChange}
-              disabled={isSaving}
+              disabled={isSaving || isTesting}
             >
               {statusOptions.map((option) => (
-                <option value={option.value} key={option.value}>
+                <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
               ))}
@@ -88,10 +103,11 @@ function AiProviderForm({
             <input
               name="name"
               type="text"
-              placeholder="Örn: Ana OpenAI Ayarı"
+              placeholder="Örn: Gemini Dekont Okuma"
               value={formData.name}
               onChange={onInputChange}
-              disabled={isSaving}
+              disabled={isSaving || isTesting}
+              required
             />
           </label>
 
@@ -100,54 +116,78 @@ function AiProviderForm({
             <input
               name="modelName"
               type="text"
-              placeholder="Örn: gpt-4.1-mini, gemini-1.5-pro"
+              placeholder={
+                formData.provider === "GEMINI"
+                  ? "Örn: gemini-2.5-flash"
+                  : formData.provider === "OPENAI"
+                    ? "Örn: gpt-4o-mini"
+                    : "Özel model adı"
+              }
               value={formData.modelName}
               onChange={onInputChange}
-              disabled={isSaving}
+              disabled={isSaving || isTesting}
             />
           </label>
 
-          <label className="full-width">
-            Base URL
+          <label>
+            Son Kullanım Tarihi
             <input
-              name="baseUrl"
-              type="text"
-              placeholder="Örn: https://api.provider.com/v1"
-              value={formData.baseUrl}
+              name="expiresAt"
+              type="date"
+              value={formData.expiresAt}
               onChange={onInputChange}
-              disabled={isSaving}
+              disabled={isSaving || isTesting}
             />
           </label>
+
+          {isCustomProvider && (
+            <label className="full-width">
+              Base URL
+              <input
+                name="baseUrl"
+                type="url"
+                placeholder="https://api.provider.com/v1/analyze"
+                value={formData.baseUrl}
+                onChange={onInputChange}
+                disabled={isSaving || isTesting}
+                required
+              />
+              <small>
+                Güvenlik nedeniyle yalnızca herkese açık HTTPS adresleri kabul
+                edilir. Localhost ve özel ağ adresleri reddedilir.
+              </small>
+            </label>
+          )}
 
           <label className="full-width">
             API Key
             <div className="secret-input-wrapper">
               <input
                 name="apiKey"
-                autoComplete="new-password"
                 type={showApiKey ? "text" : "password"}
                 placeholder={
                   formData.hasApiKey
-                    ? "Yeni API key girmek isterseniz doldurun"
+                    ? "Mevcut API key kayıtlı; değiştirmek için yeni key girin"
                     : "API key girin"
                 }
                 value={formData.apiKey}
                 onChange={onInputChange}
-                disabled={isSaving}
+                disabled={isSaving || isTesting}
+                autoComplete="new-password"
               />
 
               <button
                 type="button"
                 onClick={() => setShowApiKey((current) => !current)}
                 aria-label="API key görünürlüğünü değiştir"
-                disabled={isSaving}
+                disabled={isSaving || isTesting}
               >
                 {showApiKey ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
             </div>
 
             {formData.hasApiKey && (
-              <small>Mevcut API key güvenli şekilde kayıtlıdır.</small>
+              <small>Mevcut API key backend tarafında şifreli saklanıyor.</small>
             )}
           </label>
         </div>
@@ -157,19 +197,23 @@ function AiProviderForm({
             type="button"
             className="secondary-form-button"
             onClick={onTestConnection}
-            disabled={isSaving}
+            disabled={isSaving || isTesting}
           >
             <KeyRound size={17} />
-            Bağlantıyı Test Et
+            {isTesting ? "Bağlantı Test Ediliyor..." : "Bağlantıyı Test Et"}
           </button>
 
           <button
             type="submit"
             className="dashboard-action-button"
-            disabled={isSaving}
+            disabled={isSaving || isTesting}
           >
             <CheckCircle2 size={18} />
-            {isSaving ? "Kaydediliyor..." : "AI Ayarlarını Kaydet"}
+            {isSaving
+              ? "Kaydediliyor..."
+              : formData.id
+                ? "AI Ayarını Güncelle"
+                : "AI Ayarını Ekle"}
           </button>
         </div>
       </form>
@@ -178,4 +222,3 @@ function AiProviderForm({
 }
 
 export default AiProviderForm;
-

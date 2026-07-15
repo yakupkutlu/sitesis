@@ -25,6 +25,7 @@ import {
   updateSite,
   uploadSiteImage,
 } from "../../api/sitesApi";
+
 import { createBlock, updateBlock } from "../../api/blocksApi";
 import { createApartment } from "../../api/apartmentsApi";
 import { getUsers } from "../../api/usersApi";
@@ -32,6 +33,7 @@ import {
   createManagerAssignment,
   getManagerAssignments,
 } from "../../api/managerAssignmentsApi";
+
 import { useAuth } from "../../context/AuthContext";
 
 const navItems = [
@@ -136,7 +138,11 @@ function mapSiteToBuilding(site, assignments = []) {
     systems: Array.isArray(site.systems) ? site.systems : [],
     description: site.description ?? "",
     status: site.isActive === false ? "Pasif" : "Aktif",
-    image: site.imageUrl ? getSiteImageUrl(site.id) : "",
+    image: site.imageUrl
+    ? `${getSiteImageUrl(site.id)}?v=${encodeURIComponent(
+      site.updatedAt ?? site.imageUrl
+    )}`
+    : "",
     rawSite: site,
   };
 }
