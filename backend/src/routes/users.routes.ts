@@ -423,10 +423,21 @@ router.patch(
       },
     });
 
+    const successMessage =
+      updatedUser.role === "MANAGER"
+        ? "Yönetici hesabı pasif yapıldı. Yönetim paneli erişimi kapatıldı."
+        : updatedUser.role === "SUPER_ADMIN"
+          ? "Süper admin hesabı pasif yapıldı."
+          : "Sakin hesabı başarıyla pasif yapıldı.";
+
     response.status(200).json({
       success: true,
-      message: "Kullanıcı başarıyla pasif yapıldı.",
-      data: updatedUser,
+      message: successMessage,
+      data: {
+        user: updatedUser,
+        accountRole: updatedUser.role,
+        accessDisabled: true,
+      },
     });
   })
 );

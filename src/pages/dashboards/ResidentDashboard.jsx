@@ -1,4 +1,5 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "../../hooks/useAuth";
+import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   Bell,
@@ -18,7 +19,7 @@ import ResidentOpenRequests from "../../components/resident-dashboard/ResidentOp
 import { getResidentDashboardSummary } from "../../api/dashboardSummaryApi";
 import { getAnnouncements } from "../../api/announcementsApi";
 import { getRequests } from "../../api/requestsApi";
-import { useAuth } from "../../context/AuthContext";
+
 
 const navItems = [
   { label: "Panel", path: "/resident/dashboard", icon: Home },

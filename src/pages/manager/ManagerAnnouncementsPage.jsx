@@ -1,4 +1,5 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "../../hooks/useAuth";
+import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   Archive,
@@ -22,7 +23,7 @@ import {
   updateAnnouncement,
 } from "../../api/announcementsApi";
 import { getApartments } from "../../api/apartmentsApi";
-import { useAuth } from "../../context/AuthContext";
+
 
 const navItems = [
   { label: "Panel", path: "/manager/dashboard", icon: BarChart3 },
@@ -211,7 +212,9 @@ function ManagerAnnouncementsPage() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  // Sayfa verileri yalnızca component ilk açıldığında yüklenir.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
   const summary = useMemo(() => {
     return {
@@ -365,7 +368,7 @@ function ManagerAnnouncementsPage() {
 
       await loadPageData();
       closeForm();
-    } catch (error) {
+    } catch {
       setErrorMessage("Duyuru kaydedilemedi veya bu işlem için yetkiniz yok.");
     } finally {
       setIsSaving(false);
@@ -394,7 +397,7 @@ function ManagerAnnouncementsPage() {
       await loadPageData();
 
       setMessage("Duyuru başarıyla arşivlendi.");
-    } catch (error) {
+    } catch {
       setErrorMessage("Duyuru arşivlenemedi veya bu işlem için yetkiniz yok.");
     } finally {
       setIsSaving(false);

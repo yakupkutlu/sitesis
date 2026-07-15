@@ -1,4 +1,5 @@
-﻿import { useState } from "react";
+import { useAuth } from "../hooks/useAuth";
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   AlertCircle,
@@ -12,7 +13,7 @@ import {
 } from "lucide-react";
 
 import { loginUser } from "../api/authApi";
-import { useAuth } from "../context/AuthContext";
+
 
 const backendRolePaths = {
   SUPER_ADMIN: "/super-admin/dashboard",
@@ -28,10 +29,12 @@ function getUserFromLoginResult(result) {
   return result?.data?.user ?? result?.data ?? result?.user ?? null;
 }
 
-function getRoleFromLoginResult(result) {
+function getModeFromLoginResult(result) {
   return (
+    result?.data?.user?.accountMode ??
     result?.data?.user?.role ??
-    result?.data?.role ??
+    result?.data?.accountMode ??
+    result?.user?.accountMode ??
     result?.user?.role ??
     null
   );
@@ -43,6 +46,8 @@ function saveFrontendUserData({ user, role, rememberMe }) {
 
   localStorage.removeItem("userRole");
   sessionStorage.removeItem("userRole");
+  localStorage.removeItem("accountMode");
+  sessionStorage.removeItem("accountMode");
 
   localStorage.removeItem("userInfo");
   sessionStorage.removeItem("userInfo");
@@ -50,20 +55,20 @@ function saveFrontendUserData({ user, role, rememberMe }) {
   const storage = rememberMe ? localStorage : sessionStorage;
 
   storage.setItem("userRole", role);
+  storage.setItem("accountMode", role);
   storage.setItem(
     "userInfo",
     JSON.stringify({
-      id: user?.id,
-      fullName: user?.fullName,
-      email: user?.email,
+      ...user,
       role,
+      accountMode: user?.accountMode ?? role,
     })
   );
 }
 
 function Login() {
   const navigate = useNavigate();
-  const { refreshUser } = useAuth();
+  const { setUser } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -107,24 +112,29 @@ function Login() {
         password,
       });
 
-      const refreshedUser = await refreshUser();
-      const user = refreshedUser ?? getUserFromLoginResult(result);
-      const backendRole = user?.role ?? getRoleFromLoginResult(result);
+      const user = getUserFromLoginResult(result);
+      const accountMode = user?.accountMode ?? getModeFromLoginResult(result);
 
-      if (!backendRole || !backendRolePaths[backendRole]) {
+      if (!user || !accountMode || !backendRolePaths[accountMode]) {
         setErrorMessage("Kullanıcı rolü doğrulanamadı.");
         return;
       }
 
       saveFrontendUserData({
         user,
-        role: backendRole,
+        role: accountMode,
         rememberMe,
       });
+      setUser(user);
 
-      navigate(backendRolePaths[backendRole], {
-        replace: true,
-      });
+      navigate(
+        user.requiresModeSelection
+          ? "/select-account-mode"
+          : backendRolePaths[accountMode],
+        {
+          replace: true,
+        }
+      );
     } catch {
       setErrorMessage("E-posta veya şifre hatalı.");
     } finally {

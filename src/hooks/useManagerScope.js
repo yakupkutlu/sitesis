@@ -1,6 +1,6 @@
 import { useContext } from "react";
 
-import ManagerScopeContext from "../context/managerScopeContext";
+import ManagerScopeContext from "../context/manager-scope-context-core";
 
 export function useManagerScope() {
   const context = useContext(ManagerScopeContext);

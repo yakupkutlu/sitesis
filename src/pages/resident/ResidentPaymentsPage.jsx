@@ -1,4 +1,5 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "../../hooks/useAuth";
+import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   Bell,
@@ -15,7 +16,7 @@ import ResidentPaymentTable from "../../components/resident-payments/ResidentPay
 import ResidentPaymentDetailsModal from "../../components/resident-payments/ResidentPaymentDetailsModal";
 
 import { getMyPaymentAllocations } from "../../api/paymentBatchesApi";
-import { useAuth } from "../../context/AuthContext";
+
 
 const navItems = [
   { label: "Panel", path: "/resident/dashboard", icon: Home },

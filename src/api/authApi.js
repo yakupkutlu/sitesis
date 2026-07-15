@@ -14,6 +14,15 @@ export async function getCurrentUser() {
   return apiRequest("/auth/me");
 }
 
+export async function selectAccountMode(mode) {
+  return apiRequest("/auth/select-mode", {
+    method: "POST",
+    body: {
+      mode,
+    },
+  });
+}
+
 export async function logoutUser() {
   const result = await apiRequest("/auth/logout", {
     method: "POST",

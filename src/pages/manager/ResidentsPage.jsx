@@ -1,4 +1,5 @@
-﻿import { useCallback, useEffect, useMemo, useState } from "react";
+import { useAuth } from "../../hooks/useAuth";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   BarChart3,
@@ -25,7 +26,7 @@ import {
   updateResidentPassword,
 } from "../../api/apartmentResidentsApi";
 import { getApartments } from "../../api/apartmentsApi";
-import { useAuth } from "../../context/AuthContext";
+
 import { buildPaymentSummary } from "../../utils/paymentSummary";
 
 const navItems = [

@@ -1,4 +1,6 @@
-﻿import { useEffect, useState } from "react";
+import { useAuth } from "../hooks/useAuth";
+import { useManagerScope } from "../hooks/useManagerScope";
+import { useEffect, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   Bell,
@@ -8,13 +10,14 @@ import {
   LogOut,
   MapPin,
   Menu,
+  RefreshCcw,
   ShieldCheck,
   UserRound,
   X,
 } from "lucide-react";
 
-import { useAuth } from "../context/AuthContext";
-import { useManagerScope } from "../hooks/useManagerScope";
+
+
 
 const notificationsByRole = {
   "Süper Admin": [
@@ -113,7 +116,7 @@ function DashboardLayout({
 }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
   const {
     activeAssignment,
     activeAssignmentLabel,
@@ -134,6 +137,8 @@ function DashboardLayout({
   const settingsPath = settingsPathByRole[roleBadge] || "/super-admin/settings";
   const safeUserName = userName || "Kullanıcı";
   const safeTheme = theme || "manager";
+  const canSwitchAccountMode =
+    Array.isArray(user?.availableModes) && user.availableModes.length > 1;
 
   useEffect(() => {
     document.body.classList.remove("dark-mode");
@@ -189,6 +194,11 @@ function DashboardLayout({
         from: location.pathname,
       },
     });
+  }
+
+  function openAccountModeSelector() {
+    closeTopbarMenus();
+    navigate("/select-account-mode");
   }
 
   function toggleHelp() {
@@ -431,6 +441,17 @@ function DashboardLayout({
                       <strong>{roleTitle}</strong>
                     </div>
                   </div>
+
+                  {canSwitchAccountMode && (
+                    <button
+                      type="button"
+                      className="profile-dropdown-link profile-dropdown-button"
+                      onClick={openAccountModeSelector}
+                    >
+                      <RefreshCcw size={17} />
+                      Kullanım Modunu Değiştir
+                    </button>
+                  )}
 
                   <Link
                     to={settingsPath}

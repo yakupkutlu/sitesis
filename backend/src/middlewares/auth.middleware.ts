@@ -5,18 +5,52 @@ import { accessTokenCookieName } from "../config/cookie.js";
 import { env } from "../config/env.js";
 import prisma from "../db/prisma.js";
 
+export const accountModes = ["SUPER_ADMIN", "MANAGER", "RESIDENT"] as const;
+
+export type AccountMode = (typeof accountModes)[number];
+
 export type AuthenticatedUser = {
   id: string;
   fullName: string;
   email: string;
   phone: string | null;
-  role: "SUPER_ADMIN" | "MANAGER" | "RESIDENT";
+  /** Etkin rol: seçilen hesap moduna göre bütün route kontrollerinde kullanılır. */
+  role: AccountMode;
+  /** Veritabanındaki değişmeyen asıl hesap rolü. */
+  primaryRole: AccountMode;
+  accountMode: AccountMode;
+  availableModes: AccountMode[];
+  hasResidentAccess: boolean;
+  canSwitchAccountMode: boolean;
+  requiresModeSelection: boolean;
   status: "ACTIVE" | "PASSIVE";
+  createdAt: Date;
+  updatedAt: Date;
 };
 
 export type AuthenticatedRequest = Request & {
   user?: AuthenticatedUser;
 };
+
+export function isAccountMode(value: unknown): value is AccountMode {
+  return (
+    typeof value === "string" &&
+    (accountModes as readonly string[]).includes(value)
+  );
+}
+
+export function getAvailableAccountModes(
+  primaryRole: AccountMode,
+  hasResidentAccess: boolean
+): AccountMode[] {
+  if (primaryRole === "RESIDENT") {
+    return ["RESIDENT"];
+  }
+
+  return hasResidentAccess
+    ? [primaryRole, "RESIDENT"]
+    : [primaryRole];
+}
 
 export async function requireAuth(
   request: AuthenticatedRequest,
@@ -53,7 +87,7 @@ export async function requireAuth(
     return;
   }
 
-  const user = await prisma.user.findUnique({
+  const databaseUser = await prisma.user.findUnique({
     where: {
       id: payload.userId,
     },
@@ -64,10 +98,18 @@ export async function requireAuth(
       phone: true,
       role: true,
       status: true,
+      createdAt: true,
+      updatedAt: true,
+      apartmentResidents: {
+        select: {
+          id: true,
+        },
+        take: 1,
+      },
     },
   });
 
-  if (!user) {
+  if (!databaseUser) {
     response.status(401).json({
       success: false,
       message: "Kullanıcı bulunamadı.",
@@ -75,7 +117,7 @@ export async function requireAuth(
     return;
   }
 
-  if (user.status !== "ACTIVE") {
+  if (databaseUser.status !== "ACTIVE") {
     response.status(403).json({
       success: false,
       message: "Kullanıcı hesabı aktif değil.",
@@ -83,12 +125,74 @@ export async function requireAuth(
     return;
   }
 
-  request.user = user;
+  const primaryRole = databaseUser.role as AccountMode;
+  const hasResidentAccess =
+    primaryRole === "RESIDENT" || databaseUser.apartmentResidents.length > 0;
+  const availableModes = getAvailableAccountModes(
+    primaryRole,
+    hasResidentAccess
+  );
+
+  const tokenAccountMode = isAccountMode(payload.accountMode)
+    ? payload.accountMode
+    : primaryRole;
+
+  /*
+   * JWT içindeki mod, güncel veritabanı ilişkileriyle tekrar doğrulanır.
+   * Örneğin sakin bağlantısı kaldırılmışsa eski RESIDENT modu kullanılamaz.
+   */
+  const accountMode = availableModes.includes(tokenAccountMode)
+    ? tokenAccountMode
+    : primaryRole;
+
+  /* Eski tokenlar geriye dönük uyumluluk için seçilmiş kabul edilir. */
+  const modeSelected = payload.modeSelected !== false;
+  const canSwitchAccountMode = availableModes.length > 1;
+  const requiresModeSelection = canSwitchAccountMode && !modeSelected;
+
+  request.user = {
+    id: databaseUser.id,
+    fullName: databaseUser.fullName,
+    email: databaseUser.email,
+    phone: databaseUser.phone,
+    role: accountMode,
+    primaryRole,
+    accountMode,
+    availableModes,
+    hasResidentAccess,
+    canSwitchAccountMode,
+    requiresModeSelection,
+    status: databaseUser.status,
+    createdAt: databaseUser.createdAt,
+    updatedAt: databaseUser.updatedAt,
+  };
+
+  /*
+   * Çift modlu hesap, ilk girişte seçim yapmadan başka bir korumalı API'ye
+   * gidemez. Bu kontrol yalnızca frontend yönlendirmesine bırakılmaz.
+   */
+  const isModeSelectionEndpoint =
+    request.baseUrl === "/api/auth" &&
+    (request.path === "/me" || request.path === "/select-mode");
+
+  if (requiresModeSelection && !isModeSelectionEndpoint) {
+    response.status(409).json({
+      success: false,
+      message: "Devam etmek için hesap kullanım modunu seçmelisiniz.",
+      code: "ACCOUNT_MODE_SELECTION_REQUIRED",
+    });
+    return;
+  }
+
   next();
 }
 
-export function requireRole(...allowedRoles: AuthenticatedUser["role"][]) {
-  return (request: AuthenticatedRequest, response: Response, next: NextFunction) => {
+export function requireRole(...allowedRoles: AccountMode[]) {
+  return (
+    request: AuthenticatedRequest,
+    response: Response,
+    next: NextFunction
+  ) => {
     if (!request.user) {
       response.status(401).json({
         success: false,
@@ -97,6 +201,11 @@ export function requireRole(...allowedRoles: AuthenticatedUser["role"][]) {
       return;
     }
 
+    /*
+     * request.user.role veritabanındaki asıl rol değil, sunucunun doğruladığı
+     * etkin hesap modudur. Böylece sakin modundaki bir yönetici yönetici
+     * endpointlerine erişemez.
+     */
     if (!allowedRoles.includes(request.user.role)) {
       response.status(403).json({
         success: false,

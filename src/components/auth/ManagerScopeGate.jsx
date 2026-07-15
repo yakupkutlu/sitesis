@@ -1,6 +1,7 @@
+import { useManagerScope } from "../../hooks/useManagerScope";
 import { Navigate, useLocation } from "react-router-dom";
 
-import { useManagerScope } from "../../hooks/useManagerScope";
+
 
 function ManagerScopeGate({ children }) {
   const location = useLocation();

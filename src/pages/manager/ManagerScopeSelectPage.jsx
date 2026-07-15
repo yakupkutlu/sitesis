@@ -1,3 +1,5 @@
+import { useAuth } from "../../hooks/useAuth";
+import { useManagerScope } from "../../hooks/useManagerScope";
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
@@ -9,8 +11,8 @@ import {
   MapPin,
 } from "lucide-react";
 
-import { useAuth } from "../../context/AuthContext";
-import { useManagerScope } from "../../hooks/useManagerScope";
+
+
 
 function getAssignmentLabel(assignment) {
   if (assignment.scopeType === "SITE") {

@@ -1,4 +1,5 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "../../hooks/useAuth";
+import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   Bell,
@@ -14,7 +15,7 @@ import ResidentAnnouncementToolbar from "../../components/resident-announcements
 import ResidentAnnouncementCards from "../../components/resident-announcements/ResidentAnnouncementCards";
 import ResidentAnnouncementDetailsModal from "../../components/resident-announcements/ResidentAnnouncementDetailsModal";
 import {getAnnouncements,markAnnouncementAsRead,} from "../../api/announcementsApi";
-import { useAuth } from "../../context/AuthContext";
+
 
 const navItems = [
   { label: "Panel", path: "/resident/dashboard", icon: Home },

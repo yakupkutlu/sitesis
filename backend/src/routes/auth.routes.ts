@@ -11,7 +11,12 @@ import {
 } from "../config/cookie.js";
 import { env } from "../config/env.js";
 import prisma from "../db/prisma.js";
-import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth.middleware.js";
+import {
+  getAvailableAccountModes,
+  requireAuth,
+  type AccountMode,
+  type AuthenticatedRequest,
+} from "../middlewares/auth.middleware.js";
 import { forgotPasswordLimiter, loginLimiter, resetPasswordLimiter } from "../middlewares/rate-limit.middleware.js";
 import { queueEmailNotification } from "../services/notification.service.js";
 import { createAuditLog } from "../services/audit-log.service.js";
@@ -24,6 +29,12 @@ const loginSchema = z.object({
   email: z.string().trim().email(),
   password: z.string().min(1),
 });
+
+const selectAccountModeSchema = z
+  .object({
+    mode: z.enum(["SUPER_ADMIN", "MANAGER", "RESIDENT"]),
+  })
+  .strict();
 
 const forgotPasswordSchema = z.object({
   email: z.string().trim().email(),
@@ -61,6 +72,72 @@ const ownUserSelectFields = {
 } as const;
 
 
+type AuthUserSource = {
+  id: string;
+  fullName: string;
+  email: string;
+  phone: string | null;
+  role: AccountMode;
+  status: "ACTIVE" | "PASSIVE";
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+function createAccessToken(params: {
+  userId: string;
+  primaryRole: AccountMode;
+  accountMode: AccountMode;
+  modeSelected: boolean;
+}) {
+  const jwtExpiresIn = env.JWT_EXPIRES_IN as SignOptions["expiresIn"];
+
+  return jwt.sign(
+    {
+      userId: params.userId,
+      primaryRole: params.primaryRole,
+      accountMode: params.accountMode,
+      modeSelected: params.modeSelected,
+    },
+    env.JWT_SECRET,
+    {
+      expiresIn: jwtExpiresIn,
+    }
+  );
+}
+
+function buildAuthUserData(params: {
+  user: AuthUserSource;
+  accountMode: AccountMode;
+  hasResidentAccess: boolean;
+  modeSelected: boolean;
+}) {
+  const primaryRole = params.user.role;
+  const availableModes = getAvailableAccountModes(
+    primaryRole,
+    params.hasResidentAccess
+  );
+  const canSwitchAccountMode = availableModes.length > 1;
+
+  return {
+    id: params.user.id,
+    fullName: params.user.fullName,
+    email: params.user.email,
+    phone: params.user.phone,
+    role: params.accountMode,
+    primaryRole,
+    accountMode: params.accountMode,
+    availableModes,
+    hasResidentAccess: params.hasResidentAccess,
+    canSwitchAccountMode,
+    requiresModeSelection:
+      canSwitchAccountMode && !params.modeSelected,
+    status: params.user.status,
+    createdAt: params.user.createdAt,
+    updatedAt: params.user.updatedAt,
+  };
+}
+
+
 function createPasswordResetToken() {
   const plainToken = crypto.randomBytes(32).toString("hex");
 
@@ -96,6 +173,14 @@ router.post(
       where: {
         email: normalizedEmail,
       },
+      include: {
+        apartmentResidents: {
+          select: {
+            id: true,
+          },
+          take: 1,
+        },
+      },
     });
 
     if (!user) {
@@ -112,18 +197,24 @@ router.post(
       throw new HttpError(401, "E-posta veya şifre hatalı.");
     }
 
-    const jwtExpiresIn = env.JWT_EXPIRES_IN as SignOptions["expiresIn"];
-
-    const token = jwt.sign(
-      {
-        userId: user.id,
-        role: user.role,
-      },
-      env.JWT_SECRET,
-      {
-        expiresIn: jwtExpiresIn,
-      }
+    const primaryRole = user.role as AccountMode;
+    const hasResidentAccess =
+      primaryRole === "RESIDENT" || user.apartmentResidents.length > 0;
+    const availableModes = getAvailableAccountModes(
+      primaryRole,
+      hasResidentAccess
     );
+
+    /* Çift modlu hesaplarda girişten sonra kullanıcı seçim yapmalıdır. */
+    const modeSelected = availableModes.length === 1;
+    const accountMode = primaryRole;
+
+    const token = createAccessToken({
+      userId: user.id,
+      primaryRole,
+      accountMode,
+      modeSelected,
+    });
 
     response.cookie(accessTokenCookieName, token, accessTokenCookieOptions);
 
@@ -131,15 +222,92 @@ router.post(
       success: true,
       message: "Giriş başarılı.",
       data: {
+        user: buildAuthUserData({
+          user: {
+            id: user.id,
+            fullName: user.fullName,
+            email: user.email,
+            phone: user.phone,
+            role: primaryRole,
+            status: user.status,
+            createdAt: user.createdAt,
+            updatedAt: user.updatedAt,
+          },
+          accountMode,
+          hasResidentAccess,
+          modeSelected,
+        }),
+      },
+    });
+  })
+);
+
+router.post(
+  "/select-mode",
+  requireAuth,
+  asyncHandler(async (request: AuthenticatedRequest, response: Response) => {
+    if (!request.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    const validationResult = selectAccountModeSchema.safeParse(request.body);
+
+    if (!validationResult.success) {
+      throw new HttpError(
+        400,
+        "Hesap modu bilgisi geçersiz.",
+        validationResult.error.flatten().fieldErrors
+      );
+    }
+
+    const selectedMode = validationResult.data.mode;
+
+    if (!request.user.availableModes.includes(selectedMode)) {
+      throw new HttpError(
+        403,
+        selectedMode === "RESIDENT"
+          ? "Bu hesabın sakin olarak kullanım yetkisi bulunmamaktadır."
+          : "Bu hesap modu için yetkiniz bulunmamaktadır."
+      );
+    }
+
+    const previousMode = request.user.accountMode;
+    const token = createAccessToken({
+      userId: request.user.id,
+      primaryRole: request.user.primaryRole,
+      accountMode: selectedMode,
+      modeSelected: true,
+    });
+
+    await createAuditLog({
+      request,
+      userId: request.user.id,
+      action: "SELECT_ACCOUNT_MODE",
+      entityType: "User",
+      entityId: request.user.id,
+      metadata: {
+        primaryRole: request.user.primaryRole,
+        previousMode,
+        selectedMode,
+      },
+    });
+
+    response.cookie(accessTokenCookieName, token, accessTokenCookieOptions);
+
+    response.status(200).json({
+      success: true,
+      message:
+        selectedMode === "RESIDENT"
+          ? "Sakin moduna geçildi."
+          : selectedMode === "MANAGER"
+            ? "Yönetici moduna geçildi."
+            : "Süper admin moduna geçildi.",
+      data: {
         user: {
-          id: user.id,
-          fullName: user.fullName,
-          email: user.email,
-          phone: user.phone,
-          role: user.role,
-          status: user.status,
-          createdAt: user.createdAt,
-          updatedAt: user.updatedAt,
+          ...request.user,
+          role: selectedMode,
+          accountMode: selectedMode,
+          requiresModeSelection: false,
         },
       },
     });

@@ -1,4 +1,5 @@
-﻿import { useCallback, useEffect, useMemo, useState } from "react";
+import { useAuth } from "../../hooks/useAuth";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   Bell,
@@ -15,7 +16,7 @@ import ResidentRequestCards from "../../components/resident-requests/ResidentReq
 import ResidentRequestDetailsModal from "../../components/resident-requests/ResidentRequestDetailsModal";
 import ResidentRequestToolbar from "../../components/resident-requests/ResidentRequestToolbar";
 import { createRequest, getRequests } from "../../api/requestsApi";
-import { useAuth } from "../../context/AuthContext";
+
 
 const navItems = [
   { label: "Panel", path: "/resident/dashboard", icon: Home },

@@ -1,4 +1,5 @@
-﻿import { useEffect, useState } from "react";
+import { useAuth } from "../../hooks/useAuth";
+import { useEffect, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   Bell,
@@ -16,7 +17,7 @@ import {
   getCurrentUser,
   updateOwnProfile,
 } from "../../api/authApi";
-import { useAuth } from "../../context/AuthContext";
+
 
 const navItems = [
   { label: "Panel", path: "/resident/dashboard", icon: Home },
@@ -96,7 +97,7 @@ function ResidentSettingsPage() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [user]);
 
   function handleProfileChange(event) {
     const { name, value } = event.target;

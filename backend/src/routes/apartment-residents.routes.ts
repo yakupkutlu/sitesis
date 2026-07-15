@@ -141,13 +141,31 @@ async function ensureApartmentExists(apartmentId: string) {
   }
 }
 
-async function ensureResidentUserCanBeAssigned(userId: string) {
+type UserRoleValue = "SUPER_ADMIN" | "MANAGER" | "RESIDENT";
+
+type ResidentLinkableUser = {
+  id: string;
+  fullName: string;
+  email: string;
+  phone: string | null;
+  role: UserRoleValue;
+  status: "ACTIVE" | "PASSIVE";
+};
+
+async function ensureUserCanBeLinkedAsResident(params: {
+  userId: string;
+  actorRole: UserRoleValue;
+  ignoreApartmentResidentId?: string;
+}): Promise<ResidentLinkableUser> {
   const user = await prisma.user.findUnique({
     where: {
-      id: userId,
+      id: params.userId,
     },
     select: {
       id: true,
+      fullName: true,
+      email: true,
+      phone: true,
       role: true,
       status: true,
     },
@@ -157,13 +175,45 @@ async function ensureResidentUserCanBeAssigned(userId: string) {
     throw new HttpError(404, "Kullanıcı bulunamadı.");
   }
 
-  if (user.role !== "RESIDENT") {
-    throw new HttpError(400, "Sadece RESIDENT rolündeki kullanıcılar daireye atanabilir.");
+  if (user.status !== "ACTIVE") {
+    throw new HttpError(
+      400,
+      "Pasif kullanıcı hesabı daireye sakin olarak bağlanamaz."
+    );
   }
 
-  if (user.status !== "ACTIVE") {
-    throw new HttpError(400, "Pasif kullanıcı daireye atanamaz.");
+  if (user.role === "SUPER_ADMIN" && params.actorRole !== "SUPER_ADMIN") {
+    throw new HttpError(
+      403,
+      "Süper admin hesabını sakin olarak yalnızca süper admin bağlayabilir."
+    );
   }
+
+  const existingResidentLink = await prisma.apartmentResident.findFirst({
+    where: {
+      userId: user.id,
+      ...(params.ignoreApartmentResidentId
+        ? {
+            id: {
+              not: params.ignoreApartmentResidentId,
+            },
+          }
+        : {}),
+    },
+    select: {
+      id: true,
+      apartmentId: true,
+    },
+  });
+
+  if (existingResidentLink) {
+    throw new HttpError(
+      409,
+      "Bu kullanıcı hesabı zaten bir daireye sakin olarak bağlı. Aynı hesap ikinci kez bağlanamaz."
+    );
+  }
+
+  return user;
 }
 
 async function ensureApartmentResidentUnique(params: {
@@ -324,7 +374,10 @@ router.post(
     const { apartmentId, userId, type } = validationResult.data;
 
     await ensureApartmentExists(apartmentId);
-    await ensureResidentUserCanBeAssigned(userId);
+    await ensureUserCanBeLinkedAsResident({
+      userId,
+      actorRole: authenticatedRequest.user.role,
+    });
     await ensureApartmentResidentUnique({
       apartmentId,
       userId,
@@ -397,11 +450,26 @@ router.patch(
         apartmentId: true,
         userId: true,
         type: true,
+        user: {
+          select: {
+            role: true,
+          },
+        },
       },
     });
 
     if (!targetApartmentResident) {
       throw new HttpError(404, "Daire sakini kaydı bulunamadı.");
+    }
+
+    if (
+      authenticatedRequest.user.role === "MANAGER" &&
+      targetApartmentResident.user.role === "SUPER_ADMIN"
+    ) {
+      throw new HttpError(
+        403,
+        "Süper admin hesabının sakin bağlantısını yalnızca süper admin güncelleyebilir."
+      );
     }
 
     if (authenticatedRequest.user.role === "MANAGER") {
@@ -423,7 +491,22 @@ router.patch(
     }
 
     if (userId !== undefined && userId !== targetApartmentResident.userId) {
-      await ensureResidentUserCanBeAssigned(userId);
+      await ensureUserCanBeLinkedAsResident({
+        userId,
+        actorRole: authenticatedRequest.user.role,
+        ignoreApartmentResidentId: targetApartmentResident.id,
+      });
+    }
+
+    if (
+      authenticatedRequest.user.role === "MANAGER" &&
+      nextApartmentId !== targetApartmentResident.apartmentId
+    ) {
+      await ensureApartmentIsInsideUserScope({
+        userId: authenticatedRequest.user.id,
+        userRole: authenticatedRequest.user.role,
+        apartmentId: nextApartmentId,
+      });
     }
 
     await ensureApartmentResidentUnique({
@@ -514,11 +597,32 @@ router.delete(
         apartmentId: true,
         userId: true,
         type: true,
+        user: {
+          select: {
+            fullName: true,
+            email: true,
+            role: true,
+          },
+        },
       },
     });
 
     if (!targetApartmentResident) {
       throw new HttpError(404, "Daire sakini kaydı bulunamadı.");
+    }
+
+    const targetUserRole = targetApartmentResident.user.role;
+    const protectedAdministrativeAccount =
+      targetUserRole === "MANAGER" || targetUserRole === "SUPER_ADMIN";
+
+    if (
+      authenticatedRequest.user.role === "MANAGER" &&
+      targetUserRole === "SUPER_ADMIN"
+    ) {
+      throw new HttpError(
+        403,
+        "Süper admin hesabının sakin bağlantısını yalnızca süper admin kaldırabilir."
+      );
     }
 
     if (authenticatedRequest.user.role === "MANAGER") {
@@ -536,15 +640,23 @@ router.delete(
         },
       });
 
-      const remainingApartmentResidentCount = await transaction.apartmentResident.count({
-        where: {
-          userId: targetApartmentResident.userId,
-        },
-      });
+      const remainingApartmentResidentCount =
+        await transaction.apartmentResident.count({
+          where: {
+            userId: targetApartmentResident.userId,
+          },
+        });
 
       let userDeactivated = false;
 
-      if (remainingApartmentResidentCount === 0) {
+      /*
+       * Yönetici ve süper admin hesapları yalnızca sakinlik bağlantısını kaybeder.
+       * Yönetim hesabının durumu ve rolü kesinlikle değiştirilmez.
+       */
+      if (
+        remainingApartmentResidentCount === 0 &&
+        targetUserRole === "RESIDENT"
+      ) {
         await transaction.user.update({
           where: {
             id: targetApartmentResident.userId,
@@ -571,31 +683,51 @@ router.delete(
       entityId: targetApartmentResident.id,
       metadata: {
         apartmentId: targetApartmentResident.apartmentId,
-        userId: targetApartmentResident.userId,
+        linkedUserId: targetApartmentResident.userId,
+        linkedUserEmail: targetApartmentResident.user.email,
+        linkedUserRole: targetUserRole,
         type: targetApartmentResident.type,
+        protectedAdministrativeAccount,
         userDeactivated: deleteResult.userDeactivated,
         remainingApartmentResidentCount:
           deleteResult.remainingApartmentResidentCount,
       },
     });
 
+    const successMessage = deleteResult.userDeactivated
+      ? "Daire sakini bağlantısı kaldırıldı ve sakin hesabı pasif yapıldı."
+      : targetUserRole === "MANAGER"
+        ? "Sakin bağlantısı kaldırıldı. Yönetici hesabı aktif bırakıldı."
+        : targetUserRole === "SUPER_ADMIN"
+          ? "Sakin bağlantısı kaldırıldı. Süper admin hesabı aktif bırakıldı."
+          : "Daire sakini bağlantısı başarıyla kaldırıldı.";
+
     response.status(200).json({
       success: true,
-      message: deleteResult.userDeactivated
-        ? "Daire sakini bağlantısı kaldırıldı ve kullanıcı pasif yapıldı."
-        : "Daire sakini bağlantısı başarıyla kaldırıldı.",
+      message: successMessage,
+      data: {
+        residentLinkRemoved: true,
+        userDeactivated: deleteResult.userDeactivated,
+        protectedAdministrativeAccount,
+        accountRole: targetUserRole,
+        remainingApartmentResidentCount:
+          deleteResult.remainingApartmentResidentCount,
+      },
     });
   })
 );
 
-const createResidentAndAssignSchema = z.object({
-  fullName: z.string().trim().min(2),
-  email: z.string().trim().email(),
-  phone: z.string().trim().optional(),
-  password: z.string().min(8),
-  apartmentId: z.string().uuid(),
-  type: z.enum(["OWNER", "TENANT"]),
-});
+
+const createResidentAndAssignSchema = z
+  .object({
+    fullName: z.string().trim().min(2).optional(),
+    email: z.string().trim().email(),
+    phone: z.string().trim().optional(),
+    password: z.string().min(8).optional(),
+    apartmentId: z.string().uuid(),
+    type: z.enum(["OWNER", "TENANT"]),
+  })
+  .strict();
 
 async function ensureApartmentIsInsideUserScope(params: {
   userId: string;
@@ -652,7 +784,9 @@ router.post(
       throw new HttpError(401, "Oturum bulunamadı.");
     }
 
-    const validationResult = createResidentAndAssignSchema.safeParse(request.body);
+    const validationResult = createResidentAndAssignSchema.safeParse(
+      request.body
+    );
 
     if (!validationResult.success) {
       throw new HttpError(
@@ -671,6 +805,11 @@ router.post(
       apartmentId,
     });
 
+    await ensureApartmentResidentTypeAvailable({
+      apartmentId,
+      type,
+    });
+
     const normalizedEmail = email.toLowerCase();
 
     const existingUser = await prisma.user.findUnique({
@@ -679,89 +818,106 @@ router.post(
       },
       select: {
         id: true,
+        fullName: true,
+        email: true,
+        phone: true,
         role: true,
         status: true,
       },
     });
 
-    if (existingUser && existingUser.role !== "RESIDENT") {
-      throw new HttpError(
-        409,
-        "Bu e-posta adresi farklı role sahip bir kullanıcıya ait."
-      );
-    }
-
     if (existingUser) {
-      const existingApartmentResident = await prisma.apartmentResident.findFirst({
-        where: {
-          userId: existingUser.id,
+      const linkableUser = await ensureUserCanBeLinkedAsResident({
+        userId: existingUser.id,
+        actorRole: authenticatedRequest.user.role,
+      });
+
+      const apartmentResident = await prisma.apartmentResident.create({
+        data: {
+          apartmentId,
+          userId: linkableUser.id,
+          type,
         },
-        select: {
-          id: true,
-          apartmentId: true,
-          type: true,
+        include: apartmentResidentInclude,
+      });
+
+      const auditAction =
+        linkableUser.role === "SUPER_ADMIN"
+          ? "LINK_SUPER_ADMIN_AS_RESIDENT"
+          : linkableUser.role === "MANAGER"
+            ? "LINK_MANAGER_AS_RESIDENT"
+            : "LINK_EXISTING_RESIDENT_TO_APARTMENT";
+
+      await createAuditLog({
+        request,
+        userId: authenticatedRequest.user.id,
+        action: auditAction,
+        entityType: "ApartmentResident",
+        entityId: apartmentResident.id,
+        metadata: {
+          linkedUserId: linkableUser.id,
+          linkedUserEmail: linkableUser.email,
+          preservedUserRole: linkableUser.role,
+          apartmentId,
+          type,
+          profileChanged: false,
+          passwordChanged: false,
         },
       });
 
-      if (existingApartmentResident) {
-        throw new HttpError(
-          409,
-          "Bu e-posta ile kayıtlı sakin zaten bir daireye bağlı."
-        );
-      }
+      response.status(201).json({
+        success: true,
+        message:
+          linkableUser.role === "RESIDENT"
+            ? "Mevcut sakin hesabı daireye başarıyla bağlandı."
+            : `${
+                linkableUser.role === "MANAGER"
+                  ? "Yönetici"
+                  : "Süper admin"
+              } hesabı, rolü ve giriş bilgileri değiştirilmeden sakin olarak bağlandı.`,
+        data: apartmentResident,
+      });
+
+      return;
     }
 
-    await ensureApartmentResidentTypeAvailable({
-      apartmentId,
-      type,
-    });
+    if (!fullName) {
+      throw new HttpError(
+        400,
+        "Yeni sakin hesabı için ad soyad zorunludur."
+      );
+    }
+
+    if (!password) {
+      throw new HttpError(
+        400,
+        "Yeni sakin hesabı için en az 8 karakterli geçici şifre zorunludur."
+      );
+    }
 
     const passwordHash = await bcrypt.hash(password, 12);
 
     const result = await prisma.$transaction(async (transaction) => {
-      const user = existingUser
-        ? await transaction.user.update({
-            where: {
-              id: existingUser.id,
-            },
-            data: {
-              fullName,
-              phone: phone && phone.length > 0 ? phone : null,
-              passwordHash,
-              role: "RESIDENT",
-              status: "ACTIVE",
-            },
-            select: {
-              id: true,
-              fullName: true,
-              email: true,
-              phone: true,
-              role: true,
-              status: true,
-              createdAt: true,
-              updatedAt: true,
-            },
-          })
-        : await transaction.user.create({
-            data: {
-              fullName,
-              email: normalizedEmail,
-              phone: phone && phone.length > 0 ? phone : null,
-              passwordHash,
-              role: "RESIDENT",
-              status: "ACTIVE",
-            },
-            select: {
-              id: true,
-              fullName: true,
-              email: true,
-              phone: true,
-              role: true,
-              status: true,
-              createdAt: true,
-              updatedAt: true,
-            },
-          });
+      const user = await transaction.user.create({
+        data: {
+          fullName,
+          email: normalizedEmail,
+          phone: phone && phone.length > 0 ? phone : null,
+          passwordHash,
+          role: "RESIDENT",
+          status: "ACTIVE",
+        },
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          phone: true,
+          role: true,
+          status: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
 
       const apartmentResident = await transaction.apartmentResident.create({
         data: {
@@ -775,31 +931,26 @@ router.post(
       return {
         user,
         apartmentResident,
-        reusedExistingUser: Boolean(existingUser),
       };
     });
 
     await createAuditLog({
       request,
       userId: authenticatedRequest.user.id,
-      action: result.reusedExistingUser
-        ? "REACTIVATE_RESIDENT_AND_ASSIGN_APARTMENT"
-        : "CREATE_RESIDENT_AND_ASSIGN_APARTMENT",
+      action: "CREATE_RESIDENT_AND_ASSIGN_APARTMENT",
       entityType: "ApartmentResident",
       entityId: result.apartmentResident.id,
       metadata: {
+        createdResidentUserId: result.user.id,
         createdResidentEmail: result.user.email,
         apartmentId,
         type,
-        reusedExistingUser: result.reusedExistingUser,
       },
     });
 
     response.status(201).json({
       success: true,
-      message: result.reusedExistingUser
-        ? "Pasif sakin tekrar aktif edildi ve daireye bağlandı."
-        : "Sakin başarıyla oluşturuldu ve daireye bağlandı.",
+      message: "Yeni sakin hesabı oluşturuldu ve daireye bağlandı.",
       data: result.apartmentResident,
     });
   })

@@ -1,4 +1,6 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "../../hooks/useAuth";
+import { useManagerScope } from "../../hooks/useManagerScope";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
@@ -18,8 +20,8 @@ import {
 } from "lucide-react";
 
 import { getManagerDashboardSummary } from "../../api/dashboardSummaryApi";
-import { useAuth } from "../../context/AuthContext";
-import { useManagerScope } from "../../hooks/useManagerScope";
+
+
 
 const navItems = [
   { label: "Panel", path: "/manager/dashboard", icon: BarChart3 },

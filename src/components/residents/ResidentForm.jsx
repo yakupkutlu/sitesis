@@ -1,5 +1,5 @@
 ﻿import { useMemo } from "react";
-import { X } from "lucide-react";
+import { Info, X } from "lucide-react";
 
 function compareText(leftValue, rightValue) {
   return String(leftValue ?? "").localeCompare(String(rightValue ?? ""), "tr", {
@@ -21,6 +21,10 @@ function ResidentForm({
     () => (Array.isArray(apartments) ? apartments : []),
     [apartments]
   );
+
+  const linkedAccountRole = editingResident?.raw?.user?.role ?? null;
+  const canChangeLinkedPassword =
+    !editingResident || linkedAccountRole === "RESIDENT";
 
   const siteOptions = useMemo(() => {
     const sitesById = new Map();
@@ -104,8 +108,9 @@ function ResidentForm({
           </h3>
 
           <p>
-            Önce yetkili olduğunuz siteyi ve bloğu seçin. Daire listesinde
-            yalnızca boş daireler gösterilir.
+            Yeni bir sakin hesabı oluşturabilir veya mevcut yönetici / süper
+            admin hesabını rolünü ve giriş bilgilerini değiştirmeden daireye
+            sakin olarak bağlayabilirsiniz.
           </p>
         </div>
 
@@ -120,6 +125,17 @@ function ResidentForm({
         </button>
       </div>
 
+      {!editingResident && (
+        <div className="resident-link-security-note">
+          <Info size={19} />
+          <p>
+            E-posta mevcut bir yönetici veya süper admin hesabına aitse mevcut
+            hesap kullanılır; rol, profil ve şifre değiştirilmez. Yeni bir sakin
+            hesabı oluşturulacaksa geçici şifre zorunludur.
+          </p>
+        </div>
+      )}
+
       <form className="resident-form" onSubmit={onSubmit}>
         <div className="form-grid">
           <label>
@@ -131,7 +147,7 @@ function ResidentForm({
               onChange={onInputChange}
               placeholder="Örn: Ali Can"
               required
-              disabled={isSaving}
+              disabled={isSaving || Boolean(editingResident)}
             />
           </label>
 
@@ -219,7 +235,7 @@ function ResidentForm({
               value={formData.phone}
               onChange={onInputChange}
               placeholder="Örn: 0555 000 00 00"
-              disabled={isSaving}
+              disabled={isSaving || Boolean(editingResident)}
             />
           </label>
 
@@ -232,12 +248,12 @@ function ResidentForm({
               onChange={onInputChange}
               placeholder="Örn: ali@example.com"
               required
-              disabled={isSaving}
+              disabled={isSaving || Boolean(editingResident)}
             />
           </label>
 
           <label>
-            Geçici Şifre
+            {editingResident ? "Yeni Şifre" : "Geçici Şifre"}
             <input
               type="password"
               name="password"
@@ -245,12 +261,19 @@ function ResidentForm({
               onChange={onInputChange}
               placeholder={
                 editingResident
-                  ? "Değiştirmek istemiyorsanız boş bırakın"
-                  : "En az 8 karakter"
+                  ? canChangeLinkedPassword
+                    ? "Değiştirmek istemiyorsanız boş bırakın"
+                    : "Yönetici / süper admin şifresi buradan değiştirilemez"
+                  : "Yeni hesap için en az 8 karakter"
               }
-              required={!editingResident}
-              disabled={isSaving}
+              disabled={isSaving || !canChangeLinkedPassword}
             />
+            {!editingResident && (
+              <small>
+                Mevcut yönetici, süper admin veya aktif ve henüz daireye bağlı
+                olmayan kullanıcı için boş bırakabilirsiniz.
+              </small>
+            )}
           </label>
 
           <label className="full-width">

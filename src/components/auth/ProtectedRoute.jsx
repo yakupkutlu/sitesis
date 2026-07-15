@@ -1,10 +1,17 @@
-﻿import { Navigate, useLocation } from "react-router-dom";
+import { useAuth } from "../../hooks/useAuth";
+import { Navigate, useLocation } from "react-router-dom";
 
-import { useAuth } from "../../context/AuthContext";
+
 
 function ProtectedRoute({ allowedRoles, children }) {
   const location = useLocation();
-  const { user, isLoading, isAuthenticated, roleHomePath } = useAuth();
+  const {
+    user,
+    isLoading,
+    isAuthenticated,
+    roleHomePath,
+    requiresModeSelection,
+  } = useAuth();
 
   if (isLoading) {
     return <div className="page-loading">Yükleniyor...</div>;
@@ -14,7 +21,22 @@ function ProtectedRoute({ allowedRoles, children }) {
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
-  if (allowedRoles?.length > 0 && !allowedRoles.includes(user.role)) {
+  if (
+    requiresModeSelection &&
+    location.pathname !== "/select-account-mode"
+  ) {
+    return (
+      <Navigate
+        to="/select-account-mode"
+        replace
+        state={{ from: location.pathname }}
+      />
+    );
+  }
+
+  const accountMode = user?.accountMode ?? user?.role;
+
+  if (allowedRoles?.length > 0 && !allowedRoles.includes(accountMode)) {
     return <Navigate to={roleHomePath} replace />;
   }
 

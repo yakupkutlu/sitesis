@@ -325,7 +325,6 @@ async function getAnnouncementRecipients(params: {
     }
     return prisma.user.findMany({
         where: {
-            role: "RESIDENT",
             status: "ACTIVE",
             apartmentResidents: {
                 some: apartmentResidentWhere,

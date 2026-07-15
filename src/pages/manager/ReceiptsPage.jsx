@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   BarChart3,
@@ -25,7 +25,7 @@ import {
   rejectPaymentReceipt,
 } from "../../api/paymentReceiptsApi";
 import { getApartments } from "../../api/apartmentsApi";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../hooks/useAuth";
 
 const navItems = [
   { label: "Panel", path: "/manager/dashboard", icon: BarChart3 },

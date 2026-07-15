@@ -1,4 +1,5 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "../../hooks/useAuth";
+import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   ArrowDown,
@@ -34,7 +35,7 @@ import {
   testAiSettingConnection,
   updateAiSetting,
 } from "../../api/aiSettingsApi";
-import { useAuth } from "../../context/AuthContext";
+
 
 const MAX_AI_SETTINGS = 50;
 

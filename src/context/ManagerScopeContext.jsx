@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -9,9 +10,8 @@ import {
   getMyManagerAssignments,
   selectMyManagerAssignment,
 } from "../api/managerAssignmentsApi";
-import { useAuth } from "./AuthContext";
-import ManagerScopeContext from "./managerScopeContext";
-
+import { useAuth } from "../hooks/useAuth";
+import ManagerScopeContext from "./manager-scope-context-core";
 
 function getAssignmentLabel(assignment) {
   if (!assignment) {
@@ -40,21 +40,28 @@ export function ManagerScopeProvider({ children }) {
   const [activeAssignment, setActiveAssignment] = useState(null);
   const [requiresSelection, setRequiresSelection] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadedManagerUserId, setLoadedManagerUserId] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const requestVersionRef = useRef(0);
 
   const clearManagerScope = useCallback(() => {
+    requestVersionRef.current += 1;
     setAssignments([]);
     setActiveAssignmentId(null);
     setActiveAssignment(null);
     setRequiresSelection(false);
+    setLoadedManagerUserId(null);
     setErrorMessage("");
   }, []);
 
   const refreshManagerScope = useCallback(async () => {
-    if (user?.role !== "MANAGER") {
+    if (user?.role !== "MANAGER" || user?.requiresModeSelection) {
       clearManagerScope();
       return null;
     }
+
+    const requestVersion = requestVersionRef.current + 1;
+    requestVersionRef.current = requestVersion;
 
     try {
       setIsLoading(true);
@@ -62,6 +69,10 @@ export function ManagerScopeProvider({ children }) {
 
       const result = await getMyManagerAssignments();
       const data = result?.data ?? result ?? {};
+
+      if (requestVersionRef.current !== requestVersion) {
+        return null;
+      }
 
       const nextAssignments = Array.isArray(data.assignments)
         ? data.assignments
@@ -74,14 +85,25 @@ export function ManagerScopeProvider({ children }) {
 
       return data;
     } catch (error) {
-      setErrorMessage(
-        error?.message ?? "Yönetici çalışma alanları alınamadı."
-      );
+      if (requestVersionRef.current === requestVersion) {
+        setErrorMessage(
+          error?.message ?? "Yönetici çalışma alanları alınamadı."
+        );
+      }
+
       throw error;
     } finally {
-      setIsLoading(false);
+      if (requestVersionRef.current === requestVersion) {
+        setLoadedManagerUserId(user?.id ?? null);
+        setIsLoading(false);
+      }
     }
-  }, [clearManagerScope, user?.role]);
+  }, [
+    clearManagerScope,
+    user?.id,
+    user?.requiresModeSelection,
+    user?.role,
+  ]);
 
   const selectManagerScope = useCallback(async (assignmentId) => {
     try {
@@ -97,41 +119,47 @@ export function ManagerScopeProvider({ children }) {
 
       return data;
     } catch (error) {
-      setErrorMessage(
-        error?.message ?? "Çalışma alanı seçilemedi."
-      );
+      setErrorMessage(error?.message ?? "Çalışma alanı seçilemedi.");
       throw error;
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-useEffect(() => {
-  let isCancelled = false;
+  useEffect(() => {
+    let isCancelled = false;
 
-  const timeoutId = window.setTimeout(() => {
-    if (isCancelled) {
-      return;
-    }
+    const timeoutId = window.setTimeout(() => {
+      if (isCancelled) {
+        return;
+      }
 
-    if (user?.role === "MANAGER") {
-      refreshManagerScope().catch(() => {});
-      return;
-    }
+      if (user?.role === "MANAGER" && !user?.requiresModeSelection) {
+        refreshManagerScope().catch(() => {});
+        return;
+      }
 
-    clearManagerScope();
-  }, 0);
+      clearManagerScope();
+    }, 0);
 
-  return () => {
-    isCancelled = true;
-    window.clearTimeout(timeoutId);
-  };
-}, [
-  clearManagerScope,
-  refreshManagerScope,
-  user?.id,
-  user?.role,
-]);
+    return () => {
+      isCancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    clearManagerScope,
+    refreshManagerScope,
+    user?.id,
+    user?.requiresModeSelection,
+    user?.role,
+  ]);
+
+  const scopeIsLoading =
+    user?.role === "MANAGER" &&
+    !user?.requiresModeSelection &&
+    loadedManagerUserId !== user.id
+      ? true
+      : isLoading;
 
   const value = useMemo(
     () => ({
@@ -140,7 +168,7 @@ useEffect(() => {
       activeAssignment,
       activeAssignmentLabel: getAssignmentLabel(activeAssignment),
       requiresSelection,
-      isLoading,
+      isLoading: scopeIsLoading,
       errorMessage,
       refreshManagerScope,
       selectManagerScope,
@@ -150,9 +178,9 @@ useEffect(() => {
       activeAssignmentId,
       assignments,
       errorMessage,
-      isLoading,
       refreshManagerScope,
       requiresSelection,
+      scopeIsLoading,
       selectManagerScope,
     ]
   );
@@ -163,4 +191,3 @@ useEffect(() => {
     </ManagerScopeContext.Provider>
   );
 }
-

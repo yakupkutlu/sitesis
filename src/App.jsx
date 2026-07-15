@@ -1,9 +1,10 @@
-﻿import { Routes, Route, useLocation } from "react-router-dom";
+import { ManagerScopeProvider } from "./context/ManagerScopeContext";
+import { Routes, Route, useLocation } from "react-router-dom";
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 import ProtectedRoute from "./components/auth/ProtectedRoute";
 import ManagerScopeGate from "./components/auth/ManagerScopeGate";
-import { ManagerScopeProvider } from "./context/ManagerScopeContext";
+
 
 import Home from "./pages/Home";
 import Features from "./pages/Features";
@@ -12,6 +13,7 @@ import Contact from "./pages/Contact";
 import Login from "./pages/Login";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
+import SelectAccountModePage from "./pages/SelectAccountModePage";
 import NotFound from "./pages/NotFound";
 
 import SuperAdminDashboard from "./pages/dashboards/SuperAdminDashboard";
@@ -63,7 +65,8 @@ function App() {
   const isDashboardRoute =
     location.pathname.startsWith("/super-admin") ||
     location.pathname.startsWith("/manager") ||
-    location.pathname.startsWith("/resident");
+    location.pathname.startsWith("/resident") ||
+    location.pathname === "/select-account-mode";
 
   return (
     <div className="app">
@@ -78,6 +81,10 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route
+          path="/select-account-mode"
+          element={protect(undefined, <SelectAccountModePage />)}
+        />
 
         <Route path="/super-admin/dashboard" element={protect(["SUPER_ADMIN"], <SuperAdminDashboard />)} />
         <Route path="/super-admin/buildings" element={protect(["SUPER_ADMIN"], <BuildingsPage />)} />
@@ -104,7 +111,10 @@ function App() {
         <Route path="/resident/announcements" element={protect(["RESIDENT"], <ResidentAnnouncementsPage />)} />
         <Route path="/resident/requests" element={protect(["RESIDENT"], <ResidentRequestsPage />)} />
         <Route path="/resident/settings" element={protect(["RESIDENT"], <ResidentSettingsPage />)} />
-        <Route path="/super-admin/contact-messages" element={<ContactMessagesPage />} />
+        <Route
+          path="/super-admin/contact-messages"
+          element={protect(["SUPER_ADMIN"], <ContactMessagesPage />)}
+        />
 
         <Route path="*" element={<NotFound />} />
       </Routes>

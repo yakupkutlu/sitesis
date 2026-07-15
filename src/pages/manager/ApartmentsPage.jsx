@@ -1,4 +1,5 @@
-﻿import { useCallback, useEffect, useState } from "react";
+import { useAuth } from "../../hooks/useAuth";
+import { useCallback, useEffect, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   BarChart3,
@@ -17,7 +18,7 @@ import ApartmentDetailsModal from "../../components/apartments/ApartmentDetailsM
 
 import { getApartments } from "../../api/apartmentsApi";
 import { getBlocks } from "../../api/blocksApi";
-import { useAuth } from "../../context/AuthContext";
+
 
 const navItems = [
   { label: "Panel", path: "/manager/dashboard", icon: BarChart3 },
@@ -221,7 +222,13 @@ function ApartmentsPage() {
   }, [searchTerm]);
 
   useEffect(() => {
-    setCurrentPage(1);
+    const timeoutId = window.setTimeout(() => {
+      setCurrentPage(1);
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
   }, [blockFilter]);
 
   useEffect(() => {

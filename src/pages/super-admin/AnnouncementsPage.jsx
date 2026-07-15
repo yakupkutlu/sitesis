@@ -1,4 +1,5 @@
-﻿import { useCallback, useEffect, useState } from "react";
+import { useAuth } from "../../hooks/useAuth";
+import { useCallback, useEffect, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   BarChart3,
@@ -27,7 +28,7 @@ import {
   getAnnouncements,
   updateAnnouncement,
 } from "../../api/announcementsApi";
-import { useAuth } from "../../context/AuthContext";
+
 
 const navItems = [
   { label: "Panel", path: "/super-admin/dashboard", icon: BarChart3 },
@@ -312,7 +313,13 @@ function AnnouncementsPage() {
   }, [searchTerm]);
 
   useEffect(() => {
-    setCurrentPage(1);
+    const timeoutId = window.setTimeout(() => {
+      setCurrentPage(1);
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
   }, [targetTypeFilter, statusFilter]);
 
   useEffect(() => {

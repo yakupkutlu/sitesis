@@ -1,4 +1,5 @@
-﻿import { useEffect, useState } from "react";
+import { useAuth } from "../../hooks/useAuth";
+import { useEffect, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   BarChart3,
@@ -18,7 +19,7 @@ import {
   getCurrentUser,
   updateOwnProfile,
 } from "../../api/authApi";
-import { useAuth } from "../../context/AuthContext";
+
 
 const navItems = [
   { label: "Panel", path: "/manager/dashboard", icon: BarChart3 },
@@ -100,7 +101,7 @@ function ManagerSettingsPage() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [user]);
 
   function handleProfileChange(event) {
     const { name, value } = event.target;

@@ -6,9 +6,14 @@ function SecureImage({ src, alt, className }) {
 
   useEffect(() => {
     if (!src) {
-      setImageUrl("");
-      setHasError(false);
-      return;
+      const timeoutId = window.setTimeout(() => {
+        setImageUrl("");
+        setHasError(false);
+      }, 0);
+
+      return () => {
+        window.clearTimeout(timeoutId);
+      };
     }
 
     let objectUrl = "";

@@ -1,4 +1,5 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "../../hooks/useAuth";
+import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   BarChart3,
@@ -25,8 +26,8 @@ import {
   getApartmentResidents,
   updateApartmentResident,
 } from "../../api/apartmentResidentsApi";
-import { updateUser } from "../../api/usersApi";
-import { useAuth } from "../../context/AuthContext";
+import { deactivateUser, updateUser } from "../../api/usersApi";
+
 import { buildPaymentSummary } from "../../utils/paymentSummary";
 
 const navItems = [
@@ -134,6 +135,7 @@ function mapApartmentResidentToUser(record) {
     apartment: apartment.number ? `Daire ${apartment.number}` : "-",
     createdByManager: "Süper Admin / Yönetici",
     status: residentUser.status === "ACTIVE" ? "Aktif" : "Pasif",
+    accountRole: residentUser.role ?? "RESIDENT",
     createdAt: formatDate(record.createdAt),
     totalDebt: paymentSummary.totalDebt,
     paidAmount: paymentSummary.paidAmount,
@@ -308,8 +310,12 @@ function UsersPage() {
       return;
     }
 
-    if (!editingUser && formData.password.length < 8) {
-      setErrorMessage("Yeni sakin için şifre en az 8 karakter olmalıdır.");
+    if (
+      !editingUser &&
+      formData.password.trim().length > 0 &&
+      formData.password.trim().length < 8
+    ) {
+      setErrorMessage("Geçici şifre en az 8 karakter olmalıdır.");
       setMessage("");
       return;
     }
@@ -324,7 +330,6 @@ function UsersPage() {
           fullName: formData.fullName.trim(),
           email: formData.email.trim(),
           phone: formData.phone.trim() || null,
-          role: "RESIDENT",
         };
 
         if (formData.password.trim()) {
@@ -342,7 +347,11 @@ function UsersPage() {
           fullName: formData.fullName.trim(),
           email: formData.email.trim(),
           phone: formData.phone.trim() || undefined,
-          password: formData.password.trim(),
+          ...(formData.password.trim()
+            ? {
+                password: formData.password.trim(),
+              }
+            : {}),
           apartmentId: formData.apartmentId,
           type: formData.residentType,
         });
@@ -389,12 +398,65 @@ function UsersPage() {
   }
 
   async function handleToggleStatus(userRow) {
-    const nextStatus = userRow.status === "Aktif" ? "PASSIVE" : "ACTIVE";
+    const isCurrentlyActive = userRow.status === "Aktif";
+    const accountRole = userRow.accountRole ?? "RESIDENT";
 
-    const confirmMessage =
-      userRow.status === "Aktif"
-        ? `${userRow.name} adlı sakini pasifleştirmek istiyor musunuz?`
-        : `${userRow.name} adlı sakini tekrar aktifleştirmek istiyor musunuz?`;
+    if (
+      isCurrentlyActive &&
+      accountRole === "SUPER_ADMIN" &&
+      userRow.userId === user?.id
+    ) {
+      setErrorMessage("Kendi süper admin hesabınızı pasif yapamazsınız.");
+      setMessage("");
+      return;
+    }
+
+    let confirmMessage;
+
+    if (!isCurrentlyActive) {
+      confirmMessage =
+        accountRole === "MANAGER"
+          ? [
+              `${userRow.name} adlı yönetici hesabını tekrar aktifleştirmek istiyor musunuz?`,
+              "",
+              "Hesap yeniden yönetici paneline ve sakin olarak bağlı olduğu daire bilgilerine erişebilecektir.",
+            ].join("\n")
+          : accountRole === "SUPER_ADMIN"
+            ? [
+                `${userRow.name} adlı süper admin hesabını tekrar aktifleştirmek istiyor musunuz?`,
+                "",
+                "Hesap yeniden tüm süper admin yetkilerine erişebilecektir.",
+              ].join("\n")
+            : `${userRow.name} adlı sakin hesabını tekrar aktifleştirmek istiyor musunuz?`;
+    } else if (accountRole === "MANAGER") {
+      confirmMessage = [
+        "DİKKAT: Bu kullanıcı aynı zamanda yönetici hesabıdır.",
+        "",
+        `${userRow.name} adlı hesabı pasif yaparsanız:`,
+        "• Yönetici paneline giriş yapamaz.",
+        "• Atandığı site ve blokları yönetemez.",
+        "• Sakin olarak bağlı olduğu daire bilgilerine de erişemez.",
+        "",
+        "Yönetici atamaları ve daire bağlantısı silinmez; yalnızca hesap erişimi kapatılır.",
+        "",
+        "Devam etmek istiyor musunuz?",
+      ].join("\n");
+    } else if (accountRole === "SUPER_ADMIN") {
+      confirmMessage = [
+        "ÇOK ÖNEMLİ: Bu kullanıcı süper admin hesabıdır.",
+        "",
+        `${userRow.name} adlı hesabı pasif yaparsanız süper admin paneline erişimi tamamen kapanır.`,
+        "Sistem son aktif süper admin hesabının pasifleştirilmesine izin vermez.",
+        "",
+        "Devam etmek istiyor musunuz?",
+      ].join("\n");
+    } else {
+      confirmMessage = [
+        `${userRow.name} adlı sakin hesabını pasifleştirmek istiyor musunuz?`,
+        "",
+        "Kullanıcı sisteme giriş yapamayacaktır.",
+      ].join("\n");
+    }
 
     const isConfirmed = window.confirm(confirmMessage);
 
@@ -407,28 +469,52 @@ function UsersPage() {
       setErrorMessage("");
       setIsSaving(true);
 
-      await updateUser(userRow.userId, {
-        status: nextStatus,
-      });
+      const result = isCurrentlyActive
+        ? await deactivateUser(userRow.userId)
+        : await updateUser(userRow.userId, {
+            status: "ACTIVE",
+          });
 
       await loadUsersPageData();
 
       setMessage(
-        nextStatus === "ACTIVE"
-          ? "Sakin tekrar aktifleştirildi."
-          : "Sakin pasifleştirildi."
+        result?.message ??
+          (isCurrentlyActive
+            ? "Kullanıcı hesabı pasif yapıldı."
+            : "Kullanıcı hesabı tekrar aktifleştirildi.")
       );
     } catch (error) {
-      setErrorMessage(error?.message ?? "Sakin durumu güncellenemedi.");
+      setErrorMessage(error?.message ?? "Kullanıcı durumu güncellenemedi.");
     } finally {
       setIsSaving(false);
     }
   }
 
   async function handleDeleteApartmentResident(userRow) {
-    const isConfirmed = window.confirm(
-      `${userRow.name} adlı sakinin daire bağlantısını kaldırmak istiyor musunuz?`
-    );
+    const accountRole = userRow.accountRole ?? "RESIDENT";
+
+    const confirmMessage =
+      accountRole === "MANAGER"
+        ? [
+            "DİKKAT: Bu sakin aynı zamanda yönetici hesabıdır.",
+            "",
+            "Bu işlem yalnızca daire sakinliği bağlantısını kaldıracaktır.",
+            "Yönetici hesabı, rolü, şifresi ve yönetim paneli erişimi aktif kalacaktır.",
+            "",
+            "Devam etmek istiyor musunuz?",
+          ].join("\n")
+        : accountRole === "SUPER_ADMIN"
+          ? [
+              "DİKKAT: Bu sakin aynı zamanda süper admin hesabıdır.",
+              "",
+              "Bu işlem yalnızca daire sakinliği bağlantısını kaldıracaktır.",
+              "Süper admin hesabı ve yetkileri aktif kalacaktır.",
+              "",
+              "Devam etmek istiyor musunuz?",
+            ].join("\n")
+          : `${userRow.name} adlı sakinin daire bağlantısını kaldırmak istiyor musunuz?`;
+
+    const isConfirmed = window.confirm(confirmMessage);
 
     if (!isConfirmed) {
       return;
@@ -439,10 +525,12 @@ function UsersPage() {
       setErrorMessage("");
       setIsSaving(true);
 
-      await deleteApartmentResident(userRow.id);
+      const result = await deleteApartmentResident(userRow.id);
       await loadUsersPageData();
 
-      setMessage("Sakin daire bağlantısı başarıyla kaldırıldı.");
+      setMessage(
+        result?.message ?? "Sakin daire bağlantısı başarıyla kaldırıldı."
+      );
     } catch (error) {
       setErrorMessage(error?.message ?? "Sakin daire bağlantısı kaldırılamadı.");
     } finally {

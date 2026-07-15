@@ -338,14 +338,9 @@ router.get(
       prisma.site.count({ where: siteWhere }),
       prisma.block.count({ where: blockWhere }),
       prisma.apartment.count({ where: apartmentWhere }),
-      prisma.user.count({
+      prisma.apartmentResident.count({
         where: {
-          role: "RESIDENT",
-          apartmentResidents: {
-            some: {
-              apartment: apartmentWhere,
-            },
-          },
+          apartment: apartmentWhere,
         },
       }),
       prisma.paymentBatch.count({ where: paymentBatchWhere }),
