@@ -1,17 +1,10 @@
+import { managerNavItems } from "../../config/managerNavigation";
 import { useAuth } from "../../hooks/useAuth";
 import { useEffect, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
-  BarChart3,
-  Bell,
-  CreditCard,
-  Home,
-  MessageSquareText,
   Save,
-  Settings,
   ShieldCheck,
-  UploadCloud,
-  UserRound,
 } from "lucide-react";
 
 import {
@@ -20,17 +13,6 @@ import {
   updateOwnProfile,
 } from "../../api/authApi";
 
-
-const navItems = [
-  { label: "Panel", path: "/manager/dashboard", icon: BarChart3 },
-  { label: "Daireler", path: "/manager/apartments", icon: Home },
-  { label: "Sakinler", path: "/manager/residents", icon: UserRound },
-  { label: "Aidat ve Ödemeler", path: "/manager/payments", icon: CreditCard },
-  { label: "Dekontlar", path: "/manager/receipts", icon: UploadCloud },
-  { label: "Duyurular", path: "/manager/announcements", icon: Bell },
-  { label: "Talepler", path: "/manager/requests", icon: MessageSquareText },
-  { label: "Ayarlar", path: "/manager/settings", icon: Settings },
-];
 
 const emptySecurityData = {
   currentPassword: "",
@@ -229,7 +211,7 @@ function ManagerSettingsPage() {
       roleTitle="Ayarlar"
       roleBadge="Yönetici"
       userName={profileData.fullName || user?.fullName || "Yönetici"}
-      navItems={navItems}
+      navItems={managerNavItems}
       theme="manager"
       isDarkMode={isDarkMode}
     >

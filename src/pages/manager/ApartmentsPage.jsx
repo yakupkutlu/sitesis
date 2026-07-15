@@ -1,16 +1,8 @@
+import { managerNavItems } from "../../config/managerNavigation";
 import { useAuth } from "../../hooks/useAuth";
 import { useCallback, useEffect, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
-import {
-  BarChart3,
-  Bell,
-  CreditCard,
-  Home,
-  MessageSquareText,
-  Settings,
-  UploadCloud,
-  UserRound,
-} from "lucide-react";
+
 
 import ApartmentToolbar from "../../components/apartments/ApartmentToolbar";
 import ApartmentTable from "../../components/apartments/ApartmentTable";
@@ -19,17 +11,6 @@ import ApartmentDetailsModal from "../../components/apartments/ApartmentDetailsM
 import { getApartments } from "../../api/apartmentsApi";
 import { getBlocks } from "../../api/blocksApi";
 
-
-const navItems = [
-  { label: "Panel", path: "/manager/dashboard", icon: BarChart3 },
-  { label: "Daireler", path: "/manager/apartments", icon: Home },
-  { label: "Sakinler", path: "/manager/residents", icon: UserRound },
-  { label: "Aidat ve Ödemeler", path: "/manager/payments", icon: CreditCard },
-  { label: "Dekontlar", path: "/manager/receipts", icon: UploadCloud },
-  { label: "Duyurular", path: "/manager/announcements", icon: Bell },
-  { label: "Talepler", path: "/manager/requests", icon: MessageSquareText },
-  { label: "Ayarlar", path: "/manager/settings", icon: Settings },
-];
 
 const PAGE_SIZE = 10;
 
@@ -275,7 +256,7 @@ function ApartmentsPage() {
       roleTitle="Daireler"
       roleBadge="Yönetici"
       userName={user?.fullName ?? "Yönetici"}
-      navItems={navItems}
+      navItems={managerNavItems}
       theme="manager"
     >
       <div className="dashboard-page-header">

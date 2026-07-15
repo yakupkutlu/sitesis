@@ -1,15 +1,8 @@
+import { managerNavItems } from "../../config/managerNavigation";
 import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
-  BarChart3,
-  Bell,
-  CreditCard,
-  Home,
-  MessageSquareText,
   Plus,
-  Settings,
-  UploadCloud,
-  UserRound,
 } from "lucide-react";
 
 import ReceiptToolbar from "../../components/receipts/ReceiptToolbar";
@@ -26,17 +19,6 @@ import {
 } from "../../api/paymentReceiptsApi";
 import { getApartments } from "../../api/apartmentsApi";
 import { useAuth } from "../../hooks/useAuth";
-
-const navItems = [
-  { label: "Panel", path: "/manager/dashboard", icon: BarChart3 },
-  { label: "Daireler", path: "/manager/apartments", icon: Home },
-  { label: "Sakinler", path: "/manager/residents", icon: UserRound },
-  { label: "Aidat ve Ödemeler", path: "/manager/payments", icon: CreditCard },
-  { label: "Dekontlar", path: "/manager/receipts", icon: UploadCloud },
-  { label: "Duyurular", path: "/manager/announcements", icon: Bell },
-  { label: "Talepler", path: "/manager/requests", icon: MessageSquareText },
-  { label: "Ayarlar", path: "/manager/settings", icon: Settings },
-];
 
 const statusLabels = {
   PENDING: "Onay Bekliyor",
@@ -585,7 +567,7 @@ function ReceiptsPage() {
       roleTitle="Dekontlar"
       roleBadge="Yönetici"
       userName={user?.fullName ?? "Yönetici"}
-      navItems={navItems}
+      navItems={managerNavItems}
       theme="manager"
     >
       <div className="dashboard-page-header">

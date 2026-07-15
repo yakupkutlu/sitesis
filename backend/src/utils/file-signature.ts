@@ -8,14 +8,27 @@ const allowedSignatures = {
 };
 
 function startsWithSignature(buffer: Buffer, signature: number[]) {
-  return signature.every((byte, index) => {
-    return buffer[index] === byte;
-  });
+  return signature.every((byte, index) => buffer[index] === byte);
 }
 
-export async function isAllowedReceiptFile(filePath: string, mimeType: string) {
-  const fileBuffer = await fs.readFile(filePath);
-  const firstBytes = fileBuffer.subarray(0, 12);
+async function readFileHeader(filePath: string, byteLength = 12) {
+  const fileHandle = await fs.open(filePath, "r");
+
+  try {
+    const buffer = Buffer.alloc(byteLength);
+    const { bytesRead } = await fileHandle.read(buffer, 0, byteLength, 0);
+
+    return buffer.subarray(0, bytesRead);
+  } finally {
+    await fileHandle.close();
+  }
+}
+
+export async function isAllowedDocumentFile(
+  filePath: string,
+  mimeType: string
+) {
+  const firstBytes = await readFileHeader(filePath);
 
   if (mimeType === "application/pdf") {
     return startsWithSignature(firstBytes, allowedSignatures.pdf);
@@ -30,11 +43,19 @@ export async function isAllowedReceiptFile(filePath: string, mimeType: string) {
   }
 
   if (mimeType === "image/webp") {
-    const startsWithRiff = startsWithSignature(firstBytes, allowedSignatures.webp);
-    const hasWebpSignature = firstBytes.subarray(8, 12).toString("ascii") === "WEBP";
+    const startsWithRiff = startsWithSignature(
+      firstBytes,
+      allowedSignatures.webp
+    );
+    const hasWebpSignature =
+      firstBytes.length >= 12 &&
+      firstBytes.subarray(8, 12).toString("ascii") === "WEBP";
 
     return startsWithRiff && hasWebpSignature;
   }
 
   return false;
 }
+
+// Mevcut dekont modülünü bozmamak için eski export korunur.
+export const isAllowedReceiptFile = isAllowedDocumentFile;

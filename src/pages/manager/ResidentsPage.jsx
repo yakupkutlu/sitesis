@@ -1,16 +1,9 @@
+import { managerNavItems } from "../../config/managerNavigation";
 import { useAuth } from "../../hooks/useAuth";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
-  BarChart3,
-  Bell,
-  CreditCard,
-  Home,
-  MessageSquareText,
   Plus,
-  Settings,
-  UploadCloud,
-  UserRound,
 } from "lucide-react";
 
 import ResidentToolbar from "../../components/residents/ResidentToolbar";
@@ -28,17 +21,6 @@ import {
 import { getApartments } from "../../api/apartmentsApi";
 
 import { buildPaymentSummary } from "../../utils/paymentSummary";
-
-const navItems = [
-  { label: "Panel", path: "/manager/dashboard", icon: BarChart3 },
-  { label: "Daireler", path: "/manager/apartments", icon: Home },
-  { label: "Sakinler", path: "/manager/residents", icon: UserRound },
-  { label: "Aidat ve Ödemeler", path: "/manager/payments", icon: CreditCard },
-  { label: "Dekontlar", path: "/manager/receipts", icon: UploadCloud },
-  { label: "Duyurular", path: "/manager/announcements", icon: Bell },
-  { label: "Talepler", path: "/manager/requests", icon: MessageSquareText },
-  { label: "Ayarlar", path: "/manager/settings", icon: Settings },
-];
 
 const typeToLabel = {
   OWNER: "Ev Sahibi",
@@ -418,7 +400,7 @@ const loadPageData = useCallback(async () => {
       roleTitle="Sakinler"
       roleBadge="Yönetici"
       userName={user?.fullName ?? "Yönetici"}
-      navItems={navItems}
+      navItems={managerNavItems}
       theme="manager"
     >
       <div className="dashboard-page-header">

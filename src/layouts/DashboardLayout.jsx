@@ -5,6 +5,7 @@ import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   Bell,
   Building2,
+  ChevronDown,
   ChevronLeft,
   CircleHelp,
   LogOut,
@@ -127,6 +128,7 @@ function DashboardLayout({
   const [isNotificationMenuOpen, setIsNotificationMenuOpen] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [openNavGroups, setOpenNavGroups] = useState({});
 
   const dashboardIsDarkMode =
     typeof isDarkMode === "boolean" ? isDarkMode : getStoredDarkMode(roleBadge);
@@ -163,6 +165,19 @@ function DashboardLayout({
       document.removeEventListener("keydown", handleEscape);
     };
   }, [isHelpOpen]);
+
+  function toggleNavGroup(groupKey, groupIsActive) {
+    setOpenNavGroups((currentGroups) => {
+      const savedValue = currentGroups[groupKey];
+      const isCurrentlyOpen =
+        typeof savedValue === "boolean" ? savedValue : groupIsActive;
+
+      return {
+        ...currentGroups,
+        [groupKey]: !isCurrentlyOpen,
+      };
+    });
+  }
 
   function closeSidebar() {
     setIsSidebarOpen(false);
@@ -272,6 +287,74 @@ function DashboardLayout({
         <nav className="sidebar-nav">
           {navItems.map((item) => {
             const Icon = item.icon;
+            const hasChildren =
+              Array.isArray(item.children) && item.children.length > 0;
+
+            if (hasChildren) {
+              const groupKey = item.key ?? item.label;
+              const groupIsActive = item.children.some((child) => {
+                return (
+                  location.pathname === child.path ||
+                  location.pathname.startsWith(`${child.path}/`)
+                );
+              });
+
+              const savedOpenValue = openNavGroups[groupKey];
+              const isGroupOpen =
+                typeof savedOpenValue === "boolean"
+                  ? savedOpenValue
+                  : groupIsActive;
+
+              return (
+                <div
+                  className={`sidebar-nav-group ${
+                    groupIsActive ? "active" : ""
+                  }`}
+                  key={groupKey}
+                >
+                  <button
+                    type="button"
+                    className="sidebar-nav-group-button"
+                    onClick={() =>
+                      toggleNavGroup(groupKey, groupIsActive)
+                    }
+                    aria-expanded={isGroupOpen}
+                  >
+                    <span className="sidebar-nav-group-main">
+                      <Icon size={20} />
+                      <span>{item.label}</span>
+                    </span>
+
+                    <ChevronDown
+                      size={17}
+                      className={`sidebar-nav-group-chevron ${
+                        isGroupOpen ? "open" : ""
+                      }`}
+                    />
+                  </button>
+
+                  {isGroupOpen && (
+                    <div className="sidebar-nav-submenu">
+                      {item.children.map((child) => {
+                        const ChildIcon = child.icon;
+
+                        return (
+                          <NavLink
+                            to={child.path}
+                            end={Boolean(child.end)}
+                            key={child.path}
+                            onClick={closeSidebar}
+                          >
+                            {ChildIcon && <ChildIcon size={17} />}
+                            <span>{child.label}</span>
+                          </NavLink>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            }
 
             return (
               <NavLink to={item.path} key={item.path} onClick={closeSidebar}>

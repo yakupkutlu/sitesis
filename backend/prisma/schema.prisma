@@ -41,6 +41,26 @@ enum ReceiptStatus {
   REJECTED
 }
 
+
+enum AccountingExpenseCategory {
+  ELEVATOR
+  MAINTENANCE
+  REPAIR
+  CLEANING
+  PERSONNEL
+  UTILITIES
+  INSURANCE
+  TAX
+  SECURITY
+  LANDSCAPING
+  OTHER
+}
+
+enum AccountingExpenseStatus {
+  ACTIVE
+  CANCELLED
+}
+
 enum ManagerScopeType {
   SITE
   BLOCK
@@ -152,6 +172,9 @@ model User {
   createdNotificationLogs       NotificationLog[]       @relation("UserCreatedNotificationLogs")
   receivedNotificationLogs      NotificationLog[]       @relation("UserReceivedNotificationLogs")
   passwordResetTokens           PasswordResetToken[]    @relation("UserPasswordResetTokens")
+  createdAccountingExpenses      AccountingExpense[]      @relation("CreatedAccountingExpenses")
+  cancelledAccountingExpenses    AccountingExpense[]      @relation("CancelledAccountingExpenses")
+  uploadedAccountingDocuments    AccountingExpenseDocument[] @relation("UploadedAccountingExpenseDocuments")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -170,6 +193,7 @@ model Site {
   paymentBatches     PaymentBatch[]
   managerAssignments ManagerAssignment[]
   announcements      Announcement[]      @relation("SiteAnnouncements")
+  accountingExpenses AccountingExpense[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -188,6 +212,7 @@ model Block {
   paymentBatches     PaymentBatch[]
   managerAssignments ManagerAssignment[]
   announcements      Announcement[]      @relation("BlockAnnouncements")
+  accountingExpenses AccountingExpense[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -251,6 +276,7 @@ model PaymentBatch {
 
   allocations PaymentAllocation[]
   exemptions  PaymentExemption[]
+  accountingExpense AccountingExpense?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -337,6 +363,66 @@ model PaymentReceipt {
   @@index([status])
   @@index([aiProvider])
   @@index([aiAnalyzedAt])
+}
+
+model AccountingExpense {
+  id            String                    @id @default(uuid())
+  title         String
+  description   String?
+  category      AccountingExpenseCategory
+  amountKurus   Int
+  expenseDate   DateTime
+  vendorName    String?
+  invoiceNumber String?
+  status        AccountingExpenseStatus   @default(ACTIVE)
+
+  siteId String
+  site   Site   @relation(fields: [siteId], references: [id], onDelete: Restrict)
+
+  blockId String?
+  block   Block? @relation(fields: [blockId], references: [id], onDelete: Restrict)
+
+  paymentBatchId String?       @unique
+  paymentBatch   PaymentBatch? @relation(fields: [paymentBatchId], references: [id], onDelete: SetNull)
+
+  createdByUserId String
+  createdByUser   User   @relation("CreatedAccountingExpenses", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  cancelledByUserId String?
+  cancelledByUser   User?   @relation("CancelledAccountingExpenses", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
+  cancellationReason String?
+  cancelledAt       DateTime?
+
+  documents AccountingExpenseDocument[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([siteId])
+  @@index([blockId])
+  @@index([category])
+  @@index([status])
+  @@index([expenseDate])
+  @@index([createdByUserId])
+}
+
+model AccountingExpenseDocument {
+  id               String @id @default(uuid())
+  originalFileName String
+  storedFileName   String @unique
+  mimeType         String
+  sizeBytes        Int
+
+  expenseId String
+  expense   AccountingExpense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+
+  uploadedByUserId String
+  uploadedByUser   User @relation("UploadedAccountingExpenseDocuments", fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+
+  @@index([expenseId])
+  @@index([uploadedByUserId])
 }
 
 model ManagerAssignment {

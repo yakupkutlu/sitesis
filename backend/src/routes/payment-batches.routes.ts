@@ -37,6 +37,14 @@ const paymentBatchInclude = {
       },
     },
   },
+  accountingExpense: {
+    select: {
+      id: true,
+      title: true,
+      category: true,
+      status: true,
+    },
+  },
   allocations: {
     include: {
       apartment: {
@@ -178,6 +186,12 @@ async function getPaymentBatchForManagement(paymentBatchId: string, user: Authen
       id: paymentBatchId,
     },
     include: {
+      accountingExpense: {
+        select: {
+          id: true,
+          status: true,
+        },
+      },
       allocations: {
         select: {
           id: true,
@@ -244,7 +258,6 @@ async function getPaymentBatchRecipients(paymentBatchId: string) {
           residents: {
             where: {
               user: {
-                role: "RESIDENT",
                 status: "ACTIVE",
               },
             },
@@ -916,6 +929,13 @@ router.patch(
       paymentBatchId,
       authenticatedRequest.user
     );
+
+    if (targetPaymentBatch.accountingExpense) {
+      throw new HttpError(
+        409,
+        "Muhasebe giderine bağlı ödeme doğrudan iptal edilemez. İşlemi Kasa / Ön Muhasebe bölümündeki gider kaydı üzerinden yapın."
+      );
+    }
 
     const hasPaidAllocation = targetPaymentBatch.allocations.some((allocation) => {
       return allocation.status === "PAID";

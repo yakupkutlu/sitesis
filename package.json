@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "lint": "eslint .",
+    "lint": "eslint . --ignore-pattern backend/dist/**",
     "preview": "vite preview"
   },
   "dependencies": {

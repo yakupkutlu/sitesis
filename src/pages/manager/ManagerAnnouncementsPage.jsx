@@ -1,19 +1,12 @@
+import { managerNavItems } from "../../config/managerNavigation";
 import { useAuth } from "../../hooks/useAuth";
 import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   Archive,
-  BarChart3,
-  Bell,
-  CreditCard,
   Edit,
   Eye,
-  Home,
-  MessageSquareText,
   Plus,
-  Settings,
-  UploadCloud,
-  UserRound,
 } from "lucide-react";
 
 import {
@@ -24,17 +17,6 @@ import {
 } from "../../api/announcementsApi";
 import { getApartments } from "../../api/apartmentsApi";
 
-
-const navItems = [
-  { label: "Panel", path: "/manager/dashboard", icon: BarChart3 },
-  { label: "Daireler", path: "/manager/apartments", icon: Home },
-  { label: "Sakinler", path: "/manager/residents", icon: UserRound },
-  { label: "Aidat ve Ödemeler", path: "/manager/payments", icon: CreditCard },
-  { label: "Dekontlar", path: "/manager/receipts", icon: UploadCloud },
-  { label: "Duyurular", path: "/manager/announcements", icon: Bell },
-  { label: "Talepler", path: "/manager/requests", icon: MessageSquareText },
-  { label: "Ayarlar", path: "/manager/settings", icon: Settings },
-];
 
 const emptyFormData = {
   title: "",
@@ -409,7 +391,7 @@ function ManagerAnnouncementsPage() {
       roleTitle="Duyurular"
       roleBadge="Yönetici"
       userName={user?.fullName ?? "Yönetici"}
-      navItems={navItems}
+      navItems={managerNavItems}
       theme="manager"
     >
       <div className="dashboard-page-header">
