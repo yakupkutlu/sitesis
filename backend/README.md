@@ -1,8 +1,10 @@
 ﻿# Sitesis Backend
 
-Sitesis Backend, apartman ve site yönetimi için geliştirilen Node.js + Express + TypeScript + PostgreSQL + Prisma tabanlı güvenli backend API projesidir.
+Sitesis Backend; apartman, bina ve site yönetimi için geliştirilen **Node.js + Express + TypeScript + PostgreSQL + Prisma** tabanlı güvenli bir REST API projesidir.
 
-Bu backend sistemi; kullanıcı yönetimi, rol bazlı yetkilendirme, yönetici kapsam kontrolü, aidat/ödeme yönetimi, dekont yükleme ve onaylama, duyuru, talep, SMS/e-posta ayarları, bildirim logları, AI ayarları, sistem ayarları ve dashboard özetlerini içerir.
+Sistem; kullanıcı ve rol yönetimi, yönetici çalışma alanı seçimi, site/blok/daire yetkilendirmesi, aidat ve ödeme yönetimi, dekont yükleme ve onaylama, kasa/ön muhasebe, duyurular, sakin talepleri, iletişim mesajları, SMS/e-posta bildirimleri, AI ayarları, sistem ayarları, AuditLog ve dashboard özetlerini içerir.
+
+---
 
 ## Kullanılan Teknolojiler
 
@@ -21,19 +23,18 @@ Bu backend sistemi; kullanıcı yönetimi, rol bazlı yetkilendirme, yönetici k
 - Express Rate Limit
 - Vitest
 
+---
+
 ## Kurulum
 
-Projeyi indirdikten sonra bağımlılıkları yüklemek için:
-
 ```bash
+cd backend
 npm install
 ```
 
-## Ortam Değişkenleri
+`.env.example` dosyasını `.env` olarak kopyalayın ve gerekli değerleri doldurun.
 
-`.env.example` dosyası `.env` olarak kopyalanmalı ve gerekli değerler doldurulmalıdır.
-
-Örnek:
+### Örnek ortam değişkenleri
 
 ```env
 NODE_ENV=development
@@ -56,75 +57,37 @@ SUPER_ADMIN_EMAIL="admin@example.com"
 SUPER_ADMIN_PASSWORD="change-this-strong-password"
 ```
 
-Gerçek `.env` dosyası GitHub'a gönderilmemelidir.
+> Gerçek `.env` dosyası GitHub'a gönderilmemelidir.
+
+---
 
 ## Temel Komutlar
 
-Geliştirme ortamında projeyi çalıştırmak için:
-
 ```bash
 npm run dev
-```
-
-Projeyi build etmek için:
-
-```bash
 npm run build
-```
-
-Production build sonrası projeyi başlatmak için:
-
-```bash
 npm start
-```
-
-Testleri çalıştırmak için:
-
-```bash
 npm test
-```
-
-Build ve testleri birlikte çalıştırmak için:
-
-```bash
 npm run check
 ```
 
-## Prisma Komutları
+---
 
-Prisma Client üretmek için:
+## Prisma Komutları
 
 ```bash
 npm run prisma:generate
-```
-
-Development ortamında migration oluşturmak ve uygulamak için:
-
-```bash
 npm run prisma:migrate:dev
-```
-
-Production ortamında migration uygulamak için:
-
-```bash
 npm run prisma:migrate:deploy
-```
-
-Prisma Studio açmak için:
-
-```bash
 npm run prisma:studio
-```
-
-Migration durumunu kontrol etmek için:
-
-```bash
 npx prisma migrate status
 ```
 
-## Production Çalıştırma Sırası
+> Production sunucusunda `prisma migrate reset` veya kontrolsüz `prisma db push` kullanılmamalıdır.
 
-Production ortamında önerilen çalıştırma sırası şu şekildedir:
+---
+
+## Production Çalıştırma Sırası
 
 ```bash
 npm install
@@ -135,13 +98,13 @@ npm run db:seed:super-admin
 npm start
 ```
 
-Bu sıra önemlidir. Önce bağımlılıklar yüklenir, sonra Prisma Client oluşturulur, database migration uygulanır, proje build edilir, ilk Super Admin oluşturulur ve son olarak backend başlatılır.
+Bu sıra; bağımlılıkların yüklenmesi, Prisma Client üretimi, migration uygulaması, build, ilk Super Admin oluşturulması ve backend başlangıcını kapsar.
+
+---
 
 ## İlk Super Admin Oluşturma
 
-Sistem ilk kez production ortamında kurulurken ilk Super Admin hesabı seed script ile oluşturulur.
-
-Önce gerçek `.env` dosyasına şu değerler eklenmelidir:
+`.env` içine aşağıdaki değerleri ekleyin:
 
 ```env
 SUPER_ADMIN_FULL_NAME="Super Admin"
@@ -149,124 +112,29 @@ SUPER_ADMIN_EMAIL="admin@example.com"
 SUPER_ADMIN_PASSWORD="change-this-strong-password"
 ```
 
-Sonra şu komut çalıştırılır:
+Sonra:
 
 ```bash
 npm run db:seed:super-admin
 ```
 
-Bu komut, verilen e-posta ile daha önce Super Admin yoksa yeni bir Super Admin kullanıcısı oluşturur.
+Seed script:
 
-Şifre veritabanına düz metin olarak kaydedilmez. `bcryptjs` ile hashlenmiş şekilde kaydedilir.
+- Aynı e-posta ile Super Admin yoksa yeni hesap oluşturur.
+- Şifreyi `bcryptjs` ile hashleyerek kaydeder.
+- Aynı e-posta ile Super Admin varsa tekrar oluşturmaz.
+- Aynı e-posta farklı role aitse işlemi durdurur.
 
-Aynı e-posta ile zaten Super Admin varsa yeni kullanıcı oluşturulmaz.
+---
 
-Aynı e-posta ile farklı role sahip bir kullanıcı varsa işlem durdurulur.
+# Kimlik Doğrulama ve Hesap Modları
 
-## Güvenlik Özellikleri
+## JWT ve Cookie
 
-- JWT, HttpOnly Cookie içinde saklanır.
-- CSRF koruması aktiftir.
-- POST, PATCH ve DELETE isteklerinde `x-csrf-token` gereklidir.
-- Login endpointinde rate limit vardır.
-- Forgot password endpointinde rate limit vardır.
-- Production ortamında debug reset token gösterilmez.
-- `.env`, uploads, dist, node_modules ve generated Prisma client Git dışında tutulur.
-- Dosya yükleme işlemlerinde dosya tipi, boyutu ve dosya imzası kontrol edilir.
-- Upload dosyaları public path üzerinden doğrudan servis edilmez.
-- SMS, Email ve AI ayarlarında gizli bilgiler güvenli şekilde saklanır.
-- Önemli işlemler AuditLog ile kayıt altına alınır.
-- Manager kullanıcıları sadece yetkili oldukları site, blok ve daire kapsamındaki verilere erişebilir.
-- API key, JWT secret, encryption key gibi gizli bilgiler frontend tarafına gönderilmez.
-
-## Production Güvenlik Notları
-
-Production ortamında mutlaka şu ayarlar kontrol edilmelidir:
-
-- `NODE_ENV=production` kullanılmalıdır.
-- `JWT_SECRET` en az 32 karakter olmalıdır.
-- `CONFIG_ENCRYPTION_KEY` en az 32 karakter olmalıdır.
-- Gerçek `.env` dosyası GitHub'a gönderilmemelidir.
-- `CLIENT_URL` sadece gerçek frontend domaini olacak şekilde ayarlanmalıdır.
-- HTTPS aktif olmalıdır.
-- Production ortamında cookie güvenliği aktif olmalıdır.
-- `COOKIE_SAME_SITE` ihtiyaca göre `lax`, `strict` veya `none` olarak ayarlanabilir.
-- Eğer backend reverse proxy arkasında çalışıyorsa `TRUST_PROXY=true` yapılmalıdır.
-- Upload edilen dosyalar GitHub'a eklenmemelidir.
-- Production migration için `prisma migrate deploy` kullanılmalıdır.
-- Kullanıcı şifreleri veritabanına hashlenmiş olarak kaydedilmelidir.
-- Dekont ve görsel dosyaları public static olarak açılmamalıdır.
-- Dosya erişimleri yetki kontrolünden geçmelidir.
-
-## Tamamlanan Ana Backend Özellikleri
-
-Bu projede şu ana kadar aşağıdaki ana modüller tamamlanmıştır:
-
-- Auth login/logout/me
-- JWT HttpOnly Cookie authentication
-- CSRF protection
-- Rate limit
-- Role based authorization
-- Manager scope permission
-- AuditLog
-- Password reset flow
-- Users update/deactivate
-- Sites, blocks, apartments management
-- Apartment residents management
-- Payment batches
-- Payment allocations
-- Payment exemption desteği
-- Secure receipt/dekont upload
-- File type ve file signature validation
-- Receipt approve/reject flow
-- Announcements
-- Resident requests
-- SMS settings
-- Email settings
-- Notification logs
-- Notification service
-- Manual notifications
-- Site/Block image upload
-- Private image view endpoints
-- AI Settings
-- System Settings
-- Super Admin Dashboard Summary
-- Manager Dashboard Summary
-- Resident Dashboard Summary
-- Production security hardening
-- Initial Super Admin seed script
-
-## Dashboard Summary Endpoints
-
-Super Admin dashboard için:
-
-```http
-GET /api/dashboard-summary/super-admin
-```
-
-Manager dashboard için:
-
-```http
-GET /api/dashboard-summary/manager
-```
-
-Resident/Sakin dashboard için:
-
-```http
-GET /api/dashboard-summary/resident
-```
-
-Bu endpointler gerçek database verilerinden özet üretir.
-
-Manager dashboard sadece yöneticinin yetkili olduğu site veya blok kapsamındaki verileri gösterir.
-
-Resident dashboard sadece sakinin bağlı olduğu dairelere ait ödeme, talep ve bildirim bilgilerini gösterir.
-
-## API Notları
-
-Cookie tabanlı authentication kullanıldığı için frontend isteklerinde `credentials` aktif olmalıdır.
-
-Örnek:
+- JWT, `HttpOnly Cookie` içinde saklanır.
+- Frontend JWT değerine doğrudan erişemez.
+- Authentication isteklerinde `credentials: "include"` kullanılır.
+- Production ortamında güvenli cookie ayarları uygulanır.
 
 ```js
 fetch("http://localhost:5000/api/auth/me", {
@@ -274,7 +142,58 @@ fetch("http://localhost:5000/api/auth/me", {
 });
 ```
 
-CSRF korumalı isteklerde header gönderilmelidir:
+## Hesap Modu Seçimi
+
+Aynı hesap şu rollerden birden fazlasına bağlı olabilir:
+
+- `SUPER_ADMIN`
+- `MANAGER`
+- `RESIDENT`
+
+Manager veya Super Admin hesabı bir daireye sakin olarak bağlandıysa kullanıcı girişten sonra yönetici/sakin hesap modunu seçebilir. Seçilen mod güvenli cookie/JWT bilgisiyle korunur. Normal Resident hesabı doğrudan sakin paneline geçer.
+
+---
+
+# Rol ve Yetkilendirme
+
+## Super Admin
+
+- Tüm site, blok ve daireleri yönetebilir.
+- Manager hesaplarını ve atamalarını yönetebilir.
+- Sistem ayarları, bildirim logları ve AuditLog kayıtlarına erişebilir.
+- Tüm kapsamları görüntüleyebilir.
+
+## Manager
+
+Manager yalnızca kendisine atanmış site, blok ve daire kapsamındaki verilere erişebilir.
+
+Desteklenen atamalar:
+
+- Site seviyesi
+- Tek blok seviyesi
+- Birden fazla atama
+- Aktif çalışma alanı seçimi
+
+Birden fazla ataması olan manager aktif çalışma alanını seçer. Backend her manager isteğinde aktif atamayı ve kapsam yetkisini doğrular.
+
+## Resident
+
+Resident yalnızca bağlı olduğu dairelerle ilgili:
+
+- Borç ve aidatları
+- Ödemeleri
+- Dekontları
+- Duyuruları
+- Talepleri
+- Dashboard özetlerini
+
+görüntüleyebilir.
+
+---
+
+# CSRF Koruması
+
+`POST`, `PATCH` ve `DELETE` isteklerinde `x-csrf-token` gerekir.
 
 ```js
 fetch("http://localhost:5000/api/users", {
@@ -288,79 +207,463 @@ fetch("http://localhost:5000/api/users", {
 });
 ```
 
-## Test ve Kalite Kontrol
+---
 
-Backend testleri Vitest ile çalıştırılır.
+# Kasa / Ön Muhasebe Modülü
+
+Muhasebe modülü yöneticinin gelir, gider, bekleyen alacak ve kasa durumunu takip etmesini sağlar.
+
+Ana özellikler:
+
+- Muhasebe genel özeti
+- Gelirler
+- Giderler
+- Beklenen gelir
+- Tahsil edilen gelir
+- Bekleyen alacak
+- Kasa bakiyesi
+- Gider belgesi/fatura yükleme
+- Gideri dairelere dağıtma
+- Birden fazla muaf daire seçimi
+- PaymentBatch ve PaymentAllocation bağlantısı
+- AuditLog
+
+## Hesaplama Mantığı
+
+```text
+Bekleyen Alacak = Beklenen Gelir - Tahsil Edilen Gelir
+```
+
+```text
+Kasa Bakiyesi = Tahsil Edilen Gelir - Toplam Gider
+```
+
+`Toplam Gider`, iptal edilmemiş gerçek giderlerin toplamıdır.
+
+Sakinler gider tutarını ödediğinde gider sıfırlanmaz. Tahsil edilen gelir artar ve kasa bakiyesi güncellenir.
+
+Örnek:
+
+```text
+Asansör gideri:       5.000 TL
+Tahsil edilen gelir:  5.000 TL
+Toplam gider:         5.000 TL
+Kasa bakiyesi:            0 TL
+```
+
+## Gider Kaydı
+
+Manager şu bilgileri kullanarak gider oluşturabilir:
+
+- Başlık
+- Açıklama
+- Kategori
+- Tutar
+- Tarih
+- Site
+- Blok
+- Firma
+- Fatura numarası
+- Fatura veya gider belgesi
+
+Belgeler private storage içinde tutulur ve yetkili endpoint üzerinden indirilir.
+
+## Gider Dağıtımı
+
+Gider:
+
+- Tüm siteye
+- Belirli bloğa
+- Belirli dairelere
+
+dağıtılabilir.
+
+Birden fazla daire muaf tutulabilir.
+
+```text
+Toplam gider: 5.000 TL
+Toplam daire: 10
+Muaf daire: 2
+Ödeme yapacak daire: 8
+Daire başına: 625 TL
+```
+
+Dağıtım sırasında `PaymentBatch`, `PaymentAllocation` ve muafiyet kayıtları oluşturulur.
+
+## Muhasebe Güvenliği
+
+- Aynı gider ikinci kez dağıtılamaz.
+- Muaf daireler ödeme dağıtımına dahil edilmez.
+- Tüm işlemler manager scope kontrolünden geçer.
+- Dağıtım ve iptal işlemleri AuditLog'a yazılır.
+- Ödenmiş allocation bulunan finansal kayıtlar kontrolsüz silinmez.
+- İptal edilen gider kayıtları geçmiş kontrolü için veritabanında korunur.
+
+## Muhasebe Endpointleri
+
+```http
+GET    /api/accounting/summary
+GET    /api/accounting/income
+GET    /api/accounting/expenses
+POST   /api/accounting/expenses
+GET    /api/accounting/expenses/:id
+PATCH  /api/accounting/expenses/:id
+POST   /api/accounting/expenses/:id/documents
+POST   /api/accounting/expenses/:id/distribute
+PATCH  /api/accounting/expenses/:id/cancel
+GET    /api/accounting/expenses/:expenseId/documents/:documentId/download
+```
+
+Muhasebe modülü migration dosyası:
+
+```text
+20260716190000_add_accounting_module
+```
+
+---
+
+# Aidat ve Ödeme Yönetimi
+
+Desteklenen kapsamlar:
+
+- Tüm site
+- Belirli blok
+- Belirli daireler
+
+Ana özellikler:
+
+- PaymentBatch
+- PaymentAllocation
+- Çoklu muaf daire desteği
+- PENDING/PAID durumları
+- Batch iptal kontrolü
+- PAID allocation bulunan batch için güvenli iptal kısıtlaması
+- Manager scope
+- AuditLog
+
+---
+
+# Güvenli Dekont Yönetimi
+
+Desteklenen dosya türleri:
+
+- PDF
+- PNG
+- JPG
+- JPEG
+- WEBP
+
+Güvenlik:
+
+- Dosya boyutu kontrolü
+- MIME type kontrolü
+- Gerçek dosya imzası kontrolü
+- Rol ve manager scope kontrolü
+- Private storage
+- Yetkili download/view endpointleri
+- Approve/reject akışı
+- AuditLog
+
+Onaylanan dekont ilgili `PaymentAllocation` kaydını `PAID` durumuna geçirir ve tahsil edilen gelir hesabını etkiler.
+
+---
+
+# Site ve Blok Görselleri
+
+- Dosya tipi ve imzası doğrulanır.
+- Private storage içinde saklanır.
+- Yetkili görüntüleme endpointlerinden sunulur.
+- Public static path üzerinden doğrudan açılmaz.
+
+---
+
+# Duyurular
+
+Duyurular şu hedeflere gönderilebilir:
+
+- Tüm sistem
+- Site
+- Blok
+- Daire
+- Kullanıcı
+
+SMS ve e-posta seçenekleri desteklenir. Gönderim sonuçları notification log kayıtlarına yazılabilir.
+
+---
+
+# Sakin Talepleri
+
+Resident:
+
+- Talep oluşturabilir.
+- Açıklama ve dosya ekleyebilir.
+- Durumu takip edebilir.
+
+Manager:
+
+- Yetkili kapsamındaki talepleri görebilir.
+- Talep durumunu ve açıklamasını güncelleyebilir.
+
+---
+
+# İletişim Mesajları
+
+Public iletişim formundan gelen mesajlar backend'de saklanır.
+
+Super Admin:
+
+- Mesajları listeleyebilir.
+- Detaylarını görebilir.
+- Durumlarını güncelleyebilir.
+
+---
+
+# SMS, E-posta ve Bildirimler
+
+- SMS provider ayarları
+- SMTP/e-posta ayarları
+- Şifrelenmiş secret saklama
+- Notification logs
+- Manual notification
+- Queue/fallback mantığı
+- Duyuru, talep, ödeme ve parola sıfırlama bildirimleri
+
+Secret değerler frontend response içinde açık olarak gönderilmez.
+
+---
+
+# AI ve Sistem Ayarları
+
+- API key frontend'de saklanmaz.
+- Secret değerler şifrelenir.
+- Yalnızca yetkili Super Admin değiştirebilir.
+- Önemli değişiklikler AuditLog'a yazılır.
+- API key, JWT secret ve encryption key response içinde açık gönderilmez.
+
+---
+
+# Dashboard Summary Endpointleri
+
+```http
+GET /api/dashboard-summary/super-admin
+GET /api/dashboard-summary/manager
+GET /api/dashboard-summary/resident
+```
+
+Manager dashboard aktif atama kapsamındaki verileri, Resident dashboard ise yalnızca bağlı daire verilerini gösterir.
+
+---
+
+# Güvenlik Özellikleri
+
+- JWT HttpOnly Cookie
+- CSRF protection
+- Login ve forgot-password rate limit
+- Role based authorization
+- Manager scope kontrolü
+- Zod validation
+- Helmet
+- CORS origin kontrolü
+- Production-safe error middleware
+- Private file storage
+- Dosya tipi, boyutu ve imza doğrulaması
+- Secret encryption
+- AuditLog
+- Production ortamında stack trace gizleme
+- Frontend'e secret göndermeme
+
+---
+
+# Tamamlanan Ana Backend Özellikleri
+
+- Auth login/logout/me
+- JWT HttpOnly Cookie
+- CSRF
+- Rate limit
+- Role authorization
+- Manager scope
+- Aktif manager çalışma alanı
+- Hesap modu seçimi
+- AuditLog
+- Password reset
+- Kullanıcı güncelleme/pasifleştirme
+- Sites, blocks, apartments
+- Apartment residents
+- Manager assignments
+- Payment batches
+- Payment allocations
+- Çoklu ödeme muafiyeti
+- Kasa / Ön Muhasebe
+- Gelir ve gider özetleri
+- Gider belgesi yükleme
+- Gider dağıtımı
+- Güvenli gider iptali
+- Güvenli dekont yükleme
+- File signature validation
+- Receipt approve/reject
+- Announcements
+- Resident requests
+- Contact messages
+- SMS settings
+- Email settings
+- Notification logs
+- Notification service
+- Manual notifications
+- Site/Block image upload
+- Private image endpoints
+- AI Settings
+- System Settings
+- Super Admin Dashboard
+- Manager Dashboard
+- Resident Dashboard
+- Initial Super Admin seed
+- Pagination ve search
+- Production security hardening
+
+---
+
+# Test ve Kalite Kontrol
 
 ```bash
 npm test
-```
-
-Build kontrolü için:
-
-```bash
 npm run build
-```
-
-Build ve testleri birlikte çalıştırmak için:
-
-```bash
 npm run check
 ```
 
-Şu anda test kapsamı şunları içerir:
+Mevcut ana test alanları:
 
 - Health check
-- CSRF koruması
-- Auth ve protected route kontrolleri
-- Password reset privacy ve rate limit
-- Role permission kontrolleri
-- Manager scope kontrolleri
+- CSRF
+- Auth/protected routes
+- Password reset privacy/rate limit
+- Role permission
+- Manager scope
 - Güvenli dekont yükleme
-- Dekont dosya tipi ve gerçek dosya imzası doğrulama
-- Dekont onay/red süreçleri
+- Dosya imzası doğrulama
+- Dekont approve/reject
 - Notification logs
-- Email/SMS notification queue fallback kontrolleri
+- SMS/e-posta fallback
 - AI Settings
 - System Settings
-- Super Admin Dashboard Summary
-- Manager Dashboard Summary
-- Resident Dashboard Summary
+- Dashboard summaries
 
-## Production Öncesi Kontrol Listesi
+Muhasebe modülü için manuel entegrasyon kontrolleri:
 
-Production'a geçmeden önce şu kontroller yapılmalıdır:
+1. Gider oluşturma
+2. Belge yükleme ve indirme
+3. Çoklu muaf daire
+4. Gider dağıtımı
+5. PaymentBatch/Allocation kontrolü
+6. Dekont onayı sonrası gelir değişimi
+7. Kasa bakiyesi
+8. İkinci dağıtımın engellenmesi
+9. Paid kayıt iptal güvenliği
+10. Manager scope dışı erişimin engellenmesi
+
+---
+
+# Production Öncesi Kontrol
 
 ```bash
 npm run build
 npm test
 npm run prisma:generate
 npm run prisma:migrate:deploy
-```
-
-Ayrıca Git durumu kontrol edilmelidir:
-
-```bash
+npx prisma migrate status
 git status --short
 ```
 
-Production'a çıkmadan önce `git status --short` çıktısı temiz olmalıdır.
+Kontrol edilmesi gerekenler:
 
-## Durum
+- Build ve testler başarılı olmalı.
+- Migration durumu güncel olmalı.
+- `.env`, uploads ve dist Git'e eklenmemeli.
+- HTTPS aktif olmalı.
+- CORS ve cookie ayarları production domainine uygun olmalı.
+- Database yedeği alınmalı.
 
-Backend MVP büyük ölçüde tamamlanmıştır ve production cleanup aşamasına getirilmiştir.
+---
 
-Bu backend gerçek dünyada kullanılabilecek şekilde güvenlik odaklı geliştirilmektedir. Bu nedenle gizli bilgiler frontend tarafında tutulmamalı, API key ve benzeri değerler kullanıcıya response içinde döndürülmemeli, upload edilen dosyalar doğrudan public path üzerinden servis edilmemelidir.
-## GitHub'a Gönderilmemesi Gereken Dosyalar
-
-Aşağıdaki dosya ve klasörler GitHub'a gönderilmemelidir:
+# GitHub'a Gönderilmemesi Gerekenler
 
 - `.env`
 - `node_modules`
 - `dist`
 - `uploads`
 - `src/generated/prisma`
+- Database dump dosyaları
+- ZIP dosyaları
+- Backup klasörleri
+- Geçici install/repair scriptleri
 
-Bu dosyalar `.gitignore` içinde tutulmalıdır.
+Örnek `.gitignore`:
 
-`.env.example` dosyası ise GitHub'a gönderilebilir. Bu dosya gerçek gizli bilgiler içermez, sadece gerekli ortam değişkenlerini örnek olarak gösterir.
+```gitignore
+.env
+node_modules/
+dist/
+uploads/
+src/generated/prisma/
+*.zip
+*.dump
+dump.sql
+```
+
+`.env.example` GitHub'a gönderilebilir; gerçek secret içermemelidir.
+
+---
+
+# Güvenli Git Pull ve Push Akışı
+
+Local değişiklikler varken önce commit oluşturmak daha güvenlidir.
+
+```bash
+git status --short
+git add .
+git commit -m "feat: add accounting module and update backend documentation"
+git pull --rebase origin main
+git push origin main
+```
+
+Aktif branch:
+
+```bash
+git branch --show-current
+```
+
+Branch adı `main` değilse komutlarda gerçek branch adını kullanın.
+
+Conflict olursa:
+
+```bash
+git add <duzeltilen-dosyalar>
+git rebase --continue
+```
+
+Rebase iptali:
+
+```bash
+git rebase --abort
+```
+
+> `git add .` öncesinde `.env`, uploads, dist, ZIP, dump ve backup dosyalarının listede olmadığını kontrol edin.
+
+---
+
+# Durum
+
+Backend MVP büyük ölçüde tamamlanmıştır.
+
+Son önemli geliştirmeler:
+
+- Aktif manager scope seçimi
+- Aynı hesap için rol/mod seçimi
+- Kasa / Ön Muhasebe
+- Gelir, gider, bekleyen alacak ve kasa bakiyesi
+- Gider belgesi yükleme
+- Çoklu muaf daire ile gider dağıtımı
+- PaymentBatch/PaymentAllocation entegrasyonu
+- İletişim mesajları
+- Production migration ve güvenlik iyileştirmeleri
+
+Production yayını öncesinde tam entegrasyon testi, database yedeği, HTTPS, domain/CORS ayarları, log yönetimi ve dosya depolama stratejisi kontrol edilmelidir.
