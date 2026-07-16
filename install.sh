@@ -2,99 +2,147 @@
 
 set -Eeuo pipefail
 
-# install.sh dosyasının bulunduğu proje klasörüne geç
 cd "$(dirname "$0")"
+
+SCHEMA_DUMP="backend/dump-schema.sql"
+DATA_DUMP="backend/dump-data.sql"
+MAX_WAIT_ATTEMPTS=60
+WAIT_SECONDS=2
+
+on_error() {
+  local exit_code=$?
+  echo ""
+  echo "HATA: Kurulum tamamlanamadı. Çıkış kodu: ${exit_code}"
+  echo "Kontrol komutları:"
+  echo "  docker compose ps"
+  echo "  docker compose logs --tail=200"
+  exit "${exit_code}"
+}
+
+trap on_error ERR
+
+service_exists() {
+  docker compose config --services | grep -Fxq "$1"
+}
 
 echo "======================================"
 echo "Sitesis kurulumu başlatılıyor..."
 echo "======================================"
 
-# Docker kontrolü
 if ! command -v docker >/dev/null 2>&1; then
   echo "HATA: Docker kurulu değil."
   exit 1
 fi
 
-# Docker Compose kontrolü
 if ! docker compose version >/dev/null 2>&1; then
   echo "HATA: Docker Compose bulunamadı."
   exit 1
 fi
 
-# .env dosyası kontrolü
 if [ ! -f ".env" ]; then
   echo "HATA: .env dosyası bulunamadı."
   exit 1
 fi
 
-# docker-compose.yml kontrolü
 if [ ! -f "docker-compose.yml" ]; then
   echo "HATA: docker-compose.yml dosyası bulunamadı."
   exit 1
 fi
 
-# dump.sql kontrolü
-if [ ! -f "backend/dump.sql" ]; then
-  echo "HATA: backend/dump.sql dosyası bulunamadı."
+if [ ! -f "$SCHEMA_DUMP" ]; then
+  echo "HATA: $SCHEMA_DUMP dosyası bulunamadı."
+  exit 1
+fi
+
+if [ ! -f "$DATA_DUMP" ]; then
+  echo "HATA: $DATA_DUMP dosyası bulunamadı."
+  exit 1
+fi
+
+if ! service_exists "db"; then
+  echo "HATA: docker-compose.yml içinde db servisi bulunamadı."
   exit 1
 fi
 
 echo ""
-echo "1/4 PostgreSQL servisi başlatılıyor..."
+echo "1/6 Uygulama servisleri durduruluyor..."
 
+for service_name in backend frontend; do
+  if service_exists "$service_name"; then
+    docker compose stop "$service_name" >/dev/null 2>&1 || true
+  fi
+done
+
+echo ""
+echo "2/6 PostgreSQL servisi başlatılıyor..."
 docker compose up -d db
 
 echo ""
-echo "2/4 PostgreSQL hazır olana kadar bekleniyor..."
+echo "3/6 PostgreSQL hazır olana kadar bekleniyor..."
 
 DATABASE_READY=false
 
-for i in $(seq 1 30); do
+for i in $(seq 1 "$MAX_WAIT_ATTEMPTS"); do
   if docker compose exec -T db sh -lc \
     'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
     >/dev/null 2>&1; then
-
     DATABASE_READY=true
     break
   fi
 
-  echo "PostgreSQL bekleniyor... ($i/30)"
-  sleep 2
+  echo "PostgreSQL bekleniyor... ($i/$MAX_WAIT_ATTEMPTS)"
+  sleep "$WAIT_SECONDS"
 done
 
 if [ "$DATABASE_READY" != "true" ]; then
   echo "HATA: PostgreSQL zamanında hazır olmadı."
-  docker compose logs db
+  docker compose logs --tail=200 db
   exit 1
 fi
 
 echo "PostgreSQL hazır."
 
 echo ""
-echo "UYARI:"
-echo "Bu işlem backend/dump.sql dosyasını veritabanına yükleyecek."
-echo "Veritabanında eski veriler varsa çakışma oluşabilir."
+echo "DİKKAT:"
+echo "Bu işlem hedef veritabanındaki public şemasını silecek."
+echo "Sonra şu dosyalar sırayla yüklenecek:"
+echo "  1) $SCHEMA_DUMP"
+echo "  2) $DATA_DUMP"
+echo ""
+echo "Devam etmeden önce yedek aldığınızdan emin olun."
 echo ""
 
-read -r -p "Devam etmek istiyor musunuz? (e/h): " CEVAP
+read -r -p "Devam etmek için TAMAM yazın: " CONFIRMATION
 
-if [[ "$CEVAP" != "e" && "$CEVAP" != "E" ]]; then
+if [ "$CONFIRMATION" != "TAMAM" ]; then
   echo "Kurulum iptal edildi."
   exit 0
 fi
 
 echo ""
-echo "3/4 dump.sql veritabanına yükleniyor..."
+echo "4/6 Veritabanı temizleniyor ve tablo yapısı yükleniyor..."
+
+docker compose exec -T db sh -lc \
+  'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+    -c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;"'
 
 docker compose exec -T db sh -lc \
   'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
-  < backend/dump.sql
+  < "$SCHEMA_DUMP"
 
-echo "Veritabanı başarıyla yüklendi."
+echo "Tablo yapısı başarıyla yüklendi."
 
 echo ""
-echo "4/4 Backend ve frontend build edilip başlatılıyor..."
+echo "5/6 Veriler yükleniyor..."
 
+docker compose exec -T db sh -lc \
+  'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+  < "$DATA_DUMP"
+
+echo "Veriler başarıyla yüklendi."
+
+echo ""
+echo "6/6 Backend ve varsa frontend build edilip başlatılıyor..."
 docker compose up -d --build
 
 echo ""
@@ -105,5 +153,6 @@ echo "======================================"
 docker compose ps
 
 echo ""
-echo "Super Admin hesabınız dump.sql içinde bulunuyorsa"
-echo "mevcut e-posta ve şifrenizle giriş yapabilirsiniz."
+echo "Kullanılan dump dosyaları:"
+echo "  - $SCHEMA_DUMP"
+echo "  - $DATA_DUMP"

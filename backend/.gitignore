@@ -14,3 +14,12 @@ coverage/
 .env.docker
 
 backend/dump.sql
+# Database dumps - do not commit
+backend/dump-schema.sql
+backend/dump-data.sql
+
+# Temporary install/repair packages
+*.zip
+repair-*.mjs
+recover-*.mjs
+install-*.mjs
