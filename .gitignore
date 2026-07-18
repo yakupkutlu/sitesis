@@ -48,5 +48,5 @@ pnpm-debug.log*
 *.njsproj
 *.sln
 *.sw?
-#.env.docker
+.env.docker
 backend/dump.sql
