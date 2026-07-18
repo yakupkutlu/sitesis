@@ -79,6 +79,7 @@ type AuthUserSource = {
   phone: string | null;
   role: AccountMode;
   status: "ACTIVE" | "PASSIVE";
+  mustChangePassword: boolean;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -131,6 +132,7 @@ function buildAuthUserData(params: {
     canSwitchAccountMode,
     requiresModeSelection:
       canSwitchAccountMode && !params.modeSelected,
+    mustChangePassword: params.user.mustChangePassword,
     status: params.user.status,
     createdAt: params.user.createdAt,
     updatedAt: params.user.updatedAt,
@@ -230,6 +232,7 @@ router.post(
             phone: user.phone,
             role: primaryRole,
             status: user.status,
+            mustChangePassword: user.mustChangePassword,
             createdAt: user.createdAt,
             updatedAt: user.updatedAt,
           },
@@ -613,6 +616,7 @@ router.patch(
       },
       data: {
         passwordHash: nextPasswordHash,
+        mustChangePassword: false,
       },
     });
 

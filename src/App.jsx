@@ -13,6 +13,8 @@ import Login from "./pages/Login";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import SelectAccountModePage from "./pages/SelectAccountModePage";
+import ChangePasswordRequiredPage from "./pages/ChangePasswordRequiredPage";
+import InstallPage from "./pages/InstallPage";
 import NotFound from "./pages/NotFound";
 
 import SuperAdminDashboard from "./pages/dashboards/SuperAdminDashboard";
@@ -83,9 +85,14 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/install" element={<InstallPage />} />
           <Route
             path="/select-account-mode"
             element={protect(undefined, <SelectAccountModePage />)}
+          />
+          <Route
+            path="/change-password-required"
+            element={protect(undefined, <ChangePasswordRequiredPage />)}
           />
 
           <Route

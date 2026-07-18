@@ -174,6 +174,7 @@ export function AuthProvider({ children }) {
         : [],
       canSwitchAccountMode: Boolean(user?.canSwitchAccountMode),
       requiresModeSelection: Boolean(user?.requiresModeSelection),
+      requiresPasswordChange: Boolean(user?.mustChangePassword),
       roleHomePath: getUserHomePath(user),
       refreshUser,
       selectMode,

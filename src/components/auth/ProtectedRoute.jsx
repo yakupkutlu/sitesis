@@ -11,6 +11,7 @@ function ProtectedRoute({ allowedRoles, children }) {
     isAuthenticated,
     roleHomePath,
     requiresModeSelection,
+    requiresPasswordChange,
   } = useAuth();
 
   if (isLoading) {
@@ -19,6 +20,19 @@ function ProtectedRoute({ allowedRoles, children }) {
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: location }} />;
+  }
+
+  if (
+    requiresPasswordChange &&
+    location.pathname !== "/change-password-required"
+  ) {
+    return (
+      <Navigate
+        to="/change-password-required"
+        replace
+        state={{ from: location.pathname }}
+      />
+    );
   }
 
   if (

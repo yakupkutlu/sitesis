@@ -19,6 +19,10 @@ const envSchema = z.object({
     .min(32, "CONFIG_ENCRYPTION_KEY en az 32 karakter olmalidir."),
   COOKIE_SAME_SITE: z.enum(["lax", "strict", "none"]).default("lax"),
   TRUST_PROXY: booleanStringSchema,
+  POSTGRES_DB: z.string().min(1),
+  POSTGRES_USER: z.string().min(1),
+  POSTGRES_PASSWORD: z.string().min(1),
+  INSTALL_TOKEN: z.string().min(16, "INSTALL_TOKEN en az 16 karakter olmalidir."),
 });
 
 const envResult = envSchema.safeParse(process.env);

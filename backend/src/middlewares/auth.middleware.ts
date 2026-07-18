@@ -23,6 +23,7 @@ export type AuthenticatedUser = {
   hasResidentAccess: boolean;
   canSwitchAccountMode: boolean;
   requiresModeSelection: boolean;
+  mustChangePassword: boolean;
   status: "ACTIVE" | "PASSIVE";
   createdAt: Date;
   updatedAt: Date;
@@ -98,6 +99,7 @@ export async function requireAuth(
       phone: true,
       role: true,
       status: true,
+      mustChangePassword: true,
       createdAt: true,
       updatedAt: true,
       apartmentResidents: {
@@ -162,6 +164,7 @@ export async function requireAuth(
     hasResidentAccess,
     canSwitchAccountMode,
     requiresModeSelection,
+    mustChangePassword: databaseUser.mustChangePassword,
     status: databaseUser.status,
     createdAt: databaseUser.createdAt,
     updatedAt: databaseUser.updatedAt,
@@ -180,6 +183,23 @@ export async function requireAuth(
       success: false,
       message: "Devam etmek için hesap kullanım modunu seçmelisiniz.",
       code: "ACCOUNT_MODE_SELECTION_REQUIRED",
+    });
+    return;
+  }
+
+  /*
+   * Kurulum/kurtarma akışıyla oluşturulan hesaplar ilk girişte şifre
+   * değiştirmeden diğer korumalı API'lere erişemez.
+   */
+  const isPasswordChangeExemptEndpoint =
+    request.baseUrl === "/api/auth" &&
+    (request.path === "/me" || request.path === "/change-password");
+
+  if (databaseUser.mustChangePassword && !isPasswordChangeExemptEndpoint) {
+    response.status(403).json({
+      success: false,
+      message: "Devam etmek için şifrenizi değiştirmelisiniz.",
+      code: "PASSWORD_CHANGE_REQUIRED",
     });
     return;
   }

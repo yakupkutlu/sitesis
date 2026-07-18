@@ -146,6 +146,7 @@ model User {
   email                         String                  @unique
   phone                         String?
   passwordHash                  String
+  mustChangePassword            Boolean                 @default(false)
   role                          UserRole
   status                        UserStatus              @default(ACTIVE)
   apartmentResidents            ApartmentResident[]
