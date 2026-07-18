@@ -54,7 +54,7 @@ function EmailSettingsForm({
         ayarları yapılır.
       </p>
 
-      <form className="notification-form" onSubmit={onSubmit}>
+      <form className="notification-form" onSubmit={onSubmit} autoComplete="off">
         <div className="form-grid">
           <label>
             E-posta Sağlayıcı
@@ -155,6 +155,7 @@ function EmailSettingsForm({
                 <input
                   name="smtpUsername"
                   type="text"
+                  autoComplete="off"
                   placeholder={
                     formData.hasSmtpUsername
                       ? "Mevcut kullanıcı adı kayıtlı"
@@ -172,6 +173,7 @@ function EmailSettingsForm({
                   <input
                     name="smtpPassword"
                     type={showPassword ? "text" : "password"}
+                    autoComplete="new-password"
                     placeholder={
                       formData.hasSmtpPassword
                         ? "Mevcut şifre kayıtlı"
@@ -213,6 +215,7 @@ function EmailSettingsForm({
                 <input
                   name="sendgridApiKey"
                   type={showSendgridKey ? "text" : "password"}
+                  autoComplete="new-password"
                   placeholder={
                     formData.hasSendgridApiKey
                       ? "Mevcut SendGrid API key kayıtlı"

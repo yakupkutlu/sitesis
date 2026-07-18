@@ -54,7 +54,7 @@ function SmsSettingsForm({
         bilgileri tanımlanır.
       </p>
 
-      <form className="notification-form" onSubmit={onSubmit}>
+      <form className="notification-form" onSubmit={onSubmit} autoComplete="off">
         <div className="form-grid">
           <label>
             SMS Sağlayıcı
@@ -130,6 +130,7 @@ function SmsSettingsForm({
                 <input
                   name="accountSid"
                   type="text"
+                  autoComplete="off"
                   placeholder={
                     formData.hasAccountSid
                       ? "Mevcut Account SID kayıtlı"
@@ -147,6 +148,7 @@ function SmsSettingsForm({
                   <input
                     name="authToken"
                     type={showAuthToken ? "text" : "password"}
+                    autoComplete="new-password"
                     placeholder={
                       formData.hasAuthToken
                         ? "Mevcut Auth Token kayıtlı"
@@ -175,6 +177,7 @@ function SmsSettingsForm({
                 <input
                   name="username"
                   type="text"
+                  autoComplete="off"
                   placeholder={
                     formData.hasUsername
                       ? "Mevcut kullanıcı adı kayıtlı"
@@ -191,6 +194,7 @@ function SmsSettingsForm({
                 <input
                   name="password"
                   type="password"
+                  autoComplete="new-password"
                   placeholder={
                     formData.hasPassword ? "Mevcut şifre kayıtlı" : "API şifresi"
                   }
@@ -206,6 +210,7 @@ function SmsSettingsForm({
                   <input
                     name="apiKey"
                     type={showApiKey ? "text" : "password"}
+                    autoComplete="new-password"
                     placeholder={
                       formData.hasApiKey ? "Mevcut API key kayıtlı" : "API key"
                     }
@@ -231,6 +236,7 @@ function SmsSettingsForm({
                   <input
                     name="apiSecret"
                     type={showApiSecret ? "text" : "password"}
+                    autoComplete="new-password"
                     placeholder={
                       formData.hasApiSecret
                         ? "Mevcut secret kayıtlı"

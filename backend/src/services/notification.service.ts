@@ -1,6 +1,7 @@
 ﻿import prisma from "../db/prisma.js";
 import { type Prisma } from "../generated/prisma/client.js";
 import { sendEmailWithActiveSmtp } from "./email-sender.service.js";
+import { sendSmsWithSetting } from "./sms-sender.service.js";
 
 type NotificationChannel = "SMS" | "EMAIL";
 type NotificationStatus = "PENDING" | "SENT" | "FAILED" | "SKIPPED";
@@ -208,6 +209,7 @@ export async function queueSmsNotification(input: {
       createdAt: "desc",
     },
     select: {
+      id: true,
       provider: true,
     },
   });
@@ -229,17 +231,41 @@ export async function queueSmsNotification(input: {
     });
   }
 
-  return createNotificationLog({
-    channel: "SMS",
-    status: "PENDING",
-    sourceType: input.sourceType ?? "SYSTEM",
-    recipientUserId: input.recipientUserId,
-    recipientPhone: input.recipientPhone,
-    message: input.message,
-    provider: activeSmsSetting.provider,
-    entityType: input.entityType,
-    entityId: input.entityId,
-    metadata: input.metadata,
-    createdByUserId: input.createdByUserId,
-  });
+  try {
+    const result = await sendSmsWithSetting({
+      smsSettingId: activeSmsSetting.id,
+      toPhone: input.recipientPhone,
+      message: input.message,
+    });
+
+    return createNotificationLog({
+      channel: "SMS",
+      status: "SENT",
+      sourceType: input.sourceType ?? "SYSTEM",
+      recipientUserId: input.recipientUserId,
+      recipientPhone: input.recipientPhone,
+      message: input.message,
+      provider: result.provider,
+      providerMessageId: result.providerMessageId,
+      entityType: input.entityType,
+      entityId: input.entityId,
+      metadata: input.metadata,
+      createdByUserId: input.createdByUserId,
+    });
+  } catch (error) {
+    return createNotificationLog({
+      channel: "SMS",
+      status: "FAILED",
+      sourceType: input.sourceType ?? "SYSTEM",
+      recipientUserId: input.recipientUserId,
+      recipientPhone: input.recipientPhone,
+      message: input.message,
+      provider: activeSmsSetting.provider,
+      entityType: input.entityType,
+      entityId: input.entityId,
+      errorMessage: getErrorMessage(error),
+      metadata: input.metadata,
+      createdByUserId: input.createdByUserId,
+    });
+  }
 }
