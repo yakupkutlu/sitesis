@@ -8,6 +8,8 @@ import {
   type AuthenticatedRequest,
 } from "../middlewares/auth.middleware.js";
 import { createAuditLog } from "../services/audit-log.service.js";
+import { sendSmsWithSetting } from "../services/sms-sender.service.js";
+import { smsTestLimiter } from "../middlewares/rate-limit.middleware.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { encryptText } from "../utils/crypto.js";
 import { HttpError } from "../utils/http-error.js";
@@ -85,6 +87,10 @@ const updateSmsSettingSchema = z
 
 const smsSettingParamsSchema = z.object({
   smsSettingId: z.string().uuid(),
+});
+
+const testSmsSettingSchema = z.object({
+  phone: z.string().trim().min(5, "Geçerli bir telefon numarası giriniz."),
 });
 
 function hideSmsSecrets(setting: {
@@ -366,6 +372,70 @@ router.patch(
   })
 );
 
+
+router.post(
+  "/:smsSettingId/test",
+  smsTestLimiter,
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    const paramsResult = smsSettingParamsSchema.safeParse(request.params);
+
+    if (!paramsResult.success) {
+      throw new HttpError(400, "SMS ayarı bilgisi geçersiz.");
+    }
+
+    const validationResult = testSmsSettingSchema.safeParse(request.body);
+
+    if (!validationResult.success) {
+      throw new HttpError(
+        400,
+        "Test telefon numarası geçersiz.",
+        validationResult.error.flatten().fieldErrors
+      );
+    }
+
+    const { smsSettingId } = paramsResult.data;
+    const { phone } = validationResult.data;
+    const testMessage = "Bu bir test mesajıdır";
+
+    let result;
+
+    try {
+      result = await sendSmsWithSetting({
+        smsSettingId,
+        toPhone: phone,
+        message: testMessage,
+      });
+    } catch (error) {
+      throw new HttpError(
+        400,
+        error instanceof Error ? error.message : "Test SMS gönderilemedi."
+      );
+    }
+
+    await createAuditLog({
+      request,
+      userId: authenticatedRequest.user.id,
+      action: "TEST_SMS_SETTING",
+      entityType: "SmsSetting",
+      entityId: smsSettingId,
+      metadata: {
+        phone,
+        provider: result.provider,
+      },
+    });
+
+    response.status(200).json({
+      success: true,
+      message: "Test SMS başarıyla gönderildi.",
+    });
+  })
+);
 
 router.delete(
   "/:smsSettingId",

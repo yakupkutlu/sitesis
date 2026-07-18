@@ -32,6 +32,7 @@ import {
   createSmsSetting,
   deleteSmsSetting,
   getSmsSettings,
+  testSmsSetting,
   updateSmsSetting,
 } from "../../api/smsSettingsApi";
 import {
@@ -70,10 +71,15 @@ const initialSmsSettings = {
   password: "",
   apiKey: "",
   apiSecret: "",
+  accountSid: "",
+  authToken: "",
+  testPhone: "",
   hasUsername: false,
   hasPassword: false,
   hasApiKey: false,
   hasApiSecret: false,
+  hasAccountSid: false,
+  hasAuthToken: false,
 };
 
 const initialEmailSettings = {
@@ -176,10 +182,15 @@ function mapSmsSettingToFormData(setting) {
     password: "",
     apiKey: "",
     apiSecret: "",
+    accountSid: "",
+    authToken: "",
+    testPhone: "",
     hasUsername: Boolean(setting?.secrets?.hasUsername),
     hasPassword: Boolean(setting?.secrets?.hasPassword),
     hasApiKey: Boolean(setting?.secrets?.hasApiKey),
     hasApiSecret: Boolean(setting?.secrets?.hasApiSecret),
+    hasAccountSid: Boolean(setting?.secrets?.hasAccountSid),
+    hasAuthToken: Boolean(setting?.secrets?.hasAuthToken),
   };
 }
 
@@ -231,10 +242,16 @@ function buildSmsPayload(formData, isUpdate) {
 
   addTextValue(payload, "senderName", formData.senderName, { allowNull: isUpdate });
   addTextValue(payload, "fromPhone", formData.fromPhone, { allowNull: isUpdate });
-  addTextValue(payload, "username", formData.username, { allowNull: false });
-  addTextValue(payload, "password", formData.password, { allowNull: false });
-  addTextValue(payload, "apiKey", formData.apiKey, { allowNull: false });
-  addTextValue(payload, "apiSecret", formData.apiSecret, { allowNull: false });
+
+  if (formData.provider === "TWILIO") {
+    addTextValue(payload, "accountSid", formData.accountSid, { allowNull: false });
+    addTextValue(payload, "authToken", formData.authToken, { allowNull: false });
+  } else {
+    addTextValue(payload, "username", formData.username, { allowNull: false });
+    addTextValue(payload, "password", formData.password, { allowNull: false });
+    addTextValue(payload, "apiKey", formData.apiKey, { allowNull: false });
+    addTextValue(payload, "apiSecret", formData.apiSecret, { allowNull: false });
+  }
 
   return payload;
 }
@@ -403,6 +420,7 @@ function NotificationsPage() {
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [isSavingSms, setIsSavingSms] = useState(false);
   const [isSavingEmail, setIsSavingEmail] = useState(false);
+  const [isTestingSms, setIsTestingSms] = useState(false);
   const [deletingSettingId, setDeletingSettingId] = useState(null);
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -721,11 +739,32 @@ function NotificationsPage() {
     }
   }
 
-  function handleTestSms() {
-    setMessage(
-      "Test SMS gönderimi için backend test endpointi eklendiğinde gerçek gönderim yapılacaktır."
-    );
-    setErrorMessage("");
+  async function handleTestSms() {
+    if (!smsFormData.id) {
+      setErrorMessage("Test göndermeden önce ayarı kaydedin.");
+      setMessage("");
+      return;
+    }
+
+    if (!smsFormData.testPhone.trim()) {
+      setErrorMessage("Test telefon numarası girin.");
+      setMessage("");
+      return;
+    }
+
+    try {
+      setIsTestingSms(true);
+      setMessage("");
+      setErrorMessage("");
+
+      await testSmsSetting(smsFormData.id, smsFormData.testPhone.trim());
+
+      setMessage("Test SMS başarıyla gönderildi.");
+    } catch (error) {
+      setErrorMessage(error?.message ?? "Test SMS gönderilemedi.");
+    } finally {
+      setIsTestingSms(false);
+    }
   }
 
   function handleTestEmail() {
@@ -1282,6 +1321,7 @@ function NotificationsPage() {
                 onSubmit={handleSmsSubmit}
                 onTestSms={handleTestSms}
                 isSaving={isSavingSms}
+                isTestingSms={isTestingSms}
               />
             ) : (
               <EmailSettingsForm

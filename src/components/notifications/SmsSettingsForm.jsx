@@ -18,9 +18,13 @@ function SmsSettingsForm({
   onSubmit,
   onTestSms,
   isSaving = false,
+  isTestingSms = false,
 }) {
   const [showApiKey, setShowApiKey] = useState(false);
   const [showApiSecret, setShowApiSecret] = useState(false);
+  const [showAuthToken, setShowAuthToken] = useState(false);
+
+  const isTwilio = formData.provider === "TWILIO";
 
   return (
     <section className="notification-settings-card">
@@ -119,86 +123,147 @@ function SmsSettingsForm({
             />
           </label>
 
-          <label>
-            Kullanıcı Adı
+          {isTwilio ? (
+            <>
+              <label>
+                Twilio Account SID
+                <input
+                  name="accountSid"
+                  type="text"
+                  placeholder={
+                    formData.hasAccountSid
+                      ? "Mevcut Account SID kayıtlı"
+                      : "Örn: ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  }
+                  value={formData.accountSid}
+                  onChange={onInputChange}
+                  disabled={isSaving}
+                />
+              </label>
+
+              <label>
+                Twilio Auth Token
+                <div className="secret-input-wrapper">
+                  <input
+                    name="authToken"
+                    type={showAuthToken ? "text" : "password"}
+                    placeholder={
+                      formData.hasAuthToken
+                        ? "Mevcut Auth Token kayıtlı"
+                        : "Twilio Auth Token"
+                    }
+                    value={formData.authToken}
+                    onChange={onInputChange}
+                    disabled={isSaving}
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => setShowAuthToken((current) => !current)}
+                    aria-label="Auth Token görünürlüğünü değiştir"
+                    disabled={isSaving}
+                  >
+                    {showAuthToken ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </label>
+            </>
+          ) : (
+            <>
+              <label>
+                Kullanıcı Adı
+                <input
+                  name="username"
+                  type="text"
+                  placeholder={
+                    formData.hasUsername
+                      ? "Mevcut kullanıcı adı kayıtlı"
+                      : "API kullanıcı adı"
+                  }
+                  value={formData.username}
+                  onChange={onInputChange}
+                  disabled={isSaving}
+                />
+              </label>
+
+              <label>
+                Şifre
+                <input
+                  name="password"
+                  type="password"
+                  placeholder={
+                    formData.hasPassword ? "Mevcut şifre kayıtlı" : "API şifresi"
+                  }
+                  value={formData.password}
+                  onChange={onInputChange}
+                  disabled={isSaving}
+                />
+              </label>
+
+              <label>
+                API Key
+                <div className="secret-input-wrapper">
+                  <input
+                    name="apiKey"
+                    type={showApiKey ? "text" : "password"}
+                    placeholder={
+                      formData.hasApiKey ? "Mevcut API key kayıtlı" : "API key"
+                    }
+                    value={formData.apiKey}
+                    onChange={onInputChange}
+                    disabled={isSaving}
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => setShowApiKey((current) => !current)}
+                    aria-label="API key görünürlüğünü değiştir"
+                    disabled={isSaving}
+                  >
+                    {showApiKey ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </label>
+
+              <label>
+                API Secret / Auth Token
+                <div className="secret-input-wrapper">
+                  <input
+                    name="apiSecret"
+                    type={showApiSecret ? "text" : "password"}
+                    placeholder={
+                      formData.hasApiSecret
+                        ? "Mevcut secret kayıtlı"
+                        : "API secret veya auth token"
+                    }
+                    value={formData.apiSecret}
+                    onChange={onInputChange}
+                    disabled={isSaving}
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => setShowApiSecret((current) => !current)}
+                    aria-label="API secret görünürlüğünü değiştir"
+                    disabled={isSaving}
+                  >
+                    {showApiSecret ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </label>
+            </>
+          )}
+
+          <label className="full-width">
+            Test Telefon Numarası
             <input
-              name="username"
+              name="testPhone"
               type="text"
-              placeholder={
-                formData.hasUsername
-                  ? "Mevcut kullanıcı adı kayıtlı"
-                  : "API kullanıcı adı"
-              }
-              value={formData.username}
+              placeholder="+90 5xx xxx xx xx"
+              value={formData.testPhone}
               onChange={onInputChange}
-              disabled={isSaving}
+              disabled={isSaving || isTestingSms}
             />
-          </label>
-
-          <label>
-            Şifre
-            <input
-              name="password"
-              type="password"
-              placeholder={
-                formData.hasPassword ? "Mevcut şifre kayıtlı" : "API şifresi"
-              }
-              value={formData.password}
-              onChange={onInputChange}
-              disabled={isSaving}
-            />
-          </label>
-
-          <label>
-            API Key
-            <div className="secret-input-wrapper">
-              <input
-                name="apiKey"
-                type={showApiKey ? "text" : "password"}
-                placeholder={
-                  formData.hasApiKey ? "Mevcut API key kayıtlı" : "API key"
-                }
-                value={formData.apiKey}
-                onChange={onInputChange}
-                disabled={isSaving}
-              />
-
-              <button
-                type="button"
-                onClick={() => setShowApiKey((current) => !current)}
-                aria-label="API key görünürlüğünü değiştir"
-                disabled={isSaving}
-              >
-                {showApiKey ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
-            </div>
-          </label>
-
-          <label>
-            API Secret / Auth Token
-            <div className="secret-input-wrapper">
-              <input
-                name="apiSecret"
-                type={showApiSecret ? "text" : "password"}
-                placeholder={
-                  formData.hasApiSecret
-                    ? "Mevcut secret kayıtlı"
-                    : "API secret veya auth token"
-                }
-                value={formData.apiSecret}
-                onChange={onInputChange}
-                disabled={isSaving}
-              />
-
-              <button
-                type="button"
-                onClick={() => setShowApiSecret((current) => !current)}
-                aria-label="API secret görünürlüğünü değiştir"
-                disabled={isSaving}
-              >
-                {showApiSecret ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
-            </div>
           </label>
         </div>
 
@@ -208,10 +273,17 @@ function SmsSettingsForm({
             type="button"
             className="secondary-form-button"
             onClick={onTestSms}
-            disabled={isSaving}
+            disabled={isSaving || isTestingSms || !formData.id || !formData.testPhone}
+            title={
+              !formData.id
+                ? "Test göndermeden önce ayarı kaydedin"
+                : !formData.testPhone
+                  ? "Test telefon numarası girin"
+                  : undefined
+            }
           >
             <Send size={17} />
-            Test SMS Gönder
+            {isTestingSms ? "Gönderiliyor..." : "Test SMS Gönder"}
           </button>
 
           <button
