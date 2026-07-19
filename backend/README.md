@@ -13,6 +13,8 @@ Sistem; kullanıcı ve rol yönetimi, yönetici çalışma alanı seçimi, site/
 - TypeScript
 - PostgreSQL
 - Prisma ORM
+- Redis
+- BullMQ
 - JWT Authentication
 - HttpOnly Cookie
 - CSRF Protection
@@ -25,16 +27,26 @@ Sistem; kullanıcı ve rol yönetimi, yönetici çalışma alanı seçimi, site/
 
 ---
 
-## Kurulum
+# Kurulum
+
+## 1. Bağımlılıkları yükleme
 
 ```bash
 cd backend
 npm install
 ```
 
+BullMQ henüz `package.json` içinde yoksa:
+
+```bash
+npm install bullmq
+```
+
+## 2. Ortam değişkenleri
+
 `.env.example` dosyasını `.env` olarak kopyalayın ve gerekli değerleri doldurun.
 
-### Örnek ortam değişkenleri
+### Örnek `.env`
 
 ```env
 NODE_ENV=development
@@ -42,15 +54,23 @@ PORT=5000
 
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/sitesis_db?schema=public"
 
+REDIS_URL="redis://localhost:6379"
+
 JWT_SECRET="change-this-jwt-secret-minimum-32-characters"
 JWT_EXPIRES_IN="1d"
 
 CLIENT_URL="http://localhost:5173"
 
-CONFIG_ENCRYPTION_KEY="change-this-config-encryption-key-min-32-chars"
+CONFIG_ENCRYPTION_KEY="change-this-config-encryption-key-minimum-32-characters"
 
 COOKIE_SAME_SITE="lax"
 TRUST_PROXY="false"
+
+POSTGRES_DB="sitesis_db"
+POSTGRES_USER="postgres"
+POSTGRES_PASSWORD="change-this-postgres-password"
+
+INSTALL_TOKEN="change-this-install-token-minimum-16-characters"
 
 SUPER_ADMIN_FULL_NAME="Super Admin"
 SUPER_ADMIN_EMAIL="admin@example.com"
@@ -59,9 +79,34 @@ SUPER_ADMIN_PASSWORD="change-this-strong-password"
 
 > Gerçek `.env` dosyası GitHub'a gönderilmemelidir.
 
+## 3. Redis gereksinimi
+
+SMS ve e-posta bildirim kuyruğu BullMQ kullanır. BullMQ çalışmak için Redis bağlantısına ihtiyaç duyar.
+
+Yerel geliştirme için seçenekler:
+
+- Docker ile Redis çalıştırmak
+- Windows/WSL içinde Redis çalıştırmak
+- Redis Cloud gibi uzak bir Redis servisi kullanmak
+
+Docker kullanılıyorsa proje kökünde:
+
+```bash
+docker compose up -d redis
+docker compose ps
+```
+
+Uzak Redis kullanılıyorsa `.env` içine servis tarafından verilen bağlantı yazılır:
+
+```env
+REDIS_URL="rediss://default:PAROLA@SUNUCU:PORT"
+```
+
+> `REDIS_URL` içinde parola varsa bu değer kesinlikle GitHub'a gönderilmemelidir.
+
 ---
 
-## Temel Komutlar
+# Temel Komutlar
 
 ```bash
 npm run dev
@@ -73,7 +118,7 @@ npm run check
 
 ---
 
-## Prisma Komutları
+# Prisma Komutları
 
 ```bash
 npm run prisma:generate
@@ -87,7 +132,29 @@ npx prisma migrate status
 
 ---
 
-## Production Çalıştırma Sırası
+# Development Çalıştırma Sırası
+
+PostgreSQL ve Redis çalışır durumda olmalıdır.
+
+```bash
+cd backend
+npm install
+npm run prisma:generate
+npm run prisma:migrate:dev
+npm run build
+npm run dev
+```
+
+Backend başarıyla açıldığında konsolda şu mesajlar görülür:
+
+```text
+Backend server 5000 portunda çalışıyor.
+SMS ve e-posta kuyruk worker'ları çalışıyor.
+```
+
+---
+
+# Production Çalıştırma Sırası
 
 ```bash
 npm install
@@ -98,11 +165,54 @@ npm run db:seed:super-admin
 npm start
 ```
 
-Bu sıra; bağımlılıkların yüklenmesi, Prisma Client üretimi, migration uygulaması, build, ilk Super Admin oluşturulması ve backend başlangıcını kapsar.
+Bu sıra:
+
+1. Bağımlılıkları yükler.
+2. Prisma Client üretir.
+3. Bekleyen migration dosyalarını uygular.
+4. TypeScript build işlemini yapar.
+5. İlk Super Admin hesabını oluşturur.
+6. Backend ve bildirim worker'larını başlatır.
+
+Production ortamında PostgreSQL ve Redis başlamadan backend başlatılmamalıdır.
 
 ---
 
-## İlk Super Admin Oluşturma
+# Docker Compose
+
+Tüm sistemi Docker ile çalıştırmak için proje kökünde:
+
+```bash
+docker compose up -d --build
+```
+
+Servisleri kontrol etmek için:
+
+```bash
+docker compose ps
+```
+
+Backend ve Redis loglarını izlemek için:
+
+```bash
+docker compose logs -f backend redis
+```
+
+Sadece Redis'i başlatmak için:
+
+```bash
+docker compose up -d redis
+```
+
+Docker Compose içindeki backend Redis'e şu adresle bağlanır:
+
+```env
+REDIS_URL=redis://redis:6379
+```
+
+---
+
+# İlk Super Admin Oluşturma
 
 `.env` içine aşağıdaki değerleri ekleyin:
 
@@ -162,6 +272,7 @@ Manager veya Super Admin hesabı bir daireye sakin olarak bağlandıysa kullanı
 - Manager hesaplarını ve atamalarını yönetebilir.
 - Sistem ayarları, bildirim logları ve AuditLog kayıtlarına erişebilir.
 - Tüm kapsamları görüntüleyebilir.
+- Tüm sisteme duyuru gönderebilir.
 
 ## Manager
 
@@ -206,6 +317,28 @@ fetch("http://localhost:5000/api/users", {
   body: JSON.stringify(data),
 });
 ```
+
+---
+
+# Telefon Numarası Formatı
+
+Manager ve Resident telefonları uluslararası formatta saklanır.
+
+Geçerli örnekler:
+
+```text
++905396402860
++963944123456
++4915123456789
+```
+
+Backend telefon numarasını doğrular ve `00` ile başlayan numaraları `+` formatına dönüştürebilir.
+
+```text
+00963944123456 -> +963944123456
+```
+
+Geçersiz, çok kısa veya harf içeren telefon numaraları reddedilir.
 
 ---
 
@@ -385,9 +518,156 @@ Duyurular şu hedeflere gönderilebilir:
 - Site
 - Blok
 - Daire
-- Kullanıcı
 
-SMS ve e-posta seçenekleri desteklenir. Gönderim sonuçları notification log kayıtlarına yazılabilir.
+`ALL` hedefi yalnızca Super Admin tarafından kullanılabilir.
+
+Manager yalnızca yetkili olduğu site, blok veya daire kapsamına duyuru gönderebilir.
+
+Duyuru oluştururken:
+
+- SMS gönderimi
+- E-posta gönderimi
+- Her iki kanal
+- Sadece uygulama içi duyuru
+
+seçenekleri kullanılabilir.
+
+Duyuru kaydedildikten sonra seçilen SMS/e-posta bildirimleri Redis kuyruğuna eklenir. HTTP isteği gerçek gönderimlerin tamamlanmasını beklemez.
+
+---
+
+# SMS, E-posta ve Bildirim Kuyruğu
+
+## Secret saklama
+
+SMS ve e-posta sağlayıcı secret değerleri hashlenmez; şifrelenerek veritabanında saklanır.
+
+Hash kullanılmamasının nedeni, sağlayıcıya bağlanırken secret değerinin tekrar okunması gerekmesidir.
+
+Örnek şifrelenen alanlar:
+
+- SMS API key
+- SMS API secret
+- SMS kullanıcı adı ve parolası
+- Twilio Account SID
+- Twilio Auth Token
+- SMTP kullanıcı adı
+- SMTP parolası
+- SendGrid API key
+
+Şifreleme için:
+
+```env
+CONFIG_ENCRYPTION_KEY="..."
+```
+
+kullanılır.
+
+Bu anahtar kaybedilirse önceden şifrelenmiş provider secret değerleri çözülemez.
+
+## Queue yapısı
+
+İki ayrı BullMQ kuyruğu kullanılır:
+
+```text
+notification-sms
+notification-email
+```
+
+SMS ve e-posta birbirinden bağımsız çalışır.
+
+Her kanal için global concurrency:
+
+```text
+1
+```
+
+olarak ayarlanır.
+
+Böylece:
+
+```text
+SMS 1 -> SMS 2 -> SMS 3
+```
+
+ve:
+
+```text
+E-posta 1 -> E-posta 2 -> E-posta 3
+```
+
+şeklinde kanal içinde sıralı gönderim yapılır.
+
+SMS kuyruğu ve e-posta kuyruğu aynı anda çalışabilir.
+
+## Queue'yu kullanan işlemler
+
+Aynı queue altyapısı şunlarda kullanılır:
+
+- Manuel SMS gönderimi
+- Manuel e-posta gönderimi
+- Manager duyuruları
+- Super Admin duyuruları
+- PaymentBatch/aidat bildirimleri
+- Resident request bildirimleri
+- Sistem bildirimleri
+
+## Bildirim durumları
+
+NotificationLog kayıtları şu durumları kullanır:
+
+```text
+PENDING
+SENT
+FAILED
+SKIPPED
+```
+
+Normal akış:
+
+```text
+PENDING -> SENT
+```
+
+Kalıcı hata:
+
+```text
+PENDING -> FAILED
+```
+
+Aktif provider veya geçerli alıcı bulunmaması:
+
+```text
+PENDING -> SKIPPED
+```
+
+## Yeniden deneme
+
+Gönderim başarısız olduğunda job en fazla 3 kez denenir.
+
+```text
+attempts: 3
+backoff: exponential
+```
+
+Bir gönderim hatası diğer alıcıların işlenmesini engellemez.
+
+## Redis veri güvenliği
+
+Docker Compose Redis servisi:
+
+```text
+appendonly yes
+maxmemory-policy noeviction
+```
+
+ayarlarıyla çalışır.
+
+Redis verileri şu volume içinde saklanır:
+
+```text
+redis_data
+```
 
 ---
 
@@ -415,20 +695,6 @@ Super Admin:
 - Mesajları listeleyebilir.
 - Detaylarını görebilir.
 - Durumlarını güncelleyebilir.
-
----
-
-# SMS, E-posta ve Bildirimler
-
-- SMS provider ayarları
-- SMTP/e-posta ayarları
-- Şifrelenmiş secret saklama
-- Notification logs
-- Manual notification
-- Queue/fallback mantığı
-- Duyuru, talep, ödeme ve parola sıfırlama bildirimleri
-
-Secret değerler frontend response içinde açık olarak gönderilmez.
 
 ---
 
@@ -471,6 +737,8 @@ Manager dashboard aktif atama kapsamındaki verileri, Resident dashboard ise yal
 - AuditLog
 - Production ortamında stack trace gizleme
 - Frontend'e secret göndermeme
+- Bildirimler için Redis/BullMQ queue
+- Başarısız bildirimler için kontrollü retry
 
 ---
 
@@ -487,6 +755,7 @@ Manager dashboard aktif atama kapsamındaki verileri, Resident dashboard ise yal
 - AuditLog
 - Password reset
 - Kullanıcı güncelleme/pasifleştirme
+- Uluslararası telefon doğrulaması
 - Sites, blocks, apartments
 - Apartment residents
 - Manager assignments
@@ -507,8 +776,11 @@ Manager dashboard aktif atama kapsamındaki verileri, Resident dashboard ise yal
 - SMS settings
 - Email settings
 - Notification logs
-- Notification service
 - Manual notifications
+- Redis/BullMQ notification queue
+- Sıralı SMS gönderimi
+- Sıralı e-posta gönderimi
+- Bildirim retry/backoff
 - Site/Block image upload
 - Private image endpoints
 - AI Settings
@@ -542,10 +814,26 @@ Mevcut ana test alanları:
 - Dosya imzası doğrulama
 - Dekont approve/reject
 - Notification logs
-- SMS/e-posta fallback
+- SMS/e-posta ayarları
 - AI Settings
 - System Settings
 - Dashboard summaries
+
+Queue entegrasyonu için manuel kontroller:
+
+1. Redis bağlantısının başarılı olması
+2. Manuel SMS job oluşturulması
+3. Manuel e-posta job oluşturulması
+4. Duyuru SMS job oluşturulması
+5. Duyuru e-posta job oluşturulması
+6. NotificationLog kaydının önce `PENDING` olması
+7. Başarılı gönderim sonrası `SENT` olması
+8. Aktif provider yoksa `SKIPPED` olması
+9. Provider hatasında retry yapılması
+10. Son denemeden sonra `FAILED` olması
+11. SMS kanalında gönderimlerin sıralı olması
+12. E-posta kanalında gönderimlerin sıralı olması
+13. Backend yeniden başlatıldığında bekleyen job'ların devam etmesi
 
 Muhasebe modülü için manuel entegrasyon kontrolleri:
 
@@ -577,10 +865,16 @@ Kontrol edilmesi gerekenler:
 
 - Build ve testler başarılı olmalı.
 - Migration durumu güncel olmalı.
+- PostgreSQL çalışıyor olmalı.
+- Redis çalışıyor olmalı.
+- Queue worker'ları başlamış olmalı.
 - `.env`, uploads ve dist Git'e eklenmemeli.
 - HTTPS aktif olmalı.
 - CORS ve cookie ayarları production domainine uygun olmalı.
 - Database yedeği alınmalı.
+- Redis volume/yedekleme stratejisi kontrol edilmeli.
+- SMS ve e-posta provider ayarları test edilmeli.
+- `CONFIG_ENCRYPTION_KEY` güvenli şekilde yedeklenmeli.
 
 ---
 
@@ -606,6 +900,7 @@ uploads/
 src/generated/prisma/
 *.zip
 *.dump
+*.bak
 dump.sql
 ```
 
@@ -620,7 +915,7 @@ Local değişiklikler varken önce commit oluşturmak daha güvenlidir.
 ```bash
 git status --short
 git add .
-git commit -m "feat: add accounting module and update backend documentation"
+git commit -m "feat: add notification queue and update documentation"
 git pull --rebase origin main
 git push origin main
 ```
@@ -664,6 +959,10 @@ Son önemli geliştirmeler:
 - Çoklu muaf daire ile gider dağıtımı
 - PaymentBatch/PaymentAllocation entegrasyonu
 - İletişim mesajları
+- Uluslararası telefon numarası doğrulaması
+- SMS ve e-posta için Redis/BullMQ queue
+- Kanal içinde sıralı bildirim gönderimi
+- Bildirim retry/backoff sistemi
 - Production migration ve güvenlik iyileştirmeleri
 
-Production yayını öncesinde tam entegrasyon testi, database yedeği, HTTPS, domain/CORS ayarları, log yönetimi ve dosya depolama stratejisi kontrol edilmelidir.
+Production yayını öncesinde tam entegrasyon testi, database yedeği, Redis sürekliliği, HTTPS, domain/CORS ayarları, log yönetimi ve dosya depolama stratejisi kontrol edilmelidir.

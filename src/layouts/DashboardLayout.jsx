@@ -1,5 +1,3 @@
-import { useAuth } from "../hooks/useAuth";
-import { useManagerScope } from "../hooks/useManagerScope";
 import { useEffect, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
@@ -9,16 +7,17 @@ import {
   ChevronLeft,
   CircleHelp,
   LogOut,
+  Mail,
   MapPin,
   Menu,
-  RefreshCcw,
+  MessageSquare,
   ShieldCheck,
   UserRound,
   X,
 } from "lucide-react";
 
-
-
+import { useAuth } from "../hooks/useAuth";
+import { useManagerScope } from "../hooks/useManagerScope";
 
 const notificationsByRole = {
   "Süper Admin": [
@@ -30,7 +29,7 @@ const notificationsByRole = {
     {
       title: "SMS / E-posta Logları",
       text: "Bildirim gönderim kayıtlarını ve hataları görüntüleyin.",
-      path: "/super-admin/notifications",
+      path: "/super-admin/notifications/sms",
     },
     {
       title: "Sistem Ayarları",
@@ -77,7 +76,7 @@ const notificationsByRole = {
 };
 
 const notificationHomePathByRole = {
-  "Süper Admin": "/super-admin/notifications",
+  "Süper Admin": "/super-admin/notifications/sms",
   Yönetici: "/manager/requests",
   Sakin: "/resident/announcements",
 };
@@ -103,6 +102,49 @@ function getStoredDarkMode(roleBadge) {
   return savedThemeMode.toLowerCase().includes("koyu");
 }
 
+function isRouteActive(currentPath, targetPath) {
+  if (!targetPath) {
+    return false;
+  }
+
+  return (
+    currentPath === targetPath ||
+    currentPath.startsWith(`${targetPath}/`)
+  );
+}
+
+
+function normalizeNavigationItem(item) {
+  const isNotificationItem =
+    item?.key === "notifications" ||
+    item?.label === "SMS / E-posta" ||
+    item?.path === "/super-admin/notifications" ||
+    item?.path === "/super-admin/notifications/sms" ||
+    item?.path === "/super-admin/notifications/email";
+
+  if (!isNotificationItem) {
+    return item;
+  }
+
+  return {
+    ...item,
+    key: "notifications",
+    path: undefined,
+    children: [
+      {
+        label: "SMS Yönetimi",
+        path: "/super-admin/notifications/sms",
+        icon: MessageSquare,
+      },
+      {
+        label: "E-posta Yönetimi",
+        path: "/super-admin/notifications/email",
+        icon: Mail,
+      },
+    ],
+  };
+}
+
 function DashboardLayout({
   roleTitle,
   roleBadge,
@@ -117,7 +159,7 @@ function DashboardLayout({
 }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, logout } = useAuth();
+  const { logout } = useAuth();
   const {
     activeAssignment,
     activeAssignmentLabel,
@@ -139,8 +181,6 @@ function DashboardLayout({
   const settingsPath = settingsPathByRole[roleBadge] || "/super-admin/settings";
   const safeUserName = userName || "Kullanıcı";
   const safeTheme = theme || "manager";
-  const canSwitchAccountMode =
-    Array.isArray(user?.availableModes) && user.availableModes.length > 1;
 
   useEffect(() => {
     document.body.classList.remove("dark-mode");
@@ -166,19 +206,6 @@ function DashboardLayout({
     };
   }, [isHelpOpen]);
 
-  function toggleNavGroup(groupKey, groupIsActive) {
-    setOpenNavGroups((currentGroups) => {
-      const savedValue = currentGroups[groupKey];
-      const isCurrentlyOpen =
-        typeof savedValue === "boolean" ? savedValue : groupIsActive;
-
-      return {
-        ...currentGroups,
-        [groupKey]: !isCurrentlyOpen,
-      };
-    });
-  }
-
   function closeSidebar() {
     setIsSidebarOpen(false);
   }
@@ -201,6 +228,13 @@ function DashboardLayout({
     setIsHelpOpen(false);
   }
 
+  function toggleNavGroup(groupKey) {
+    setOpenNavGroups((current) => ({
+      ...current,
+      [groupKey]: !current[groupKey],
+    }));
+  }
+
   function openManagerScopeSelector() {
     closeTopbarMenus();
 
@@ -209,11 +243,6 @@ function DashboardLayout({
         from: location.pathname,
       },
     });
-  }
-
-  function openAccountModeSelector() {
-    closeTopbarMenus();
-    navigate("/select-account-mode");
   }
 
   function toggleHelp() {
@@ -285,82 +314,83 @@ function DashboardLayout({
         </div>
 
         <nav className="sidebar-nav">
-          {navItems.map((item) => {
+          {navItems.map((rawItem) => {
+            const item = normalizeNavigationItem(rawItem);
             const Icon = item.icon;
             const hasChildren =
               Array.isArray(item.children) && item.children.length > 0;
 
-            if (hasChildren) {
-              const groupKey = item.key ?? item.label;
-              const groupIsActive = item.children.some((child) => {
-                return (
-                  location.pathname === child.path ||
-                  location.pathname.startsWith(`${child.path}/`)
-                );
-              });
-
-              const savedOpenValue = openNavGroups[groupKey];
-              const isGroupOpen =
-                typeof savedOpenValue === "boolean"
-                  ? savedOpenValue
-                  : groupIsActive;
-
+            if (!hasChildren) {
               return (
-                <div
-                  className={`sidebar-nav-group ${
-                    groupIsActive ? "active" : ""
-                  }`}
-                  key={groupKey}
+                <NavLink
+                  to={item.path}
+                  key={item.path}
+                  onClick={closeSidebar}
                 >
-                  <button
-                    type="button"
-                    className="sidebar-nav-group-button"
-                    onClick={() =>
-                      toggleNavGroup(groupKey, groupIsActive)
-                    }
-                    aria-expanded={isGroupOpen}
-                  >
-                    <span className="sidebar-nav-group-main">
-                      <Icon size={20} />
-                      <span>{item.label}</span>
-                    </span>
-
-                    <ChevronDown
-                      size={17}
-                      className={`sidebar-nav-group-chevron ${
-                        isGroupOpen ? "open" : ""
-                      }`}
-                    />
-                  </button>
-
-                  {isGroupOpen && (
-                    <div className="sidebar-nav-submenu">
-                      {item.children.map((child) => {
-                        const ChildIcon = child.icon;
-
-                        return (
-                          <NavLink
-                            to={child.path}
-                            end={Boolean(child.end)}
-                            key={child.path}
-                            onClick={closeSidebar}
-                          >
-                            {ChildIcon && <ChildIcon size={17} />}
-                            <span>{child.label}</span>
-                          </NavLink>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
+                  <Icon size={20} />
+                  <span>{item.label}</span>
+                </NavLink>
               );
             }
 
+            const groupKey = item.key || item.label;
+            const isGroupActive = item.children.some((child) =>
+              isRouteActive(location.pathname, child.path)
+            );
+            const isGroupOpen =
+              Boolean(openNavGroups[groupKey]) || isGroupActive;
+
             return (
-              <NavLink to={item.path} key={item.path} onClick={closeSidebar}>
-                <Icon size={20} />
-                <span>{item.label}</span>
-              </NavLink>
+              <div
+                className={`sidebar-nav-group ${
+                  isGroupActive ? "active" : ""
+                }`}
+                key={groupKey}
+              >
+                <button
+                  type="button"
+                  className={`sidebar-nav-group-button ${
+                    isGroupActive ? "active" : ""
+                  }`}
+                  onClick={() => toggleNavGroup(groupKey)}
+                  aria-expanded={isGroupOpen}
+                  aria-controls={`sidebar-subnav-${groupKey}`}
+                >
+                  <Icon size={20} />
+                  <span>{item.label}</span>
+                  <ChevronDown
+                    size={17}
+                    className={`sidebar-nav-group-chevron ${
+                      isGroupOpen ? "open" : ""
+                    }`}
+                  />
+                </button>
+
+                {isGroupOpen && (
+                  <div
+                    id={`sidebar-subnav-${groupKey}`}
+                    className="sidebar-subnav"
+                  >
+                    {item.children.map((child) => {
+                      const ChildIcon = child.icon;
+
+                      return (
+                        <NavLink
+                          to={child.path}
+                          key={child.path}
+                          onClick={closeSidebar}
+                          className={({ isActive }) =>
+                            isActive ? "active" : ""
+                          }
+                        >
+                          {ChildIcon && <ChildIcon size={16} />}
+                          <span>{child.label}</span>
+                        </NavLink>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             );
           })}
         </nav>
@@ -524,17 +554,6 @@ function DashboardLayout({
                       <strong>{roleTitle}</strong>
                     </div>
                   </div>
-
-                  {canSwitchAccountMode && (
-                    <button
-                      type="button"
-                      className="profile-dropdown-link profile-dropdown-button"
-                      onClick={openAccountModeSelector}
-                    >
-                      <RefreshCcw size={17} />
-                      Kullanım Modunu Değiştir
-                    </button>
-                  )}
 
                   <Link
                     to={settingsPath}

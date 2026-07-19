@@ -1,5 +1,7 @@
 ﻿import { CheckCircle2, X } from "lucide-react";
 
+import InternationalPhoneInput from "../common/InternationalPhoneInput";
+
 function ManagerForm({
   formData,
   sites,
@@ -76,18 +78,13 @@ function ManagerForm({
             />
           </label>
 
-          <label>
-            Telefon
-            <input
-              type="tel"
-              name="phone"
-              placeholder="05xx xxx xx xx"
-              value={formData.phone}
-              onChange={onInputChange}
-              autoComplete="tel"
-              disabled={isSaving}
-            />
-          </label>
+          <InternationalPhoneInput
+            name="phone"
+            label="Telefon"
+            value={formData.phone}
+            onChange={onInputChange}
+            disabled={isSaving}
+          />
 
           <label>
             Şifre

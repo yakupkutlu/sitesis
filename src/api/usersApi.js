@@ -1,15 +1,21 @@
 ﻿import { apiRequest } from "./client";
 
-export async function getUsers(params = {}) {
+function buildQueryString(params = {}) {
   const searchParams = new URLSearchParams();
 
-  if (params.search) searchParams.set("search", params.search);
-  if (params.page) searchParams.set("page", String(params.page));
-  if (params.limit) searchParams.set("limit", String(params.limit));
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      searchParams.set(key, String(value));
+    }
+  });
 
   const queryString = searchParams.toString();
 
-  return apiRequest(`/users${queryString ? `?${queryString}` : ""}`);
+  return queryString ? `?${queryString}` : "";
+}
+
+export async function getUsers(params = {}) {
+  return apiRequest(`/users${buildQueryString(params)}`);
 }
 
 export async function createUser(payload) {

@@ -1,7 +1,9 @@
 ﻿import prisma from "../db/prisma.js";
 import { type Prisma } from "../generated/prisma/client.js";
-import { sendEmailWithActiveSmtp } from "./email-sender.service.js";
-import { sendSmsWithSetting } from "./sms-sender.service.js";
+import {
+  addEmailNotificationJob,
+  addSmsNotificationJob,
+} from "../queues/notification.queues.js";
 
 type NotificationChannel = "SMS" | "EMAIL";
 type NotificationStatus = "PENDING" | "SENT" | "FAILED" | "SKIPPED";
@@ -36,32 +38,45 @@ type CreateNotificationLogInput = {
   createdByUserId?: string;
 };
 
+type QueueEmailNotificationInput = {
+  recipientUserId?: string;
+  recipientEmail: string;
+  subject: string;
+  message: string;
+  sourceType?: NotificationSourceType;
+  entityType?: string;
+  entityId?: string;
+  metadata?: Prisma.InputJsonValue;
+  createdByUserId?: string;
+};
+
+type QueueSmsNotificationInput = {
+  recipientUserId?: string;
+  recipientPhone: string;
+  message: string;
+  sourceType?: NotificationSourceType;
+  entityType?: string;
+  entityId?: string;
+  metadata?: Prisma.InputJsonValue;
+  createdByUserId?: string;
+};
+
 function getErrorMessage(error: unknown) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return "Bilinmeyen hata oluştu.";
-}
-
-function getValidSettingWhere() {
-  return {
-    status: "ACTIVE" as const,
-    OR: [
-      {
-        expiresAt: null,
-      },
-      {
-        expiresAt: {
-          gte: new Date(),
-        },
-      },
-    ],
-  };
+  return error instanceof Error
+    ? error.message
+    : "Bilinmeyen kuyruk hatası oluştu.";
 }
 
 export async function createNotificationLog(input: CreateNotificationLogInput) {
-  if (!input.recipientUserId && !input.recipientEmail && !input.recipientPhone) {
+  const hasRecipient = Boolean(
+    input.recipientUserId ||
+      input.recipientEmail ||
+      input.recipientPhone
+  );
+
+  // Duyuru hedefinde kullanıcı bulunmaması gibi genel SKIPPED kayıtlarında
+  // alıcı olmayabilir. Gönderilecek diğer kayıtlar mutlaka alıcı içermelidir.
+  if (!hasRecipient && input.status !== "SKIPPED") {
     throw new Error("En az bir alıcı bilgisi gönderilmelidir.");
   }
 
@@ -88,184 +103,72 @@ export async function createNotificationLog(input: CreateNotificationLogInput) {
       metadata: input.metadata,
 
       createdByUserId: input.createdByUserId,
-
       sentAt: input.status === "SENT" ? new Date() : null,
     },
   });
 }
 
-export async function queueEmailNotification(input: {
-  recipientUserId?: string;
-  recipientEmail: string;
-  subject: string;
-  message: string;
-  sourceType?: NotificationSourceType;
-  entityType?: string;
-  entityId?: string;
-  metadata?: Prisma.InputJsonValue;
-  createdByUserId?: string;
-}) {
-  const activeEmailSetting = await prisma.emailSetting.findFirst({
-    where: getValidSettingWhere(),
-    orderBy: {
-      createdAt: "desc",
+async function markQueueFailure(
+  notificationLogId: string,
+  error: unknown
+) {
+  return prisma.notificationLog.update({
+    where: {
+      id: notificationLogId,
     },
-    select: {
-      provider: true,
+    data: {
+      status: "FAILED",
+      errorMessage: `Bildirim kuyruğa eklenemedi: ${getErrorMessage(error)}`,
+      sentAt: null,
     },
   });
+}
 
-  if (!activeEmailSetting) {
-    return createNotificationLog({
-      channel: "EMAIL",
-      status: "SKIPPED",
-      sourceType: input.sourceType ?? "SYSTEM",
-      recipientUserId: input.recipientUserId,
-      recipientEmail: input.recipientEmail,
-      subject: input.subject,
-      message: input.message,
-      entityType: input.entityType,
-      entityId: input.entityId,
-      errorMessage:
-        "Aktif ve son kullanım tarihi geçmemiş e-posta ayarı bulunamadı.",
-      metadata: input.metadata,
-      createdByUserId: input.createdByUserId,
-    });
-  }
-
-  if (activeEmailSetting.provider !== "SMTP") {
-    return createNotificationLog({
-      channel: "EMAIL",
-      status: "SKIPPED",
-      sourceType: input.sourceType ?? "SYSTEM",
-      recipientUserId: input.recipientUserId,
-      recipientEmail: input.recipientEmail,
-      subject: input.subject,
-      message: input.message,
-      provider: activeEmailSetting.provider,
-      entityType: input.entityType,
-      entityId: input.entityId,
-      errorMessage:
-        "Bu e-posta sağlayıcısı için gerçek gönderim henüz aktif değildir.",
-      metadata: input.metadata,
-      createdByUserId: input.createdByUserId,
-    });
-  }
+export async function queueEmailNotification(
+  input: QueueEmailNotificationInput
+) {
+  const notificationLog = await createNotificationLog({
+    channel: "EMAIL",
+    status: "PENDING",
+    sourceType: input.sourceType ?? "SYSTEM",
+    recipientUserId: input.recipientUserId,
+    recipientEmail: input.recipientEmail,
+    subject: input.subject,
+    message: input.message,
+    entityType: input.entityType,
+    entityId: input.entityId,
+    metadata: input.metadata,
+    createdByUserId: input.createdByUserId,
+  });
 
   try {
-    const result = await sendEmailWithActiveSmtp({
-      to: input.recipientEmail,
-      subject: input.subject,
-      message: input.message,
-    });
-
-    return createNotificationLog({
-      channel: "EMAIL",
-      status: "SENT",
-      sourceType: input.sourceType ?? "SYSTEM",
-      recipientUserId: input.recipientUserId,
-      recipientEmail: input.recipientEmail,
-      subject: input.subject,
-      message: input.message,
-      provider: result.provider,
-      providerMessageId: result.providerMessageId,
-      entityType: input.entityType,
-      entityId: input.entityId,
-      metadata: input.metadata,
-      createdByUserId: input.createdByUserId,
-    });
+    await addEmailNotificationJob(notificationLog.id);
+    return notificationLog;
   } catch (error) {
-    return createNotificationLog({
-      channel: "EMAIL",
-      status: "FAILED",
-      sourceType: input.sourceType ?? "SYSTEM",
-      recipientUserId: input.recipientUserId,
-      recipientEmail: input.recipientEmail,
-      subject: input.subject,
-      message: input.message,
-      provider: activeEmailSetting.provider,
-      entityType: input.entityType,
-      entityId: input.entityId,
-      errorMessage: getErrorMessage(error),
-      metadata: input.metadata,
-      createdByUserId: input.createdByUserId,
-    });
+    return markQueueFailure(notificationLog.id, error);
   }
 }
 
-export async function queueSmsNotification(input: {
-  recipientUserId?: string;
-  recipientPhone: string;
-  message: string;
-  sourceType?: NotificationSourceType;
-  entityType?: string;
-  entityId?: string;
-  metadata?: Prisma.InputJsonValue;
-  createdByUserId?: string;
-}) {
-  const activeSmsSetting = await prisma.smsSetting.findFirst({
-    where: getValidSettingWhere(),
-    orderBy: {
-      createdAt: "desc",
-    },
-    select: {
-      id: true,
-      provider: true,
-    },
+export async function queueSmsNotification(
+  input: QueueSmsNotificationInput
+) {
+  const notificationLog = await createNotificationLog({
+    channel: "SMS",
+    status: "PENDING",
+    sourceType: input.sourceType ?? "SYSTEM",
+    recipientUserId: input.recipientUserId,
+    recipientPhone: input.recipientPhone,
+    message: input.message,
+    entityType: input.entityType,
+    entityId: input.entityId,
+    metadata: input.metadata,
+    createdByUserId: input.createdByUserId,
   });
 
-  if (!activeSmsSetting) {
-    return createNotificationLog({
-      channel: "SMS",
-      status: "SKIPPED",
-      sourceType: input.sourceType ?? "SYSTEM",
-      recipientUserId: input.recipientUserId,
-      recipientPhone: input.recipientPhone,
-      message: input.message,
-      entityType: input.entityType,
-      entityId: input.entityId,
-      errorMessage:
-        "Aktif ve son kullanım tarihi geçmemiş SMS ayarı bulunamadı.",
-      metadata: input.metadata,
-      createdByUserId: input.createdByUserId,
-    });
-  }
-
   try {
-    const result = await sendSmsWithSetting({
-      smsSettingId: activeSmsSetting.id,
-      toPhone: input.recipientPhone,
-      message: input.message,
-    });
-
-    return createNotificationLog({
-      channel: "SMS",
-      status: "SENT",
-      sourceType: input.sourceType ?? "SYSTEM",
-      recipientUserId: input.recipientUserId,
-      recipientPhone: input.recipientPhone,
-      message: input.message,
-      provider: result.provider,
-      providerMessageId: result.providerMessageId,
-      entityType: input.entityType,
-      entityId: input.entityId,
-      metadata: input.metadata,
-      createdByUserId: input.createdByUserId,
-    });
+    await addSmsNotificationJob(notificationLog.id);
+    return notificationLog;
   } catch (error) {
-    return createNotificationLog({
-      channel: "SMS",
-      status: "FAILED",
-      sourceType: input.sourceType ?? "SYSTEM",
-      recipientUserId: input.recipientUserId,
-      recipientPhone: input.recipientPhone,
-      message: input.message,
-      provider: activeSmsSetting.provider,
-      entityType: input.entityType,
-      entityId: input.entityId,
-      errorMessage: getErrorMessage(error),
-      metadata: input.metadata,
-      createdByUserId: input.createdByUserId,
-    });
+    return markQueueFailure(notificationLog.id, error);
   }
 }

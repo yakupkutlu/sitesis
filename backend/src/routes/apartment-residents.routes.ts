@@ -13,6 +13,7 @@ import { createAuditLog } from "../services/audit-log.service.js";
 import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
+import { optionalInternationalPhoneSchema } from "../utils/phone.js";
 import { buildPaginationMeta, getPaginationParams } from "../utils/pagination.js";
 const router = express.Router();
 
@@ -722,7 +723,7 @@ const createResidentAndAssignSchema = z
   .object({
     fullName: z.string().trim().min(2).optional(),
     email: z.string().trim().email(),
-    phone: z.string().trim().optional(),
+    phone: optionalInternationalPhoneSchema,
     password: z.string().min(8).optional(),
     apartmentId: z.string().uuid(),
     type: z.enum(["OWNER", "TENANT"]),

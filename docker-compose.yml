@@ -18,6 +18,29 @@ services:
     networks:
       - sitesis_network
 
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--maxmemory-policy",
+        "noeviction"
+      ]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      - "127.0.0.1:6379:6379"
+    networks:
+      - sitesis_network
+
   backend:
     build:
       context: ./backend
@@ -27,6 +50,7 @@ services:
       NODE_ENV: production
       PORT: 5000
       DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
       CLIENT_URL: ${APP_URL}
@@ -44,6 +68,8 @@ services:
       - backend_uploads:/app/uploads
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     expose:
       - "5000"
@@ -68,6 +94,7 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:
   backend_uploads:
 
 networks:

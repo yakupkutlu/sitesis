@@ -3,16 +3,31 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 
 import prisma from "../db/prisma.js";
-import {requireAuth,requireRole,type AuthenticatedRequest,} from "../middlewares/auth.middleware.js";
+import {
+  requireAuth,
+  requireRole,
+  type AuthenticatedRequest,
+} from "../middlewares/auth.middleware.js";
 import { createAuditLog } from "../services/audit-log.service.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
+import {
+  nullableInternationalPhoneSchema,
+  optionalInternationalPhoneSchema,
+} from "../utils/phone.js";
 import { type Prisma } from "../generated/prisma/client.js";
-import { buildPaginationMeta, getPaginationParams } from "../utils/pagination.js";
+import {
+  buildPaginationMeta,
+  getPaginationParams,
+} from "../utils/pagination.js";
+
 const router = express.Router();
 
 router.use(requireAuth);
 router.use(requireRole("SUPER_ADMIN"));
+
+const userRoleSchema = z.enum(["SUPER_ADMIN", "MANAGER", "RESIDENT"]);
+const userStatusSchema = z.enum(["ACTIVE", "PASSIVE"]);
 
 const userSelectFields = {
   id: true,
@@ -25,33 +40,39 @@ const userSelectFields = {
   updatedAt: true,
 } as const;
 
+const userListFiltersSchema = z
+  .object({
+    role: userRoleSchema.optional(),
+    status: userStatusSchema.optional(),
+  })
+  .strict();
+
 const createUserSchema = z.object({
   fullName: z.string().trim().min(2),
   email: z.string().trim().email(),
-  phone: z.string().trim().optional(),
+  phone: optionalInternationalPhoneSchema,
   password: z.string().min(8),
-  role: z.enum(["SUPER_ADMIN", "MANAGER", "RESIDENT"]),
+  role: userRoleSchema,
 });
 
 const updateUserSchema = z
   .object({
     fullName: z.string().trim().min(2).optional(),
     email: z.string().trim().email().optional(),
-    phone: z.string().trim().nullable().optional(),
+    phone: nullableInternationalPhoneSchema,
     password: z.string().min(8).optional(),
-    role: z.enum(["SUPER_ADMIN", "MANAGER", "RESIDENT"]).optional(),
-    status: z.enum(["ACTIVE", "PASSIVE"]).optional(),
+    role: userRoleSchema.optional(),
+    status: userStatusSchema.optional(),
   })
   .strict()
   .refine(
-    (data) => {
-      return Object.values(data).some((value) => value !== undefined);
-    },
+    (data) => Object.values(data).some((value) => value !== undefined),
     {
       message: "En az bir alan gönderilmelidir.",
-    });
+    }
+  );
 
-    function getRequiredParam(request: Request, paramName: string) {
+function getRequiredParam(request: Request, paramName: string) {
   const paramValue = request.params[paramName];
 
   if (typeof paramValue !== "string" || paramValue.trim().length === 0) {
@@ -59,7 +80,71 @@ const updateUserSchema = z
   }
 
   return paramValue;
-} 
+}
+
+function parseUserListFilters(request: Request) {
+  const validationResult = userListFiltersSchema.safeParse({
+    role: request.query.role,
+    status: request.query.status,
+  });
+
+  if (!validationResult.success) {
+    throw new HttpError(
+      400,
+      "Kullanıcı filtreleri geçersiz.",
+      validationResult.error.flatten().fieldErrors
+    );
+  }
+
+  return validationResult.data;
+}
+
+function buildUserWhereCondition({
+  search,
+  role,
+  status,
+}: {
+  search?: string;
+  role?: "SUPER_ADMIN" | "MANAGER" | "RESIDENT";
+  status?: "ACTIVE" | "PASSIVE";
+}): Prisma.UserWhereInput {
+  const conditions: Prisma.UserWhereInput[] = [];
+
+  if (search) {
+    conditions.push({
+      OR: [
+        {
+          fullName: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          email: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          phone: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+      ],
+    });
+  }
+
+  if (role) {
+    conditions.push({ role });
+  }
+
+  if (status) {
+    conditions.push({ status });
+  }
+
+  return conditions.length > 0 ? { AND: conditions } : {};
+}
 
 async function ensureCanModifySuperAdmin(
   targetUser: {
@@ -73,7 +158,8 @@ async function ensureCanModifySuperAdmin(
   const willRemoveActiveSuperAdmin =
     targetUser.role === "SUPER_ADMIN" &&
     targetUser.status === "ACTIVE" &&
-    ((nextRole !== undefined && nextRole !== "SUPER_ADMIN") || nextStatus === "PASSIVE");
+    ((nextRole !== undefined && nextRole !== "SUPER_ADMIN") ||
+      nextStatus === "PASSIVE");
 
   if (!willRemoveActiveSuperAdmin) {
     return;
@@ -87,7 +173,10 @@ async function ensureCanModifySuperAdmin(
   });
 
   if (activeSuperAdminCount <= 1) {
-    throw new HttpError(400, "Son aktif süper admin pasif yapılamaz veya rolü değiştirilemez.");
+    throw new HttpError(
+      400,
+      "Son aktif süper admin pasif yapılamaz veya rolü değiştirilemez."
+    );
   }
 }
 
@@ -97,33 +186,20 @@ router.get(
     const paginationParams = getPaginationParams(request.query);
 
     if (!paginationParams.success) {
-      throw new HttpError(400, "Sayfalama bilgileri geçersiz.", paginationParams.errors);
+      throw new HttpError(
+        400,
+        "Sayfalama bilgileri geçersiz.",
+        paginationParams.errors
+      );
     }
 
-    const whereCondition: Prisma.UserWhereInput = paginationParams.search
-      ? {
-          OR: [
-            {
-              fullName: {
-                contains: paginationParams.search,
-                mode: "insensitive",
-              },
-            },
-            {
-              email: {
-                contains: paginationParams.search,
-                mode: "insensitive",
-              },
-            },
-            {
-              phone: {
-                contains: paginationParams.search,
-                mode: "insensitive",
-              },
-            },
-          ],
-        }
-      : {};
+    const filters = parseUserListFilters(request);
+
+    const whereCondition = buildUserWhereCondition({
+      search: paginationParams.search,
+      role: filters.role,
+      status: filters.status,
+    });
 
     const [users, totalCount] = await Promise.all([
       prisma.user.findMany({
@@ -240,6 +316,7 @@ router.patch(
     }
 
     const userId = getRequiredParam(request, "userId");
+
     const targetUser = await prisma.user.findUnique({
       where: {
         id: userId,
@@ -267,7 +344,8 @@ router.patch(
       status?: "ACTIVE" | "PASSIVE";
     } = {};
 
-    const { fullName, email, phone, password, role, status } = validationResult.data;
+    const { fullName, email, phone, password, role, status } =
+      validationResult.data;
 
     if (fullName !== undefined) {
       updateData.fullName = fullName;
@@ -313,7 +391,8 @@ router.patch(
     if (
       targetUser.id === authenticatedRequest.user.id &&
       (updateData.status === "PASSIVE" ||
-        (updateData.role !== undefined && updateData.role !== "SUPER_ADMIN"))
+        (updateData.role !== undefined &&
+          updateData.role !== "SUPER_ADMIN"))
     ) {
       throw new HttpError(
         400,
@@ -321,7 +400,11 @@ router.patch(
       );
     }
 
-    await ensureCanModifySuperAdmin(targetUser, updateData.role, updateData.status);
+    await ensureCanModifySuperAdmin(
+      targetUser,
+      updateData.role,
+      updateData.status
+    );
 
     const updatedUser = await prisma.user.update({
       where: {
@@ -374,6 +457,7 @@ router.patch(
     }
 
     const userId = getRequiredParam(request, "userId");
+
     const targetUser = await prisma.user.findUnique({
       where: {
         id: userId,

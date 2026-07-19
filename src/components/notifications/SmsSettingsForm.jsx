@@ -12,18 +12,55 @@ const statusOptions = [
   { value: "PASSIVE", label: "Pasif" },
 ];
 
+function SecretInput({
+  name,
+  value,
+  placeholder,
+  onChange,
+  disabled,
+  required = false,
+  autoComplete = "new-password",
+}) {
+  const [isVisible, setIsVisible] = useState(false);
+
+  return (
+    <div className="secret-input-wrapper">
+      <input
+        name={name}
+        type={isVisible ? "text" : "password"}
+        value={value}
+        placeholder={placeholder}
+        onChange={onChange}
+        disabled={disabled}
+        required={required}
+        autoComplete={autoComplete}
+      />
+
+      <button
+        type="button"
+        onClick={() => setIsVisible((current) => !current)}
+        aria-label={`${name} görünürlüğünü değiştir`}
+        disabled={disabled}
+      >
+        {isVisible ? <EyeOff size={18} /> : <Eye size={18} />}
+      </button>
+    </div>
+  );
+}
+
+function getStoredSecretPlaceholder(hasStoredSecret, emptyPlaceholder) {
+  return hasStoredSecret ? "Mevcut gizli bilgi kayıtlı" : emptyPlaceholder;
+}
+
 function SmsSettingsForm({
   formData,
   onInputChange,
   onSubmit,
   onTestSms,
   isSaving = false,
-  isTestingSms = false,
 }) {
-  const [showApiKey, setShowApiKey] = useState(false);
-  const [showApiSecret, setShowApiSecret] = useState(false);
-  const [showAuthToken, setShowAuthToken] = useState(false);
-
+  const isNetgsm = formData.provider === "NETGSM";
+  const isIletiMerkezi = formData.provider === "ILETIMERKEZI";
   const isTwilio = formData.provider === "TWILIO";
 
   return (
@@ -50,11 +87,11 @@ function SmsSettingsForm({
       </div>
 
       <p className="notification-card-description">
-        SMS sağlayıcısı, gönderici başlığı, son kullanım tarihi ve gizli API
-        bilgileri tanımlanır.
+        Seçilen sağlayıcıya ait gönderici ve kimlik doğrulama bilgilerini
+        tanımlayın. Gizli bilgiler yalnızca backend tarafında şifreli saklanır.
       </p>
 
-      <form className="notification-form" onSubmit={onSubmit} autoComplete="off">
+      <form className="notification-form" onSubmit={onSubmit}>
         <div className="form-grid">
           <label>
             SMS Sağlayıcı
@@ -99,197 +136,184 @@ function SmsSettingsForm({
             />
           </label>
 
-          <label>
-            Gönderici Başlığı
-            <input
-              name="senderName"
-              type="text"
-              placeholder="Örn: SITESIS"
-              value={formData.senderName}
-              onChange={onInputChange}
-              disabled={isSaving}
-            />
-          </label>
+          {(isNetgsm || isIletiMerkezi) && (
+            <label>
+              Gönderici Başlığı
+              <input
+                name="senderName"
+                type="text"
+                placeholder="Örn: SITESIS"
+                value={formData.senderName}
+                onChange={onInputChange}
+                disabled={isSaving}
+                required
+              />
+            </label>
+          )}
 
-          <label>
-            From Phone
-            <input
-              name="fromPhone"
-              type="text"
-              placeholder="+90 5xx xxx xx xx"
-              value={formData.fromPhone}
-              onChange={onInputChange}
-              disabled={isSaving}
-            />
-          </label>
-
-          {isTwilio ? (
+          {isNetgsm && (
             <>
               <label>
-                Twilio Account SID
+                Netgsm Kullanıcı Adı
                 <input
-                  name="accountSid"
+                  name="username"
                   type="text"
-                  autoComplete="off"
                   placeholder={
-                    formData.hasAccountSid
-                      ? "Mevcut Account SID kayıtlı"
-                      : "Örn: ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    formData.hasUsername
+                      ? "Mevcut kullanıcı adı kayıtlı"
+                      : "Netgsm kullanıcı adı"
                   }
-                  value={formData.accountSid}
+                  value={formData.username}
                   onChange={onInputChange}
                   disabled={isSaving}
+                  required={!formData.id && !formData.hasUsername}
+                  autoComplete="username"
+                />
+              </label>
+
+              <label>
+                Netgsm Şifre
+                <SecretInput
+                  name="password"
+                  value={formData.password}
+                  placeholder={getStoredSecretPlaceholder(
+                    formData.hasPassword,
+                    "Netgsm şifresi"
+                  )}
+                  onChange={onInputChange}
+                  disabled={isSaving}
+                  required={!formData.id && !formData.hasPassword}
+                />
+              </label>
+            </>
+          )}
+
+          {isIletiMerkezi && (
+            <>
+              <label>
+                İleti Merkezi API Anahtarı
+                <SecretInput
+                  name="apiKey"
+                  value={formData.apiKey}
+                  placeholder={getStoredSecretPlaceholder(
+                    formData.hasApiKey,
+                    "API anahtarı"
+                  )}
+                  onChange={onInputChange}
+                  disabled={isSaving}
+                  required={!formData.id && !formData.hasApiKey}
+                />
+              </label>
+
+              <label>
+                İleti Merkezi API Hash
+                <SecretInput
+                  name="apiSecret"
+                  value={formData.apiSecret}
+                  placeholder={getStoredSecretPlaceholder(
+                    formData.hasApiSecret,
+                    "API hash"
+                  )}
+                  onChange={onInputChange}
+                  disabled={isSaving}
+                  required={!formData.id && !formData.hasApiSecret}
+                />
+              </label>
+            </>
+          )}
+
+          {isTwilio && (
+            <>
+              <label>
+                Twilio Gönderen Numarası
+                <input
+                  name="fromPhone"
+                  type="tel"
+                  placeholder="+905xxxxxxxxx"
+                  value={formData.fromPhone}
+                  onChange={onInputChange}
+                  disabled={isSaving}
+                  required
+                />
+              </label>
+
+              <label>
+                Twilio Account SID
+                <SecretInput
+                  name="accountSid"
+                  value={formData.accountSid}
+                  placeholder={getStoredSecretPlaceholder(
+                    formData.hasAccountSid,
+                    "Account SID"
+                  )}
+                  onChange={onInputChange}
+                  disabled={isSaving}
+                  required={!formData.id && !formData.hasAccountSid}
                 />
               </label>
 
               <label>
                 Twilio Auth Token
-                <div className="secret-input-wrapper">
-                  <input
-                    name="authToken"
-                    type={showAuthToken ? "text" : "password"}
-                    autoComplete="new-password"
-                    placeholder={
-                      formData.hasAuthToken
-                        ? "Mevcut Auth Token kayıtlı"
-                        : "Twilio Auth Token"
-                    }
-                    value={formData.authToken}
-                    onChange={onInputChange}
-                    disabled={isSaving}
-                  />
-
-                  <button
-                    type="button"
-                    onClick={() => setShowAuthToken((current) => !current)}
-                    aria-label="Auth Token görünürlüğünü değiştir"
-                    disabled={isSaving}
-                  >
-                    {showAuthToken ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
-              </label>
-            </>
-          ) : (
-            <>
-              <label>
-                Kullanıcı Adı
-                <input
-                  name="username"
-                  type="text"
-                  autoComplete="off"
-                  placeholder={
-                    formData.hasUsername
-                      ? "Mevcut kullanıcı adı kayıtlı"
-                      : "API kullanıcı adı"
-                  }
-                  value={formData.username}
+                <SecretInput
+                  name="authToken"
+                  value={formData.authToken}
+                  placeholder={getStoredSecretPlaceholder(
+                    formData.hasAuthToken,
+                    "Auth Token"
+                  )}
                   onChange={onInputChange}
                   disabled={isSaving}
                 />
               </label>
 
               <label>
-                Şifre
-                <input
-                  name="password"
-                  type="password"
-                  autoComplete="new-password"
-                  placeholder={
-                    formData.hasPassword ? "Mevcut şifre kayıtlı" : "API şifresi"
-                  }
-                  value={formData.password}
+                Twilio API Key SID
+                <SecretInput
+                  name="apiKey"
+                  value={formData.apiKey}
+                  placeholder={getStoredSecretPlaceholder(
+                    formData.hasApiKey,
+                    "API Key SID"
+                  )}
                   onChange={onInputChange}
                   disabled={isSaving}
                 />
               </label>
 
               <label>
-                API Key
-                <div className="secret-input-wrapper">
-                  <input
-                    name="apiKey"
-                    type={showApiKey ? "text" : "password"}
-                    autoComplete="new-password"
-                    placeholder={
-                      formData.hasApiKey ? "Mevcut API key kayıtlı" : "API key"
-                    }
-                    value={formData.apiKey}
-                    onChange={onInputChange}
-                    disabled={isSaving}
-                  />
-
-                  <button
-                    type="button"
-                    onClick={() => setShowApiKey((current) => !current)}
-                    aria-label="API key görünürlüğünü değiştir"
-                    disabled={isSaving}
-                  >
-                    {showApiKey ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
+                Twilio API Key Secret
+                <SecretInput
+                  name="apiSecret"
+                  value={formData.apiSecret}
+                  placeholder={getStoredSecretPlaceholder(
+                    formData.hasApiSecret,
+                    "API Key Secret"
+                  )}
+                  onChange={onInputChange}
+                  disabled={isSaving}
+                />
               </label>
 
-              <label>
-                API Secret / Auth Token
-                <div className="secret-input-wrapper">
-                  <input
-                    name="apiSecret"
-                    type={showApiSecret ? "text" : "password"}
-                    autoComplete="new-password"
-                    placeholder={
-                      formData.hasApiSecret
-                        ? "Mevcut secret kayıtlı"
-                        : "API secret veya auth token"
-                    }
-                    value={formData.apiSecret}
-                    onChange={onInputChange}
-                    disabled={isSaving}
-                  />
-
-                  <button
-                    type="button"
-                    onClick={() => setShowApiSecret((current) => !current)}
-                    aria-label="API secret görünürlüğünü değiştir"
-                    disabled={isSaving}
-                  >
-                    {showApiSecret ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
-              </label>
+              <div className="notification-provider-note full-width">
+                <strong>Twilio doğrulama seçeneği</strong>
+                <p>
+                  Account SID ile birlikte Auth Token kullanabilir veya API Key
+                  SID ve API Key Secret bilgilerini birlikte girebilirsiniz.
+                </p>
+              </div>
             </>
           )}
-
-          <label className="full-width">
-            Test Telefon Numarası
-            <input
-              name="testPhone"
-              type="text"
-              placeholder="+90 5xx xxx xx xx"
-              value={formData.testPhone}
-              onChange={onInputChange}
-              disabled={isSaving || isTestingSms}
-            />
-          </label>
         </div>
 
         <div className="notification-form-actions">
-
           <button
             type="button"
             className="secondary-form-button"
             onClick={onTestSms}
-            disabled={isSaving || isTestingSms || !formData.id || !formData.testPhone}
-            title={
-              !formData.id
-                ? "Test göndermeden önce ayarı kaydedin"
-                : !formData.testPhone
-                  ? "Test telefon numarası girin"
-                  : undefined
-            }
+            disabled={isSaving || typeof onTestSms !== "function"}
           >
             <Send size={17} />
-            {isTestingSms ? "Gönderiliyor..." : "Test SMS Gönder"}
+            Test SMS Gönder
           </button>
 
           <button

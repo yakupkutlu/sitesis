@@ -43,6 +43,57 @@ function getDataArray(result) {
   return [];
 }
 
+
+async function getAllApartments() {
+  const apartmentMap = new Map();
+  const limit = 100;
+  let page = 1;
+
+  while (true) {
+    const result = await getApartments({
+      page,
+      limit,
+    });
+
+    const pageApartments = getDataArray(result);
+    const previousApartmentCount = apartmentMap.size;
+
+    for (const apartment of pageApartments) {
+      if (apartment?.id) {
+        apartmentMap.set(apartment.id, apartment);
+      }
+    }
+
+    const pagination =
+      result?.pagination ??
+      result?.data?.pagination ??
+      null;
+
+    const totalPages = Number(pagination?.totalPages ?? 0);
+
+    if (pageApartments.length === 0) {
+      break;
+    }
+
+    if (totalPages > 0) {
+      if (page >= totalPages) {
+        break;
+      }
+    } else if (pageApartments.length < limit) {
+      break;
+    }
+
+    // Backend aynı sayfayı tekrar döndürürse sonsuz döngüyü engeller.
+    if (apartmentMap.size === previousApartmentCount) {
+      break;
+    }
+
+    page += 1;
+  }
+
+  return Array.from(apartmentMap.values());
+}
+
 function formatCurrencyFromKurus(value) {
   return new Intl.NumberFormat("tr-TR", {
     style: "currency",
@@ -230,13 +281,13 @@ function PaymentsPage() {
   }, [apartments, formData.scopeType, formData.siteId, formData.blockId, formData.apartmentIds]);
 
   async function loadPageData() {
-    const [paymentResult, apartmentResult] = await Promise.all([
+    const [paymentResult, apartmentItems] = await Promise.all([
       getPaymentBatches({ page: 1, limit: 100 }),
-      getApartments({ page: 1, limit: 100 }),
+      getAllApartments(),
     ]);
 
     setPaymentBatches(getDataArray(paymentResult).map(mapBatchToViewModel));
-    setApartments(getDataArray(apartmentResult));
+    setApartments(apartmentItems);
   }
 
   useEffect(() => {
@@ -247,14 +298,14 @@ function PaymentsPage() {
         setIsLoading(true);
         setErrorMessage("");
 
-        const [paymentResult, apartmentResult] = await Promise.all([
+        const [paymentResult, apartmentItems] = await Promise.all([
           getPaymentBatches({ page: 1, limit: 100 }),
-          getApartments({ page: 1, limit: 100 }),
+          getAllApartments(),
         ]);
 
         if (isMounted) {
           setPaymentBatches(getDataArray(paymentResult).map(mapBatchToViewModel));
-          setApartments(getDataArray(apartmentResult));
+          setApartments(apartmentItems);
         }
       } catch (error) {
         if (isMounted) {

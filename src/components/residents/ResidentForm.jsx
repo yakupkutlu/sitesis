@@ -1,6 +1,8 @@
 ﻿import { useMemo } from "react";
 import { Info, X } from "lucide-react";
 
+import InternationalPhoneInput from "../common/InternationalPhoneInput";
+
 function compareText(leftValue, rightValue) {
   return String(leftValue ?? "").localeCompare(String(rightValue ?? ""), "tr", {
     numeric: true,
@@ -227,17 +229,13 @@ function ResidentForm({
             </select>
           </label>
 
-          <label>
-            Telefon
-            <input
-              type="text"
-              name="phone"
-              value={formData.phone}
-              onChange={onInputChange}
-              placeholder="Örn: 0555 000 00 00"
-              disabled={isSaving || Boolean(editingResident)}
-            />
-          </label>
+          <InternationalPhoneInput
+            name="phone"
+            label="Telefon"
+            value={formData.phone}
+            onChange={onInputChange}
+            disabled={isSaving || Boolean(editingResident)}
+          />
 
           <label>
             E-posta

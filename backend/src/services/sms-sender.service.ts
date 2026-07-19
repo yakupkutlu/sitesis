@@ -1,200 +1,387 @@
 import prisma from "../db/prisma.js";
 import { decryptText } from "../utils/crypto.js";
 
-type SendSmsResult = {
-  provider: string;
-  providerMessageId?: string;
+type SmsProvider = "ILETIMERKEZI" | "NETGSM" | "TWILIO";
+type IysList = "BIREYSEL" | "TACIR";
+
+type SendSmsInput = {
+  to: string;
+  message: string;
+  isCommercial?: boolean;
+  iysList?: IysList;
 };
 
-async function sendViaTwilio(params: {
-  accountSid: string;
-  authToken: string;
-  fromPhone: string;
-  toPhone: string;
-  message: string;
-}): Promise<SendSmsResult> {
-  const url = `https://api.twilio.com/2010-04-01/Accounts/${params.accountSid}/Messages.json`;
-  const credentials = Buffer.from(`${params.accountSid}:${params.authToken}`).toString(
-    "base64"
-  );
+type SendSmsResult = {
+  provider: SmsProvider;
+  providerMessageId?: string;
+  providerStatus?: string;
+};
 
-  const body = new URLSearchParams({
-    To: params.toPhone,
-    From: params.fromPhone,
-    Body: params.message,
-  });
+type ActiveSmsSetting = {
+  provider: SmsProvider;
+  senderName: string | null;
+  fromPhone: string | null;
+  apiKeyEncrypted: string | null;
+  apiSecretEncrypted: string | null;
+  usernameEncrypted: string | null;
+  passwordEncrypted: string | null;
+  accountSidEncrypted: string | null;
+  authTokenEncrypted: string | null;
+};
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${credentials}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body,
-  });
+const SMS_REQUEST_TIMEOUT_MS = 15_000;
 
-  const result = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    const errorMessage =
-      result?.message || "Twilio SMS gönderimi başarısız oldu.";
-    throw new Error(errorMessage);
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
   }
 
-  return {
-    provider: "TWILIO",
-    providerMessageId: result?.sid,
-  };
+  return "Bilinmeyen SMS gönderim hatası oluştu.";
 }
 
-async function sendViaNetgsm(params: {
-  username: string;
-  password: string;
-  senderName: string;
-  toPhone: string;
-  message: string;
-}): Promise<SendSmsResult> {
-  const url = new URL("https://api.netgsm.com.tr/sms/send/get");
-  url.searchParams.set("usercode", params.username);
-  url.searchParams.set("password", params.password);
-  url.searchParams.set("gsmno", params.toPhone);
-  url.searchParams.set("message", params.message);
-  url.searchParams.set("msgheader", params.senderName);
+function normalizeMessage(value: string) {
+  const message = value.trim();
 
-  const response = await fetch(url.toString(), { method: "GET" });
-  const resultText = (await response.text()).trim();
-  const [resultCode, jobId] = resultText.split(" ");
-
-  if (!response.ok || (resultCode !== "00" && resultCode !== "01")) {
-    throw new Error(`Netgsm SMS gönderimi başarısız oldu (kod: ${resultText}).`);
+  if (!message) {
+    throw new Error("SMS mesajı boş olamaz.");
   }
 
-  return {
-    provider: "NETGSM",
-    providerMessageId: jobId,
-  };
+  return message;
 }
 
-async function sendViaIletiMerkezi(params: {
-  apiKey: string;
-  apiHash: string;
-  senderName: string;
-  toPhone: string;
-  message: string;
-}): Promise<SendSmsResult> {
-  const response = await fetch("https://api.iletimerkezi.com/v1/send-sms/json", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      request: {
-        authentication: {
-          key: params.apiKey,
-          hash: params.apiHash,
+function normalizePhoneNumber(value: string, provider: SmsProvider) {
+  const compactPhone = value.trim().replace(/[\s()-]/g, "");
+
+  if (!/^\+?\d{10,15}$/.test(compactPhone)) {
+    throw new Error("Alıcı telefon numarası geçersiz.");
+  }
+
+  if (provider === "TWILIO") {
+    if (compactPhone.startsWith("+")) {
+      return compactPhone;
+    }
+
+    if (compactPhone.startsWith("0") && compactPhone.length === 11) {
+      return `+90${compactPhone.slice(1)}`;
+    }
+
+    if (compactPhone.startsWith("90") && compactPhone.length === 12) {
+      return `+${compactPhone}`;
+    }
+
+    if (compactPhone.startsWith("5") && compactPhone.length === 10) {
+      return `+90${compactPhone}`;
+    }
+
+    return `+${compactPhone}`;
+  }
+
+  const digits = compactPhone.replace(/^\+/, "");
+
+  if (digits.startsWith("0") && digits.length === 11) {
+    return `90${digits.slice(1)}`;
+  }
+
+  if (digits.startsWith("5") && digits.length === 10) {
+    return `90${digits}`;
+  }
+
+  return digits;
+}
+
+function decryptRequiredSecret(
+  encryptedValue: string | null,
+  missingMessage: string
+) {
+  if (!encryptedValue) {
+    throw new Error(missingMessage);
+  }
+
+  const decryptedValue = decryptText(encryptedValue).trim();
+
+  if (!decryptedValue) {
+    throw new Error(missingMessage);
+  }
+
+  return decryptedValue;
+}
+
+function decryptOptionalSecret(encryptedValue: string | null) {
+  if (!encryptedValue) {
+    return null;
+  }
+
+  const decryptedValue = decryptText(encryptedValue).trim();
+  return decryptedValue || null;
+}
+
+function escapeXml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+async function parseJsonResponse(response: Response) {
+  const body = await response.json().catch(() => null);
+  return body as Record<string, unknown> | null;
+}
+
+async function getActiveSmsSetting(): Promise<ActiveSmsSetting> {
+  const setting = await prisma.smsSetting.findFirst({
+    where: {
+      status: "ACTIVE",
+      OR: [
+        {
+          expiresAt: null,
         },
-        order: {
-          sender: params.senderName,
-          message: {
-            text: params.message,
-            receipents: {
-              number: [params.toPhone],
-            },
+        {
+          expiresAt: {
+            gte: new Date(),
           },
         },
-      },
-    }),
-  });
-
-  const result = await response.json().catch(() => null);
-  const statusCode = result?.response?.status?.code;
-
-  if (!response.ok || statusCode !== "200") {
-    const errorMessage =
-      result?.response?.status?.message ||
-      "İleti Merkezi SMS gönderimi başarısız oldu.";
-    throw new Error(errorMessage);
-  }
-
-  return {
-    provider: "ILETIMERKEZI",
-    providerMessageId: result?.response?.order?.id,
-  };
-}
-
-export async function sendSmsWithSetting(params: {
-  smsSettingId: string;
-  toPhone: string;
-  message: string;
-}): Promise<SendSmsResult> {
-  const setting = await prisma.smsSetting.findUnique({
-    where: {
-      id: params.smsSettingId,
+      ],
+    },
+    orderBy: {
+      createdAt: "desc",
     },
     select: {
       provider: true,
       senderName: true,
       fromPhone: true,
-      accountSidEncrypted: true,
-      authTokenEncrypted: true,
-      usernameEncrypted: true,
-      passwordEncrypted: true,
       apiKeyEncrypted: true,
       apiSecretEncrypted: true,
+      usernameEncrypted: true,
+      passwordEncrypted: true,
+      accountSidEncrypted: true,
+      authTokenEncrypted: true,
     },
   });
 
   if (!setting) {
-    throw new Error("SMS ayarı bulunamadı.");
+    throw new Error(
+      "Aktif ve son kullanım tarihi geçmemiş SMS ayarı bulunamadı."
+    );
   }
 
-  if (setting.provider === "TWILIO") {
-    if (!setting.accountSidEncrypted || !setting.authTokenEncrypted || !setting.fromPhone) {
-      throw new Error(
-        "Twilio ayarları eksik: Account SID, Auth Token ve gönderen numara zorunludur."
-      );
+  return setting;
+}
+
+async function sendWithIletiMerkezi(
+  setting: ActiveSmsSetting,
+  input: SendSmsInput
+): Promise<SendSmsResult> {
+  if (!setting.senderName?.trim()) {
+    throw new Error("İleti Merkezi gönderici başlığı eksik.");
+  }
+
+  const apiKey = decryptRequiredSecret(
+    setting.apiKeyEncrypted,
+    "İleti Merkezi API anahtarı eksik."
+  );
+  const apiHash = decryptRequiredSecret(
+    setting.apiSecretEncrypted,
+    "İleti Merkezi API hash bilgisi eksik."
+  );
+
+  if (input.isCommercial && !input.iysList) {
+    throw new Error("Ticari SMS gönderimi için İYS liste türü zorunludur.");
+  }
+
+  const response = await fetch(
+    "https://api.iletimerkezi.com/v1/send-sms/json",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        request: {
+          authentication: {
+            key: apiKey,
+            hash: apiHash,
+          },
+          order: {
+            sender: setting.senderName.trim(),
+            iys: input.isCommercial ? "1" : "0",
+            ...(input.isCommercial ? { iysList: input.iysList } : {}),
+            message: {
+              text: normalizeMessage(input.message),
+              receipents: {
+                number: [normalizePhoneNumber(input.to, "ILETIMERKEZI")],
+              },
+            },
+          },
+        },
+      }),
+      signal: AbortSignal.timeout(SMS_REQUEST_TIMEOUT_MS),
+    }
+  );
+
+  const body = await parseJsonResponse(response);
+  const responseData = body?.response as Record<string, unknown> | undefined;
+  const status = responseData?.status as Record<string, unknown> | undefined;
+  const order = responseData?.order as Record<string, unknown> | undefined;
+  const statusCode = Number(status?.code ?? response.status);
+  const statusMessage = String(status?.message ?? "SMS gönderimi başarısız.");
+
+  if (!response.ok || statusCode !== 200) {
+    throw new Error(`İleti Merkezi hatası: ${statusMessage}`);
+  }
+
+  return {
+    provider: "ILETIMERKEZI",
+    providerMessageId: order?.id ? String(order.id) : undefined,
+    providerStatus: statusMessage,
+  };
+}
+
+async function sendWithNetgsm(
+  setting: ActiveSmsSetting,
+  input: SendSmsInput
+): Promise<SendSmsResult> {
+  if (!setting.senderName?.trim()) {
+    throw new Error("Netgsm gönderici başlığı eksik.");
+  }
+
+  const username = decryptRequiredSecret(
+    setting.usernameEncrypted,
+    "Netgsm kullanıcı adı eksik."
+  );
+  const password = decryptRequiredSecret(
+    setting.passwordEncrypted,
+    "Netgsm şifresi eksik."
+  );
+
+  const xmlBody = `<?xml version="1.0" encoding="UTF-8"?>
+<mainbody>
+  <header>
+    <company dil="TR">Netgsm</company>
+    <usercode>${escapeXml(username)}</usercode>
+    <password>${escapeXml(password)}</password>
+    <type>1:n</type>
+    <msgheader>${escapeXml(setting.senderName.trim())}</msgheader>
+  </header>
+  <body>
+    <msg>${escapeXml(normalizeMessage(input.message))}</msg>
+    <no>${escapeXml(normalizePhoneNumber(input.to, "NETGSM"))}</no>
+  </body>
+</mainbody>`;
+
+  const response = await fetch("https://api.netgsm.com.tr/sms/send/xml", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/xml; charset=UTF-8",
+    },
+    body: xmlBody,
+    signal: AbortSignal.timeout(SMS_REQUEST_TIMEOUT_MS),
+  });
+
+  const responseText = (await response.text()).trim();
+  const [resultCode, providerMessageId] = responseText.split(/\s+/);
+
+  if (!response.ok || resultCode !== "00") {
+    throw new Error(
+      `Netgsm hatası: ${responseText || `HTTP ${response.status}`}`
+    );
+  }
+
+  return {
+    provider: "NETGSM",
+    providerMessageId,
+    providerStatus: resultCode,
+  };
+}
+
+async function sendWithTwilio(
+  setting: ActiveSmsSetting,
+  input: SendSmsInput
+): Promise<SendSmsResult> {
+  if (!setting.fromPhone?.trim()) {
+    throw new Error("Twilio gönderen telefon numarası eksik.");
+  }
+
+  const accountSid = decryptRequiredSecret(
+    setting.accountSidEncrypted,
+    "Twilio Account SID eksik."
+  );
+  const authToken = decryptOptionalSecret(setting.authTokenEncrypted);
+  const apiKeySid = decryptOptionalSecret(setting.apiKeyEncrypted);
+  const apiKeySecret = decryptOptionalSecret(setting.apiSecretEncrypted);
+
+  const authUsername = apiKeySid && apiKeySecret ? apiKeySid : accountSid;
+  const authPassword = apiKeySid && apiKeySecret ? apiKeySecret : authToken;
+
+  if (!authPassword) {
+    throw new Error("Twilio Auth Token veya API Key Secret eksik.");
+  }
+
+  const requestBody = new URLSearchParams({
+    To: normalizePhoneNumber(input.to, "TWILIO"),
+    From: normalizePhoneNumber(setting.fromPhone, "TWILIO"),
+    Body: normalizeMessage(input.message),
+  });
+
+  const response = await fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(
+      accountSid
+    )}/Messages.json`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${Buffer.from(
+          `${authUsername}:${authPassword}`
+        ).toString("base64")}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: requestBody,
+      signal: AbortSignal.timeout(SMS_REQUEST_TIMEOUT_MS),
+    }
+  );
+
+  const body = await parseJsonResponse(response);
+
+  if (!response.ok) {
+    const providerError =
+      typeof body?.message === "string"
+        ? body.message
+        : `HTTP ${response.status}`;
+
+    throw new Error(`Twilio hatası: ${providerError}`);
+  }
+
+  return {
+    provider: "TWILIO",
+    providerMessageId:
+      typeof body?.sid === "string" ? body.sid : undefined,
+    providerStatus:
+      typeof body?.status === "string" ? body.status : undefined,
+  };
+}
+
+export async function sendSmsWithActiveProvider(
+  input: SendSmsInput
+): Promise<SendSmsResult> {
+  const setting = await getActiveSmsSetting();
+
+  try {
+    if (setting.provider === "ILETIMERKEZI") {
+      return await sendWithIletiMerkezi(setting, input);
     }
 
-    return sendViaTwilio({
-      accountSid: decryptText(setting.accountSidEncrypted),
-      authToken: decryptText(setting.authTokenEncrypted),
-      fromPhone: setting.fromPhone,
-      toPhone: params.toPhone,
-      message: params.message,
-    });
-  }
-
-  if (setting.provider === "NETGSM") {
-    if (!setting.usernameEncrypted || !setting.passwordEncrypted || !setting.senderName) {
-      throw new Error(
-        "Netgsm ayarları eksik: kullanıcı adı, şifre ve gönderici başlığı zorunludur."
-      );
+    if (setting.provider === "NETGSM") {
+      return await sendWithNetgsm(setting, input);
     }
 
-    return sendViaNetgsm({
-      username: decryptText(setting.usernameEncrypted),
-      password: decryptText(setting.passwordEncrypted),
-      senderName: setting.senderName,
-      toPhone: params.toPhone,
-      message: params.message,
-    });
-  }
-
-  if (setting.provider === "ILETIMERKEZI") {
-    if (!setting.apiKeyEncrypted || !setting.apiSecretEncrypted || !setting.senderName) {
-      throw new Error(
-        "İleti Merkezi ayarları eksik: API key, API secret ve gönderici başlığı zorunludur."
-      );
+    if (setting.provider === "TWILIO") {
+      return await sendWithTwilio(setting, input);
     }
 
-    return sendViaIletiMerkezi({
-      apiKey: decryptText(setting.apiKeyEncrypted),
-      apiHash: decryptText(setting.apiSecretEncrypted),
-      senderName: setting.senderName,
-      toPhone: params.toPhone,
-      message: params.message,
-    });
+    const unsupportedProvider: never = setting.provider;
+    throw new Error(`Desteklenmeyen SMS sağlayıcısı: ${unsupportedProvider}`);
+  } catch (error) {
+    throw new Error(getErrorMessage(error));
   }
-
-  throw new Error("Bu SMS sağlayıcısı için gönderim henüz desteklenmiyor.");
 }

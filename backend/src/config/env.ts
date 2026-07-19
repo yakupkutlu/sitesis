@@ -7,10 +7,27 @@ const booleanStringSchema = z
   .default("false")
   .transform((value) => value === "true");
 
+const redisUrlSchema = z
+  .string()
+  .url("REDIS_URL geçerli bir URL olmalıdır.")
+  .refine(
+    (value) => {
+      try {
+        return ["redis:", "rediss:"].includes(new URL(value).protocol);
+      } catch {
+        return false;
+      }
+    },
+    {
+      message: "REDIS_URL redis:// veya rediss:// ile başlamalıdır.",
+    }
+  );
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(5000),
   DATABASE_URL: z.string().min(1),
+  REDIS_URL: redisUrlSchema.default("redis://localhost:6379"),
   JWT_SECRET: z.string().min(32, "JWT_SECRET en az 32 karakter olmalidir."),
   JWT_EXPIRES_IN: z.string().min(1).default("1d"),
   CLIENT_URL: z.string().url().default("http://localhost:5173"),
@@ -28,9 +45,11 @@ const envSchema = z.object({
 const envResult = envSchema.safeParse(process.env);
 
 if (!envResult.success) {
-  console.error("Ortam degiskenleri hatali:", envResult.error.flatten().fieldErrors);
+  console.error(
+    "Ortam degiskenleri hatali:",
+    envResult.error.flatten().fieldErrors
+  );
   process.exit(1);
 }
 
 export const env = envResult.data;
-

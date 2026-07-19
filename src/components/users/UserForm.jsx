@@ -1,6 +1,8 @@
 ﻿import { useMemo } from "react";
 import { CheckCircle2, X } from "lucide-react";
 
+import InternationalPhoneInput from "../common/InternationalPhoneInput";
+
 const residentTypeOptions = [
   { value: "TENANT", label: "Kiracı" },
   { value: "OWNER", label: "Ev Sahibi" },
@@ -23,9 +25,10 @@ function UserForm({
   isSaving = false,
 }) {
   const safeApartments = useMemo(
-  () => (Array.isArray(apartments) ? apartments : []),
-  [apartments]
-);
+    () => (Array.isArray(apartments) ? apartments : []),
+    [apartments]
+  );
+
   const isEditMode = Boolean(editingUser);
 
   const siteOptions = useMemo(() => {
@@ -105,7 +108,9 @@ function UserForm({
             {isEditMode ? "Sakin Düzenleme" : "Yeni Sakin"}
           </span>
 
-          <h3>{isEditMode ? "Sakin Bilgilerini Düzenle" : "Yeni Sakin Ekle"}</h3>
+          <h3>
+            {isEditMode ? "Sakin Bilgilerini Düzenle" : "Yeni Sakin Ekle"}
+          </h3>
 
           <p>
             Önce siteyi ve bloğu seçin. Daire listesinde yalnızca boş daireler
@@ -153,18 +158,13 @@ function UserForm({
             />
           </label>
 
-          <label>
-            Telefon
-            <input
-              type="tel"
-              name="phone"
-              placeholder="05xx xxx xx xx"
-              value={formData.phone}
-              onChange={onInputChange}
-              autoComplete="tel"
-              disabled={isSaving}
-            />
-          </label>
+          <InternationalPhoneInput
+            name="phone"
+            label="Telefon"
+            value={formData.phone}
+            onChange={onInputChange}
+            disabled={isSaving}
+          />
 
           <label>
             Şifre
@@ -225,7 +225,9 @@ function UserForm({
               name="blockId"
               value={formData.blockId}
               onChange={onInputChange}
-              disabled={isSaving || !formData.siteId || blockOptions.length === 0}
+              disabled={
+                isSaving || !formData.siteId || blockOptions.length === 0
+              }
               required
             >
               <option value="">{blockPlaceholder}</option>
