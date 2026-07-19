@@ -38,18 +38,6 @@ export const resetPasswordLimiter = rateLimit({
   },
 });
 
-export const smsTestLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: env.NODE_ENV === "production" ? 10 : 50,
-  standardHeaders: true,
-  legacyHeaders: false,
-  skipSuccessfulRequests: false,
-  message: {
-    success: false,
-    message: "Çok fazla test SMS denemesi yapıldı. Lütfen daha sonra tekrar deneyin.",
-  },
-});
-
 export const installLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: env.NODE_ENV === "production" ? 5 : 20,

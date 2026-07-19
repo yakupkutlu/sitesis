@@ -23,12 +23,3 @@ export async function deleteSmsSetting(smsSettingId) {
     method: "DELETE",
   });
 }
-
-export async function testSmsSetting(smsSettingId, phone) {
-  return apiRequest(`/sms-settings/${smsSettingId}/test`, {
-    method: "POST",
-    body: {
-      phone,
-    },
-  });
-}
