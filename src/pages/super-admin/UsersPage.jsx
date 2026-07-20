@@ -1,4 +1,3 @@
-import { useAuth } from "../../hooks/useAuth";
 import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
@@ -26,25 +25,48 @@ import {
   getApartmentResidents,
   updateApartmentResident,
 } from "../../api/apartmentResidentsApi";
-import { deactivateUser, updateUser } from "../../api/usersApi";
-
+import { updateUser } from "../../api/usersApi";
+import { useAuth } from "../../hooks/useAuth";
 import { buildPaymentSummary } from "../../utils/paymentSummary";
 
 const navItems = [
   { label: "Panel", path: "/super-admin/dashboard", icon: BarChart3 },
-  { label: "Site / Apartmanlar", path: "/super-admin/buildings", icon: Building2 },
+  {
+    label: "Site / Apartmanlar",
+    path: "/super-admin/buildings",
+    icon: Building2,
+  },
   { label: "Yöneticiler", path: "/super-admin/managers", icon: Users },
-  { label: "Kullanıcılar / Sakinler", path: "/super-admin/users", icon: UserRound },
-  { label: "Duyurular", path: "/super-admin/announcements", icon: Bell },
+  {
+    label: "Kullanıcılar / Sakinler",
+    path: "/super-admin/users",
+    icon: UserRound,
+  },
+  {
+    label: "Duyurular",
+    path: "/super-admin/announcements",
+    icon: Bell,
+  },
   {
     label: "İletişim Mesajları",
     path: "/super-admin/contact-messages",
     icon: MessageSquareText,
   },
-
-  { label: "AI API Ayarları", path: "/super-admin/ai-settings", icon: BrainCircuit },
-  { label: "SMS / E-posta", path: "/super-admin/notifications", icon: Mail },
-  { label: "Genel Ayarlar", path: "/super-admin/settings", icon: Settings },
+  {
+    label: "AI API Ayarları",
+    path: "/super-admin/ai-settings",
+    icon: BrainCircuit,
+  },
+  {
+    label: "SMS / E-posta",
+    path: "/super-admin/notifications",
+    icon: Mail,
+  },
+  {
+    label: "Genel Ayarlar",
+    path: "/super-admin/settings",
+    icon: Settings,
+  },
 ];
 
 const emptyFormData = {
@@ -56,6 +78,10 @@ const emptyFormData = {
   siteId: "",
   blockId: "",
   apartmentId: "",
+  ownerFullName: "",
+  ownerEmail: "",
+  ownerPhone: "",
+  ownerPassword: "",
 };
 
 function getDataArray(result) {
@@ -64,10 +90,13 @@ function getDataArray(result) {
   if (Array.isArray(data)) return data;
   if (Array.isArray(data?.items)) return data.items;
   if (Array.isArray(data?.apartments)) return data.apartments;
-  if (Array.isArray(data?.apartmentResidents)) return data.apartmentResidents;
+  if (Array.isArray(data?.apartmentResidents)) {
+    return data.apartmentResidents;
+  }
 
   return [];
 }
+
 async function getAllPaginatedData(requestFunction, params = {}) {
   const firstResult = await requestFunction({
     ...params,
@@ -82,17 +111,15 @@ async function getAllPaginatedData(requestFunction, params = {}) {
     return firstPageData;
   }
 
-  const remainingRequests = Array.from(
-    { length: totalPages - 1 },
-    (_, index) =>
+  const remainingResults = await Promise.all(
+    Array.from({ length: totalPages - 1 }, (_, index) =>
       requestFunction({
         ...params,
         page: index + 2,
         limit: 100,
       })
+    )
   );
-
-  const remainingResults = await Promise.all(remainingRequests);
 
   const allItems = [
     ...firstPageData,
@@ -103,6 +130,7 @@ async function getAllPaginatedData(requestFunction, params = {}) {
     new Map(allItems.map((item) => [item.id, item])).values()
   );
 }
+
 function formatDate(value) {
   if (!value) return "-";
 
@@ -116,6 +144,7 @@ function formatDate(value) {
 function getResidentTypeLabel(type) {
   return type === "OWNER" ? "Ev Sahibi" : "Kiracı";
 }
+
 function mapApartmentResidentToUser(record) {
   const residentUser = record.user ?? {};
   const apartment = record.apartment ?? {};
@@ -135,7 +164,6 @@ function mapApartmentResidentToUser(record) {
     apartment: apartment.number ? `Daire ${apartment.number}` : "-",
     createdByManager: "Süper Admin / Yönetici",
     status: residentUser.status === "ACTIVE" ? "Aktif" : "Pasif",
-    accountRole: residentUser.role ?? "RESIDENT",
     createdAt: formatDate(record.createdAt),
     totalDebt: paymentSummary.totalDebt,
     paidAmount: paymentSummary.paidAmount,
@@ -144,6 +172,43 @@ function mapApartmentResidentToUser(record) {
     paymentStatus: paymentSummary.paymentStatus,
     rawRecord: record,
   };
+}
+
+function attachResidentLinksToApartments(apartmentList, residentRecords) {
+  const linksByApartmentId = new Map();
+
+  for (const record of residentRecords) {
+    const apartmentId = record?.apartmentId ?? record?.apartment?.id;
+
+    if (!apartmentId) {
+      continue;
+    }
+
+    const currentLinks = linksByApartmentId.get(apartmentId) ?? [];
+
+    currentLinks.push({
+      id: record.id,
+      apartmentId,
+      userId: record.userId ?? record.user?.id,
+      type: record.type,
+      user: record.user,
+    });
+
+    linksByApartmentId.set(apartmentId, currentLinks);
+  }
+
+  return apartmentList.map((apartment) => {
+    const residentLinks = linksByApartmentId.get(apartment.id) ?? [];
+
+    return {
+      ...apartment,
+      residents: residentLinks,
+      _count: {
+        ...(apartment._count ?? {}),
+        residents: residentLinks.length,
+      },
+    };
+  });
 }
 
 function UsersPage() {
@@ -160,7 +225,7 @@ function UsersPage() {
   const [roleFilter, setRoleFilter] = useState("Tümü");
   const [statusFilter, setStatusFilter] = useState("Tümü");
 
-  const [formData, setFormData] = useState(emptyFormData);
+  const [formData, setFormData] = useState({ ...emptyFormData });
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -168,13 +233,15 @@ function UsersPage() {
   const [errorMessage, setErrorMessage] = useState("");
 
   async function loadUsersPageData() {
-    const [residents, apartmentList] = await Promise.all([
+    const [residentRecords, apartmentList] = await Promise.all([
       getAllPaginatedData(getApartmentResidents),
       getAllPaginatedData(getApartments),
     ]);
 
-    setUserList(residents.map(mapApartmentResidentToUser));
-    setApartments(apartmentList);
+    setUserList(residentRecords.map(mapApartmentResidentToUser));
+    setApartments(
+      attachResidentLinksToApartments(apartmentList, residentRecords)
+    );
   }
 
   useEffect(() => {
@@ -184,7 +251,6 @@ function UsersPage() {
       try {
         setIsLoading(true);
         setErrorMessage("");
-
         await loadUsersPageData();
       } catch (error) {
         if (isMounted) {
@@ -197,7 +263,7 @@ function UsersPage() {
       }
     }
 
-    loadInitialData();
+    void loadInitialData();
 
     return () => {
       isMounted = false;
@@ -224,7 +290,8 @@ function UsersPage() {
         .toLowerCase();
 
       const matchesSearch = searchableText.includes(searchValue);
-      const matchesRole = roleFilter === "Tümü" ? true : item.role === roleFilter;
+      const matchesRole =
+        roleFilter === "Tümü" ? true : item.role === roleFilter;
       const matchesStatus =
         statusFilter === "Tümü" ? true : item.status === statusFilter;
 
@@ -234,7 +301,7 @@ function UsersPage() {
 
   function resetForm() {
     setEditingUser(null);
-    setFormData(emptyFormData);
+    setFormData({ ...emptyFormData });
   }
 
   function openCreateForm() {
@@ -253,12 +320,28 @@ function UsersPage() {
     const { name, value } = event.target;
 
     setFormData((currentData) => {
+      if (name === "residentType") {
+        return {
+          ...currentData,
+          residentType: value,
+          apartmentId: "",
+          ownerFullName: "",
+          ownerEmail: "",
+          ownerPhone: "",
+          ownerPassword: "",
+        };
+      }
+
       if (name === "siteId") {
         return {
           ...currentData,
           siteId: value,
           blockId: "",
           apartmentId: "",
+          ownerFullName: "",
+          ownerEmail: "",
+          ownerPhone: "",
+          ownerPassword: "",
         };
       }
 
@@ -267,6 +350,21 @@ function UsersPage() {
           ...currentData,
           blockId: value,
           apartmentId: "",
+          ownerFullName: "",
+          ownerEmail: "",
+          ownerPhone: "",
+          ownerPassword: "",
+        };
+      }
+
+      if (name === "apartmentId") {
+        return {
+          ...currentData,
+          apartmentId: value,
+          ownerFullName: "",
+          ownerEmail: "",
+          ownerPhone: "",
+          ownerPassword: "",
         };
       }
 
@@ -292,33 +390,29 @@ function UsersPage() {
       return;
     }
 
-    if (!formData.siteId) {
-      setErrorMessage("Site seçimi zorunludur.");
-      setMessage("");
-      return;
-    }
-
-    if (!formData.blockId) {
-      setErrorMessage("Blok seçimi zorunludur.");
-      setMessage("");
-      return;
-    }
-
     if (!formData.apartmentId) {
       setErrorMessage("Daire seçimi zorunludur.");
       setMessage("");
       return;
     }
 
-    if (
-      !editingUser &&
-      formData.password.trim().length > 0 &&
-      formData.password.trim().length < 8
-    ) {
-      setErrorMessage("Geçici şifre en az 8 karakter olmalıdır.");
+    if (!editingUser && formData.password.length < 8) {
+      setErrorMessage("Yeni sakin için şifre en az 8 karakter olmalıdır.");
       setMessage("");
       return;
     }
+
+    const selectedApartment = apartments.find(
+      (apartment) => apartment.id === formData.apartmentId
+    );
+
+    const apartmentResidents = Array.isArray(selectedApartment?.residents)
+      ? selectedApartment.residents
+      : [];
+
+    const apartmentHasOwner = apartmentResidents.some(
+      (resident) => resident.type === "OWNER"
+    );
 
     try {
       setIsSaving(true);
@@ -330,6 +424,7 @@ function UsersPage() {
           fullName: formData.fullName.trim(),
           email: formData.email.trim(),
           phone: formData.phone.trim() || null,
+          role: "RESIDENT",
         };
 
         if (formData.password.trim()) {
@@ -342,29 +437,69 @@ function UsersPage() {
           apartmentId: formData.apartmentId,
           type: formData.residentType,
         });
+
+        setMessage("Sakin bilgileri başarıyla güncellendi.");
       } else {
-        await createResidentAndAssignApartment({
+        let owner;
+
+        if (formData.residentType === "TENANT" && !apartmentHasOwner) {
+          if (!formData.ownerFullName.trim()) {
+            setErrorMessage("Ev sahibi ad soyad bilgisi zorunludur.");
+            return;
+          }
+
+          if (!formData.ownerEmail.trim()) {
+            setErrorMessage("Ev sahibi e-posta bilgisi zorunludur.");
+            return;
+          }
+
+          if (
+            formData.ownerPassword &&
+            formData.ownerPassword.length < 8
+          ) {
+            setErrorMessage(
+              "Ev sahibi geçici şifresi en az 8 karakter olmalıdır."
+            );
+            return;
+          }
+
+          if (
+            formData.email.trim().toLowerCase() ===
+            formData.ownerEmail.trim().toLowerCase()
+          ) {
+            setErrorMessage(
+              "Kiracı ve ev sahibi aynı e-posta adresini kullanamaz."
+            );
+            return;
+          }
+
+          owner = {
+            fullName: formData.ownerFullName.trim(),
+            email: formData.ownerEmail.trim(),
+            phone: formData.ownerPhone.trim() || undefined,
+            password: formData.ownerPassword || undefined,
+          };
+        }
+
+        const result = await createResidentAndAssignApartment({
           fullName: formData.fullName.trim(),
           email: formData.email.trim(),
           phone: formData.phone.trim() || undefined,
-          ...(formData.password.trim()
-            ? {
-                password: formData.password.trim(),
-              }
-            : {}),
+          password: formData.password.trim(),
           apartmentId: formData.apartmentId,
           type: formData.residentType,
+          ...(owner ? { owner } : {}),
         });
+
+        setMessage(
+          result?.message ??
+            (formData.residentType === "TENANT"
+              ? "Kiracı ve ev sahibi bilgileri başarıyla kaydedildi."
+              : "Ev sahibi başarıyla kaydedildi.")
+        );
       }
 
       await loadUsersPageData();
-
-      setMessage(
-        editingUser
-          ? "Sakin bilgileri başarıyla güncellendi."
-          : "Sakin başarıyla oluşturuldu ve daireye bağlandı."
-      );
-
       closeForm();
     } catch (error) {
       setErrorMessage(error?.message ?? "Sakin kaydı kaydedilemedi.");
@@ -375,12 +510,12 @@ function UsersPage() {
 
   function handleEdit(userRow) {
     const rawRecord = userRow.rawRecord;
+    const currentApartment = rawRecord?.apartment;
 
     setEditingUser(userRow);
 
-    const currentApartment = rawRecord?.apartment;
-
     setFormData({
+      ...emptyFormData,
       fullName: userRow.name || "",
       email: userRow.email || "",
       phone: userRow.phone === "-" ? "" : userRow.phone || "",
@@ -398,65 +533,12 @@ function UsersPage() {
   }
 
   async function handleToggleStatus(userRow) {
-    const isCurrentlyActive = userRow.status === "Aktif";
-    const accountRole = userRow.accountRole ?? "RESIDENT";
+    const nextStatus = userRow.status === "Aktif" ? "PASSIVE" : "ACTIVE";
 
-    if (
-      isCurrentlyActive &&
-      accountRole === "SUPER_ADMIN" &&
-      userRow.userId === user?.id
-    ) {
-      setErrorMessage("Kendi süper admin hesabınızı pasif yapamazsınız.");
-      setMessage("");
-      return;
-    }
-
-    let confirmMessage;
-
-    if (!isCurrentlyActive) {
-      confirmMessage =
-        accountRole === "MANAGER"
-          ? [
-              `${userRow.name} adlı yönetici hesabını tekrar aktifleştirmek istiyor musunuz?`,
-              "",
-              "Hesap yeniden yönetici paneline ve sakin olarak bağlı olduğu daire bilgilerine erişebilecektir.",
-            ].join("\n")
-          : accountRole === "SUPER_ADMIN"
-            ? [
-                `${userRow.name} adlı süper admin hesabını tekrar aktifleştirmek istiyor musunuz?`,
-                "",
-                "Hesap yeniden tüm süper admin yetkilerine erişebilecektir.",
-              ].join("\n")
-            : `${userRow.name} adlı sakin hesabını tekrar aktifleştirmek istiyor musunuz?`;
-    } else if (accountRole === "MANAGER") {
-      confirmMessage = [
-        "DİKKAT: Bu kullanıcı aynı zamanda yönetici hesabıdır.",
-        "",
-        `${userRow.name} adlı hesabı pasif yaparsanız:`,
-        "• Yönetici paneline giriş yapamaz.",
-        "• Atandığı site ve blokları yönetemez.",
-        "• Sakin olarak bağlı olduğu daire bilgilerine de erişemez.",
-        "",
-        "Yönetici atamaları ve daire bağlantısı silinmez; yalnızca hesap erişimi kapatılır.",
-        "",
-        "Devam etmek istiyor musunuz?",
-      ].join("\n");
-    } else if (accountRole === "SUPER_ADMIN") {
-      confirmMessage = [
-        "ÇOK ÖNEMLİ: Bu kullanıcı süper admin hesabıdır.",
-        "",
-        `${userRow.name} adlı hesabı pasif yaparsanız süper admin paneline erişimi tamamen kapanır.`,
-        "Sistem son aktif süper admin hesabının pasifleştirilmesine izin vermez.",
-        "",
-        "Devam etmek istiyor musunuz?",
-      ].join("\n");
-    } else {
-      confirmMessage = [
-        `${userRow.name} adlı sakin hesabını pasifleştirmek istiyor musunuz?`,
-        "",
-        "Kullanıcı sisteme giriş yapamayacaktır.",
-      ].join("\n");
-    }
+    const confirmMessage =
+      userRow.status === "Aktif"
+        ? `${userRow.name} adlı sakini pasifleştirmek istiyor musunuz?`
+        : `${userRow.name} adlı sakini tekrar aktifleştirmek istiyor musunuz?`;
 
     const isConfirmed = window.confirm(confirmMessage);
 
@@ -469,52 +551,28 @@ function UsersPage() {
       setErrorMessage("");
       setIsSaving(true);
 
-      const result = isCurrentlyActive
-        ? await deactivateUser(userRow.userId)
-        : await updateUser(userRow.userId, {
-            status: "ACTIVE",
-          });
+      await updateUser(userRow.userId, {
+        status: nextStatus,
+      });
 
       await loadUsersPageData();
 
       setMessage(
-        result?.message ??
-          (isCurrentlyActive
-            ? "Kullanıcı hesabı pasif yapıldı."
-            : "Kullanıcı hesabı tekrar aktifleştirildi.")
+        nextStatus === "ACTIVE"
+          ? "Sakin tekrar aktifleştirildi."
+          : "Sakin pasifleştirildi."
       );
     } catch (error) {
-      setErrorMessage(error?.message ?? "Kullanıcı durumu güncellenemedi.");
+      setErrorMessage(error?.message ?? "Sakin durumu güncellenemedi.");
     } finally {
       setIsSaving(false);
     }
   }
 
   async function handleDeleteApartmentResident(userRow) {
-    const accountRole = userRow.accountRole ?? "RESIDENT";
-
-    const confirmMessage =
-      accountRole === "MANAGER"
-        ? [
-            "DİKKAT: Bu sakin aynı zamanda yönetici hesabıdır.",
-            "",
-            "Bu işlem yalnızca daire sakinliği bağlantısını kaldıracaktır.",
-            "Yönetici hesabı, rolü, şifresi ve yönetim paneli erişimi aktif kalacaktır.",
-            "",
-            "Devam etmek istiyor musunuz?",
-          ].join("\n")
-        : accountRole === "SUPER_ADMIN"
-          ? [
-              "DİKKAT: Bu sakin aynı zamanda süper admin hesabıdır.",
-              "",
-              "Bu işlem yalnızca daire sakinliği bağlantısını kaldıracaktır.",
-              "Süper admin hesabı ve yetkileri aktif kalacaktır.",
-              "",
-              "Devam etmek istiyor musunuz?",
-            ].join("\n")
-          : `${userRow.name} adlı sakinin daire bağlantısını kaldırmak istiyor musunuz?`;
-
-    const isConfirmed = window.confirm(confirmMessage);
+    const isConfirmed = window.confirm(
+      `${userRow.name} adlı sakinin daire bağlantısını kaldırmak istiyor musunuz?`
+    );
 
     if (!isConfirmed) {
       return;
@@ -532,7 +590,9 @@ function UsersPage() {
         result?.message ?? "Sakin daire bağlantısı başarıyla kaldırıldı."
       );
     } catch (error) {
-      setErrorMessage(error?.message ?? "Sakin daire bağlantısı kaldırılamadı.");
+      setErrorMessage(
+        error?.message ?? "Sakin daire bağlantısı kaldırılamadı."
+      );
     } finally {
       setIsSaving(false);
     }

@@ -1,5 +1,5 @@
 ﻿import { useMemo } from "react";
-import { CheckCircle2, X } from "lucide-react";
+import { CheckCircle2, Home, Info, UserRound, X } from "lucide-react";
 
 import InternationalPhoneInput from "../common/InternationalPhoneInput";
 
@@ -13,6 +13,10 @@ function compareText(leftValue, rightValue) {
     numeric: true,
     sensitivity: "base",
   });
+}
+
+function getApartmentResidents(apartment) {
+  return Array.isArray(apartment?.residents) ? apartment.residents : [];
 }
 
 function UserForm({
@@ -75,15 +79,62 @@ function UserForm({
     return safeApartments
       .filter((apartment) => apartment.block?.id === formData.blockId)
       .filter((apartment) => {
-        const residentCount = Number(apartment._count?.residents ?? 0);
+        const residents = getApartmentResidents(apartment);
+        const hasOwner = residents.some(
+          (resident) => resident.type === "OWNER"
+        );
+        const hasTenant = residents.some(
+          (resident) => resident.type === "TENANT"
+        );
         const isCurrentApartment = apartment.id === formData.apartmentId;
 
-        return residentCount === 0 || isCurrentApartment;
+        if (isEditMode && isCurrentApartment) {
+          return true;
+        }
+
+        return formData.residentType === "TENANT"
+          ? !hasTenant
+          : !hasOwner;
       })
       .sort((leftApartment, rightApartment) =>
         compareText(leftApartment.number, rightApartment.number)
       );
-  }, [safeApartments, formData.blockId, formData.apartmentId]);
+  }, [
+    safeApartments,
+    formData.blockId,
+    formData.apartmentId,
+    formData.residentType,
+    isEditMode,
+  ]);
+
+  const selectedApartment = useMemo(
+    () =>
+      safeApartments.find(
+        (apartment) => apartment.id === formData.apartmentId
+      ) ?? null,
+    [safeApartments, formData.apartmentId]
+  );
+
+  const selectedApartmentResidents = getApartmentResidents(selectedApartment);
+
+  const selectedOwner =
+    selectedApartmentResidents.find(
+      (resident) => resident.type === "OWNER"
+    ) ?? null;
+
+  const selectedApartmentHasOwner = Boolean(selectedOwner);
+
+  const needsOwnerInformation =
+    !isEditMode &&
+    formData.residentType === "TENANT" &&
+    Boolean(selectedApartment) &&
+    !selectedApartmentHasOwner;
+
+  const usesExistingOwner =
+    !isEditMode &&
+    formData.residentType === "TENANT" &&
+    Boolean(selectedApartment) &&
+    selectedApartmentHasOwner;
 
   const sitePlaceholder =
     siteOptions.length > 0 ? "Site seçin" : "Site bulunamadı";
@@ -97,8 +148,10 @@ function UserForm({
   const apartmentPlaceholder = !formData.blockId
     ? "Önce blok seçin"
     : apartmentOptions.length > 0
-      ? "Boş daire seçin"
-      : "Bu blokta boş daire bulunamadı";
+      ? "Uygun daire seçin"
+      : formData.residentType === "TENANT"
+        ? "Bu blokta kiracısız daire bulunamadı"
+        : "Bu blokta ev sahipsiz daire bulunamadı";
 
   return (
     <section className="manager-form-card">
@@ -108,13 +161,11 @@ function UserForm({
             {isEditMode ? "Sakin Düzenleme" : "Yeni Sakin"}
           </span>
 
-          <h3>
-            {isEditMode ? "Sakin Bilgilerini Düzenle" : "Yeni Sakin Ekle"}
-          </h3>
+          <h3>{isEditMode ? "Sakin Bilgilerini Düzenle" : "Yeni Sakin Ekle"}</h3>
 
           <p>
-            Önce siteyi ve bloğu seçin. Daire listesinde yalnızca boş daireler
-            gösterilir.
+            Kiracı eklenen boş bir daire için ev sahibi hesap bilgileri de
+            istenir. Dairede kayıtlı ev sahibi varsa mevcut hesap korunur.
           </p>
         </div>
 
@@ -128,6 +179,16 @@ function UserForm({
           <X size={20} />
         </button>
       </div>
+
+      {!isEditMode && (
+        <div className="resident-link-security-note">
+          <Info size={19} />
+          <p>
+            Yeni hesaplar için geçici şifre en az 8 karakter olmalıdır.
+            Kayıtlı aktif bir e-posta kullanılırsa mevcut hesap korunur.
+          </p>
+        </div>
+      )}
 
       <form className="manager-form" onSubmit={onSubmit}>
         <div className="form-grid">
@@ -190,7 +251,7 @@ function UserForm({
               name="residentType"
               value={formData.residentType}
               onChange={onInputChange}
-              disabled={isSaving}
+              disabled={isSaving || isEditMode}
             >
               {residentTypeOptions.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -255,13 +316,102 @@ function UserForm({
             >
               <option value="">{apartmentPlaceholder}</option>
 
-              {apartmentOptions.map((apartment) => (
-                <option key={apartment.id} value={apartment.id}>
-                  Daire {apartment.number}
-                </option>
-              ))}
+              {apartmentOptions.map((apartment) => {
+                const owner = getApartmentResidents(apartment).find(
+                  (resident) => resident.type === "OWNER"
+                );
+
+                return (
+                  <option key={apartment.id} value={apartment.id}>
+                    Daire {apartment.number}
+                    {owner?.user?.fullName
+                      ? ` — Ev Sahibi: ${owner.user.fullName}`
+                      : " — Boş"}
+                  </option>
+                );
+              })}
             </select>
           </label>
+
+          {usesExistingOwner && (
+            <div className="resident-owner-status-card full-width">
+              <Home size={20} />
+              <div>
+                <strong>Kayıtlı ev sahibi kullanılacak</strong>
+                <p>
+                  {selectedOwner?.user?.fullName ?? "Ev sahibi"} daireye bağlı
+                  kalacak. Yeni kiracı sakin olarak görüntülenecek.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {needsOwnerInformation && (
+            <div className="resident-owner-section full-width">
+              <div className="resident-owner-section-header">
+                <UserRound size={20} />
+                <div>
+                  <h4>Ev Sahibi Hesap Bilgileri</h4>
+                  <p>
+                    Seçilen dairede kayıtlı ev sahibi olmadığı için aşağıdaki
+                    bilgiler gereklidir.
+                  </p>
+                </div>
+              </div>
+
+              <div className="form-grid">
+                <label>
+                  Ev Sahibi Ad Soyad
+                  <input
+                    type="text"
+                    name="ownerFullName"
+                    value={formData.ownerFullName}
+                    onChange={onInputChange}
+                    placeholder="Örn: Ahmet Yılmaz"
+                    disabled={isSaving}
+                    required
+                  />
+                </label>
+
+                <label>
+                  Ev Sahibi E-posta
+                  <input
+                    type="email"
+                    name="ownerEmail"
+                    value={formData.ownerEmail}
+                    onChange={onInputChange}
+                    placeholder="ahmet@example.com"
+                    disabled={isSaving}
+                    required
+                  />
+                </label>
+
+                <InternationalPhoneInput
+                  name="ownerPhone"
+                  label="Ev Sahibi Telefon"
+                  value={formData.ownerPhone}
+                  onChange={onInputChange}
+                  disabled={isSaving}
+                />
+
+                <label>
+                  Ev Sahibi Geçici Şifre
+                  <input
+                    type="password"
+                    name="ownerPassword"
+                    value={formData.ownerPassword}
+                    onChange={onInputChange}
+                    placeholder="Yeni hesap için en az 8 karakter"
+                    autoComplete="new-password"
+                    disabled={isSaving}
+                  />
+                  <small>
+                    E-posta mevcut aktif bir hesaba aitse boş bırakılabilir.
+                  </small>
+                </label>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="form-actions">

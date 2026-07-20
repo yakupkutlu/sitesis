@@ -256,6 +256,7 @@ model ApartmentResident {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([apartmentId, type])
   @@unique([apartmentId, userId, type])
   @@index([apartmentId])
   @@index([userId])

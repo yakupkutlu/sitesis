@@ -2,9 +2,7 @@ import { managerNavItems } from "../../config/managerNavigation";
 import { useAuth } from "../../hooks/useAuth";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
-import {
-  Plus,
-} from "lucide-react";
+import { Plus } from "lucide-react";
 
 import ResidentToolbar from "../../components/residents/ResidentToolbar";
 import ResidentForm from "../../components/residents/ResidentForm";
@@ -42,6 +40,10 @@ const emptyFormData = {
   email: "",
   password: "",
   note: "",
+  ownerFullName: "",
+  ownerPhone: "",
+  ownerEmail: "",
+  ownerPassword: "",
 };
 
 function getDataArray(result) {
@@ -98,13 +100,14 @@ function formatDate(value) {
     return "-";
   }
 }
+
 function mapApartmentResidentToViewModel(item) {
   const user = item.user ?? {};
   const apartment = item.apartment ?? {};
   const block = apartment.block ?? {};
   const site = block.site ?? {};
   const paymentSummary = buildPaymentSummary(item);
-  
+
   return {
     id: item.id,
     name: user.fullName ?? "-",
@@ -148,26 +151,19 @@ function ResidentsPage() {
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
-const loadResidents = useCallback(async () => {
-  const residentList = await getAllPaginatedData(getApartmentResidents);
+  const loadResidents = useCallback(async () => {
+    const residentList = await getAllPaginatedData(getApartmentResidents);
+    setResidents(residentList.map(mapApartmentResidentToViewModel));
+  }, []);
 
-  setResidents(
-    residentList.map(mapApartmentResidentToViewModel)
-  );
-}, []);
+  const loadApartments = useCallback(async () => {
+    const apartmentList = await getAllPaginatedData(getApartments);
+    setApartments(apartmentList);
+  }, []);
 
-const loadApartments = useCallback(async () => {
-  const apartmentList = await getAllPaginatedData(getApartments);
-
-  setApartments(apartmentList);
-}, []);
-
-const loadPageData = useCallback(async () => {
-  await Promise.all([
-    loadResidents(),
-    loadApartments(),
-  ]);
-}, [loadResidents, loadApartments]);
+  const loadPageData = useCallback(async () => {
+    await Promise.all([loadResidents(), loadApartments()]);
+  }, [loadResidents, loadApartments]);
 
   useEffect(() => {
     let isMounted = true;
@@ -224,7 +220,7 @@ const loadPageData = useCallback(async () => {
 
   function openCreateForm() {
     setEditingResident(null);
-    setFormData(emptyFormData);
+    setFormData({ ...emptyFormData });
     setShowForm(true);
     setMessage("");
     setErrorMessage("");
@@ -236,6 +232,7 @@ const loadPageData = useCallback(async () => {
     const currentApartment = resident.raw?.apartment;
 
     setFormData({
+      ...emptyFormData,
       fullName: resident.name,
       type: labelToType[resident.role] ?? "TENANT",
       siteId: currentApartment?.block?.site?.id ?? "",
@@ -255,7 +252,7 @@ const loadPageData = useCallback(async () => {
 
   function closeForm() {
     setEditingResident(null);
-    setFormData(emptyFormData);
+    setFormData({ ...emptyFormData });
     setShowForm(false);
   }
 
@@ -269,6 +266,10 @@ const loadPageData = useCallback(async () => {
           siteId: value,
           blockId: "",
           apartmentId: "",
+          ownerFullName: "",
+          ownerPhone: "",
+          ownerEmail: "",
+          ownerPassword: "",
         };
       }
 
@@ -277,6 +278,33 @@ const loadPageData = useCallback(async () => {
           ...currentData,
           blockId: value,
           apartmentId: "",
+          ownerFullName: "",
+          ownerPhone: "",
+          ownerEmail: "",
+          ownerPassword: "",
+        };
+      }
+
+      if (name === "apartmentId") {
+        return {
+          ...currentData,
+          apartmentId: value,
+          ownerFullName: "",
+          ownerPhone: "",
+          ownerEmail: "",
+          ownerPassword: "",
+        };
+      }
+
+      if (name === "type") {
+        return {
+          ...currentData,
+          type: value,
+          apartmentId: "",
+          ownerFullName: "",
+          ownerPhone: "",
+          ownerEmail: "",
+          ownerPassword: "",
         };
       }
 
@@ -305,6 +333,18 @@ const loadPageData = useCallback(async () => {
       return;
     }
 
+    const selectedApartment = apartments.find(
+      (apartment) => apartment.id === formData.apartmentId
+    );
+
+    const apartmentResidents = Array.isArray(selectedApartment?.residents)
+      ? selectedApartment.residents
+      : [];
+
+    const apartmentHasOwner = apartmentResidents.some(
+      (resident) => resident.type === "OWNER"
+    );
+
     try {
       setIsSaving(true);
       setMessage("");
@@ -313,7 +353,6 @@ const loadPageData = useCallback(async () => {
       if (editingResident) {
         if (formData.password && formData.password.length < 8) {
           setErrorMessage("Yeni şifre en az 8 karakter olmalıdır.");
-          setIsSaving(false);
           return;
         }
 
@@ -344,21 +383,68 @@ const loadPageData = useCallback(async () => {
           return;
         }
 
-        if (formData.password.length < 8) {
-          setErrorMessage("Şifre en az 8 karakter olmalıdır.");
+        if (formData.password && formData.password.length < 8) {
+          setErrorMessage("Geçici şifre en az 8 karakter olmalıdır.");
           return;
         }
 
-        await createResidentAndAssignApartment({
+        let owner;
+
+        if (formData.type === "TENANT" && !apartmentHasOwner) {
+          if (!formData.ownerFullName.trim()) {
+            setErrorMessage("Ev sahibi ad soyad bilgisi zorunludur.");
+            return;
+          }
+
+          if (!formData.ownerEmail.trim()) {
+            setErrorMessage("Ev sahibi e-posta bilgisi zorunludur.");
+            return;
+          }
+
+          if (
+            formData.ownerPassword &&
+            formData.ownerPassword.length < 8
+          ) {
+            setErrorMessage(
+              "Ev sahibi geçici şifresi en az 8 karakter olmalıdır."
+            );
+            return;
+          }
+
+          if (
+            formData.email.trim().toLowerCase() ===
+            formData.ownerEmail.trim().toLowerCase()
+          ) {
+            setErrorMessage(
+              "Kiracı ve ev sahibi aynı e-posta adresini kullanamaz."
+            );
+            return;
+          }
+
+          owner = {
+            fullName: formData.ownerFullName.trim(),
+            email: formData.ownerEmail.trim(),
+            phone: formData.ownerPhone.trim() || undefined,
+            password: formData.ownerPassword || undefined,
+          };
+        }
+
+        const result = await createResidentAndAssignApartment({
           fullName: formData.fullName.trim(),
           email: formData.email.trim(),
           phone: formData.phone.trim() || undefined,
-          password: formData.password,
+          password: formData.password || undefined,
           apartmentId: formData.apartmentId,
           type: formData.type,
+          ...(owner ? { owner } : {}),
         });
 
-        setMessage("Sakin başarıyla oluşturuldu ve daireye bağlandı.");
+        setMessage(
+          result?.message ??
+            (formData.type === "TENANT"
+              ? "Kiracı ve ev sahibi bilgileri başarıyla kaydedildi."
+              : "Ev sahibi başarıyla kaydedildi.")
+        );
       }
 
       await loadPageData();
@@ -384,10 +470,12 @@ const loadPageData = useCallback(async () => {
       setMessage("");
       setErrorMessage("");
 
-      await deleteApartmentResident(residentId);
+      const result = await deleteApartmentResident(residentId);
       await loadPageData();
 
-      setMessage("Sakin daire bağlantısı başarıyla kaldırıldı.");
+      setMessage(
+        result?.message ?? "Sakin daire bağlantısı başarıyla kaldırıldı."
+      );
     } catch (error) {
       setErrorMessage(error?.message ?? "Sakin bağlantısı kaldırılamadı.");
     } finally {

@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertCircle, KeyRound, Lock, ShieldCheck } from "lucide-react";
+import {
+  AlertCircle,
+  KeyRound,
+  Lock,
+  LogOut,
+  ShieldCheck,
+} from "lucide-react";
 
 import { useAuth } from "../hooks/useAuth";
 import { changeOwnPassword } from "../api/authApi";
@@ -14,9 +20,16 @@ function ChangePasswordRequiredPage() {
   const [newPasswordAgain, setNewPasswordAgain] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const isBusy = isSubmitting || isLoggingOut;
 
   async function handleSubmit(event) {
     event.preventDefault();
+
+    if (isBusy) {
+      return;
+    }
 
     if (!currentPassword || !newPassword || !newPasswordAgain) {
       setErrorMessage("Lütfen tüm alanları doldurun.");
@@ -58,8 +71,17 @@ function ChangePasswordRequiredPage() {
   }
 
   async function handleLogout() {
-    await logout();
-    navigate("/login", { replace: true });
+    if (isBusy) {
+      return;
+    }
+
+    try {
+      setIsLoggingOut(true);
+      setErrorMessage("");
+      await logout();
+    } finally {
+      navigate("/login", { replace: true });
+    }
   }
 
   return (
@@ -95,7 +117,7 @@ function ChangePasswordRequiredPage() {
                 placeholder="Mevcut şifrenizi girin"
                 value={currentPassword}
                 autoComplete="current-password"
-                disabled={isSubmitting}
+                disabled={isBusy}
                 onChange={(event) => {
                   setCurrentPassword(event.target.value);
                   setErrorMessage("");
@@ -113,7 +135,7 @@ function ChangePasswordRequiredPage() {
                 placeholder="Yeni şifrenizi girin"
                 value={newPassword}
                 autoComplete="new-password"
-                disabled={isSubmitting}
+                disabled={isBusy}
                 onChange={(event) => {
                   setNewPassword(event.target.value);
                   setErrorMessage("");
@@ -131,7 +153,7 @@ function ChangePasswordRequiredPage() {
                 placeholder="Yeni şifrenizi tekrar girin"
                 value={newPasswordAgain}
                 autoComplete="new-password"
-                disabled={isSubmitting}
+                disabled={isBusy}
                 onChange={(event) => {
                   setNewPasswordAgain(event.target.value);
                   setErrorMessage("");
@@ -143,7 +165,7 @@ function ChangePasswordRequiredPage() {
           <button
             type="submit"
             className="login-submit-button"
-            disabled={isSubmitting}
+            disabled={isBusy}
           >
             {isSubmitting ? "Güncelleniyor..." : "Şifreyi Güncelle ve Devam Et"}
           </button>
@@ -154,8 +176,15 @@ function ChangePasswordRequiredPage() {
           <p>Şifrenizi değiştirene kadar diğer sayfalara erişemezsiniz.</p>
         </div>
 
-        <button type="button" className="back-login-link" onClick={handleLogout}>
-          Çıkış yap
+        <button
+          type="button"
+          className="required-password-logout-button"
+          onClick={handleLogout}
+          disabled={isBusy}
+          aria-busy={isLoggingOut}
+        >
+          <LogOut size={19} />
+          <span>{isLoggingOut ? "Çıkış yapılıyor..." : "Çıkış Yap"}</span>
         </button>
       </div>
     </section>

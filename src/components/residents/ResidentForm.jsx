@@ -1,5 +1,5 @@
 ﻿import { useMemo } from "react";
-import { Info, X } from "lucide-react";
+import { Home, Info, UserRound, X } from "lucide-react";
 
 import InternationalPhoneInput from "../common/InternationalPhoneInput";
 
@@ -8,6 +8,10 @@ function compareText(leftValue, rightValue) {
     numeric: true,
     sensitivity: "base",
   });
+}
+
+function getApartmentResidents(apartment) {
+  return Array.isArray(apartment?.residents) ? apartment.residents : [];
 }
 
 function ResidentForm({
@@ -72,15 +76,61 @@ function ResidentForm({
     return safeApartments
       .filter((apartment) => apartment.block?.id === formData.blockId)
       .filter((apartment) => {
-        const residentCount = Number(apartment._count?.residents ?? 0);
+        const residents = getApartmentResidents(apartment);
+        const hasOwner = residents.some((resident) => resident.type === "OWNER");
+        const hasTenant = residents.some(
+          (resident) => resident.type === "TENANT"
+        );
         const isCurrentApartment = apartment.id === formData.apartmentId;
 
-        return residentCount === 0 || isCurrentApartment;
+        if (editingResident && isCurrentApartment) {
+          return true;
+        }
+
+        if (formData.type === "TENANT") {
+          return !hasTenant;
+        }
+
+        return !hasOwner;
       })
       .sort((leftApartment, rightApartment) =>
         compareText(leftApartment.number, rightApartment.number)
       );
-  }, [safeApartments, formData.blockId, formData.apartmentId]);
+  }, [
+    safeApartments,
+    formData.blockId,
+    formData.apartmentId,
+    formData.type,
+    editingResident,
+  ]);
+
+  const selectedApartment = useMemo(
+    () =>
+      safeApartments.find(
+        (apartment) => apartment.id === formData.apartmentId
+      ) ?? null,
+    [safeApartments, formData.apartmentId]
+  );
+
+  const selectedApartmentResidents = getApartmentResidents(selectedApartment);
+
+  const selectedOwner =
+    selectedApartmentResidents.find((resident) => resident.type === "OWNER") ??
+    null;
+
+  const selectedApartmentHasOwner = Boolean(selectedOwner);
+
+  const needsOwnerInformation =
+    !editingResident &&
+    formData.type === "TENANT" &&
+    Boolean(selectedApartment) &&
+    !selectedApartmentHasOwner;
+
+  const usesExistingOwner =
+    !editingResident &&
+    formData.type === "TENANT" &&
+    Boolean(selectedApartment) &&
+    selectedApartmentHasOwner;
 
   const sitePlaceholder =
     siteOptions.length > 0 ? "Site seçiniz" : "Yetkili site bulunamadı";
@@ -94,8 +144,10 @@ function ResidentForm({
   const apartmentPlaceholder = !formData.blockId
     ? "Önce blok seçiniz"
     : apartmentOptions.length > 0
-      ? "Boş daire seçiniz"
-      : "Bu blokta boş daire bulunamadı";
+      ? "Uygun daire seçiniz"
+      : formData.type === "TENANT"
+        ? "Bu blokta kiracısız daire bulunamadı"
+        : "Bu blokta ev sahipsiz daire bulunamadı";
 
   return (
     <section className="resident-form-card">
@@ -110,9 +162,8 @@ function ResidentForm({
           </h3>
 
           <p>
-            Yeni bir sakin hesabı oluşturabilir veya mevcut yönetici / süper
-            admin hesabını rolünü ve giriş bilgilerini değiştirmeden daireye
-            sakin olarak bağlayabilirsiniz.
+            Ev sahibi ve kiracı hesapları ayrı tutulur. Kiracı varsa sakinler
+            listesinde kiracı, kiracı yoksa ev sahibi görüntülenir.
           </p>
         </div>
 
@@ -131,9 +182,8 @@ function ResidentForm({
         <div className="resident-link-security-note">
           <Info size={19} />
           <p>
-            E-posta mevcut bir yönetici veya süper admin hesabına aitse mevcut
-            hesap kullanılır; rol, profil ve şifre değiştirilmez. Yeni bir sakin
-            hesabı oluşturulacaksa geçici şifre zorunludur.
+            Kayıtlı bir e-posta kullanılırsa mevcut hesap korunur. Yeni hesap
+            oluşturulacaksa en az 8 karakterli geçici şifre girilmelidir.
           </p>
         </div>
       )}
@@ -154,16 +204,60 @@ function ResidentForm({
           </label>
 
           <label>
-            Rol
+            Sakin Türü
             <select
               name="type"
               value={formData.type}
               onChange={onInputChange}
-              disabled={isSaving}
+              disabled={isSaving || Boolean(editingResident)}
             >
               <option value="TENANT">Kiracı</option>
               <option value="OWNER">Ev Sahibi</option>
             </select>
+          </label>
+
+          <InternationalPhoneInput
+            name="phone"
+            label="Telefon"
+            value={formData.phone}
+            onChange={onInputChange}
+            disabled={isSaving || Boolean(editingResident)}
+          />
+
+          <label>
+            E-posta
+            <input
+              type="email"
+              name="email"
+              value={formData.email}
+              onChange={onInputChange}
+              placeholder="Örn: ali@example.com"
+              required
+              disabled={isSaving || Boolean(editingResident)}
+            />
+          </label>
+
+          <label>
+            {editingResident ? "Yeni Şifre" : "Geçici Şifre"}
+            <input
+              type="password"
+              name="password"
+              value={formData.password}
+              onChange={onInputChange}
+              placeholder={
+                editingResident
+                  ? canChangeLinkedPassword
+                    ? "Değiştirmek istemiyorsanız boş bırakın"
+                    : "Bu hesabın şifresi buradan değiştirilemez"
+                  : "Yeni hesap için en az 8 karakter"
+              }
+              disabled={isSaving || !canChangeLinkedPassword}
+            />
+            {!editingResident && (
+              <small>
+                E-posta mevcut aktif bir hesaba aitse boş bırakılabilir.
+              </small>
+            )}
           </label>
 
           <label>
@@ -221,58 +315,103 @@ function ResidentForm({
             >
               <option value="">{apartmentPlaceholder}</option>
 
-              {apartmentOptions.map((apartment) => (
-                <option key={apartment.id} value={apartment.id}>
-                  Daire {apartment.number}
-                </option>
-              ))}
+              {apartmentOptions.map((apartment) => {
+                const residents = getApartmentResidents(apartment);
+                const owner = residents.find(
+                  (resident) => resident.type === "OWNER"
+                );
+
+                return (
+                  <option key={apartment.id} value={apartment.id}>
+                    Daire {apartment.number}
+                    {owner?.user?.fullName
+                      ? ` — Ev Sahibi: ${owner.user.fullName}`
+                      : " — Boş"}
+                  </option>
+                );
+              })}
             </select>
           </label>
 
-          <InternationalPhoneInput
-            name="phone"
-            label="Telefon"
-            value={formData.phone}
-            onChange={onInputChange}
-            disabled={isSaving || Boolean(editingResident)}
-          />
+          {usesExistingOwner && (
+            <div className="resident-owner-status-card full-width">
+              <Home size={20} />
+              <div>
+                <strong>Kayıtlı ev sahibi kullanılacak</strong>
+                <p>
+                  {selectedOwner?.user?.fullName ?? "Ev sahibi"} hesabı daireye
+                  bağlı kalacak. Yeni eklenen kiracı sakin olarak
+                  görüntülenecek.
+                </p>
+              </div>
+            </div>
+          )}
 
-          <label>
-            E-posta
-            <input
-              type="email"
-              name="email"
-              value={formData.email}
-              onChange={onInputChange}
-              placeholder="Örn: ali@example.com"
-              required
-              disabled={isSaving || Boolean(editingResident)}
-            />
-          </label>
+          {needsOwnerInformation && (
+            <div className="resident-owner-section full-width">
+              <div className="resident-owner-section-header">
+                <UserRound size={20} />
+                <div>
+                  <h4>Ev Sahibi Hesap Bilgileri</h4>
+                  <p>
+                    Seçilen dairede kayıtlı ev sahibi bulunmadığı için bu
+                    bilgiler zorunludur.
+                  </p>
+                </div>
+              </div>
 
-          <label>
-            {editingResident ? "Yeni Şifre" : "Geçici Şifre"}
-            <input
-              type="password"
-              name="password"
-              value={formData.password}
-              onChange={onInputChange}
-              placeholder={
-                editingResident
-                  ? canChangeLinkedPassword
-                    ? "Değiştirmek istemiyorsanız boş bırakın"
-                    : "Yönetici / süper admin şifresi buradan değiştirilemez"
-                  : "Yeni hesap için en az 8 karakter"
-              }
-              disabled={isSaving || !canChangeLinkedPassword}
-            />
-            {!editingResident && (
-              <small>
-                Mevcut yönetici, süper admin veya aktif ve henüz daireye bağlı
-                olmayan kullanıcı için boş bırakabilirsiniz.
-              </small>
-            )}
-          </label>
+              <div className="form-grid">
+                <label>
+                  Ev Sahibi Ad Soyad
+                  <input
+                    type="text"
+                    name="ownerFullName"
+                    value={formData.ownerFullName}
+                    onChange={onInputChange}
+                    placeholder="Örn: Ahmet Yılmaz"
+                    required
+                    disabled={isSaving}
+                  />
+                </label>
+
+                <label>
+                  Ev Sahibi E-posta
+                  <input
+                    type="email"
+                    name="ownerEmail"
+                    value={formData.ownerEmail}
+                    onChange={onInputChange}
+                    placeholder="Örn: ahmet@example.com"
+                    required
+                    disabled={isSaving}
+                  />
+                </label>
+
+                <InternationalPhoneInput
+                  name="ownerPhone"
+                  label="Ev Sahibi Telefon"
+                  value={formData.ownerPhone}
+                  onChange={onInputChange}
+                  disabled={isSaving}
+                />
+
+                <label>
+                  Ev Sahibi Geçici Şifre
+                  <input
+                    type="password"
+                    name="ownerPassword"
+                    value={formData.ownerPassword}
+                    onChange={onInputChange}
+                    placeholder="Yeni hesap için en az 8 karakter"
+                    disabled={isSaving}
+                  />
+                  <small>
+                    E-posta mevcut aktif bir hesaba aitse boş bırakılabilir.
+                  </small>
+                </label>
+              </div>
+            </div>
+          )}
 
           <label className="full-width">
             Not
