@@ -17,7 +17,7 @@ type SendSmsResult = {
   providerStatus?: string;
 };
 
-type ActiveSmsSetting = {
+type SmsSettingForSending = {
   provider: SmsProvider;
   senderName: string | null;
   fromPhone: string | null;
@@ -31,12 +31,22 @@ type ActiveSmsSetting = {
 
 const SMS_REQUEST_TIMEOUT_MS = 15_000;
 
-function getErrorMessage(error: unknown) {
-  if (error instanceof Error) {
-    return error.message;
-  }
+const smsSettingSelect = {
+  provider: true,
+  senderName: true,
+  fromPhone: true,
+  apiKeyEncrypted: true,
+  apiSecretEncrypted: true,
+  usernameEncrypted: true,
+  passwordEncrypted: true,
+  accountSidEncrypted: true,
+  authTokenEncrypted: true,
+} as const;
 
-  return "Bilinmeyen SMS gönderim hatası oluştu.";
+function getErrorMessage(error: unknown) {
+  return error instanceof Error
+    ? error.message
+    : "Bilinmeyen SMS gönderim hatası oluştu.";
 }
 
 function normalizeMessage(value: string) {
@@ -129,7 +139,7 @@ async function parseJsonResponse(response: Response) {
   return body as Record<string, unknown> | null;
 }
 
-async function getActiveSmsSetting(): Promise<ActiveSmsSetting> {
+async function getActiveSmsSetting(): Promise<SmsSettingForSending> {
   const setting = await prisma.smsSetting.findFirst({
     where: {
       status: "ACTIVE",
@@ -147,17 +157,7 @@ async function getActiveSmsSetting(): Promise<ActiveSmsSetting> {
     orderBy: {
       createdAt: "desc",
     },
-    select: {
-      provider: true,
-      senderName: true,
-      fromPhone: true,
-      apiKeyEncrypted: true,
-      apiSecretEncrypted: true,
-      usernameEncrypted: true,
-      passwordEncrypted: true,
-      accountSidEncrypted: true,
-      authTokenEncrypted: true,
-    },
+    select: smsSettingSelect,
   });
 
   if (!setting) {
@@ -169,8 +169,25 @@ async function getActiveSmsSetting(): Promise<ActiveSmsSetting> {
   return setting;
 }
 
+async function getSmsSettingById(
+  smsSettingId: string
+): Promise<SmsSettingForSending> {
+  const setting = await prisma.smsSetting.findUnique({
+    where: {
+      id: smsSettingId,
+    },
+    select: smsSettingSelect,
+  });
+
+  if (!setting) {
+    throw new Error("SMS ayarı bulunamadı.");
+  }
+
+  return setting;
+}
+
 async function sendWithIletiMerkezi(
-  setting: ActiveSmsSetting,
+  setting: SmsSettingForSending,
   input: SendSmsInput
 ): Promise<SendSmsResult> {
   if (!setting.senderName?.trim()) {
@@ -181,6 +198,7 @@ async function sendWithIletiMerkezi(
     setting.apiKeyEncrypted,
     "İleti Merkezi API anahtarı eksik."
   );
+
   const apiHash = decryptRequiredSecret(
     setting.apiSecretEncrypted,
     "İleti Merkezi API hash bilgisi eksik."
@@ -221,11 +239,20 @@ async function sendWithIletiMerkezi(
   );
 
   const body = await parseJsonResponse(response);
-  const responseData = body?.response as Record<string, unknown> | undefined;
-  const status = responseData?.status as Record<string, unknown> | undefined;
-  const order = responseData?.order as Record<string, unknown> | undefined;
+  const responseData = body?.response as
+    | Record<string, unknown>
+    | undefined;
+  const status = responseData?.status as
+    | Record<string, unknown>
+    | undefined;
+  const order = responseData?.order as
+    | Record<string, unknown>
+    | undefined;
+
   const statusCode = Number(status?.code ?? response.status);
-  const statusMessage = String(status?.message ?? "SMS gönderimi başarısız.");
+  const statusMessage = String(
+    status?.message ?? "SMS gönderimi başarısız."
+  );
 
   if (!response.ok || statusCode !== 200) {
     throw new Error(`İleti Merkezi hatası: ${statusMessage}`);
@@ -239,7 +266,7 @@ async function sendWithIletiMerkezi(
 }
 
 async function sendWithNetgsm(
-  setting: ActiveSmsSetting,
+  setting: SmsSettingForSending,
   input: SendSmsInput
 ): Promise<SendSmsResult> {
   if (!setting.senderName?.trim()) {
@@ -250,6 +277,7 @@ async function sendWithNetgsm(
     setting.usernameEncrypted,
     "Netgsm kullanıcı adı eksik."
   );
+
   const password = decryptRequiredSecret(
     setting.passwordEncrypted,
     "Netgsm şifresi eksik."
@@ -270,14 +298,17 @@ async function sendWithNetgsm(
   </body>
 </mainbody>`;
 
-  const response = await fetch("https://api.netgsm.com.tr/sms/send/xml", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/xml; charset=UTF-8",
-    },
-    body: xmlBody,
-    signal: AbortSignal.timeout(SMS_REQUEST_TIMEOUT_MS),
-  });
+  const response = await fetch(
+    "https://api.netgsm.com.tr/sms/send/xml",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/xml; charset=UTF-8",
+      },
+      body: xmlBody,
+      signal: AbortSignal.timeout(SMS_REQUEST_TIMEOUT_MS),
+    }
+  );
 
   const responseText = (await response.text()).trim();
   const [resultCode, providerMessageId] = responseText.split(/\s+/);
@@ -296,7 +327,7 @@ async function sendWithNetgsm(
 }
 
 async function sendWithTwilio(
-  setting: ActiveSmsSetting,
+  setting: SmsSettingForSending,
   input: SendSmsInput
 ): Promise<SendSmsResult> {
   if (!setting.fromPhone?.trim()) {
@@ -307,15 +338,29 @@ async function sendWithTwilio(
     setting.accountSidEncrypted,
     "Twilio Account SID eksik."
   );
-  const authToken = decryptOptionalSecret(setting.authTokenEncrypted);
-  const apiKeySid = decryptOptionalSecret(setting.apiKeyEncrypted);
-  const apiKeySecret = decryptOptionalSecret(setting.apiSecretEncrypted);
 
-  const authUsername = apiKeySid && apiKeySecret ? apiKeySid : accountSid;
-  const authPassword = apiKeySid && apiKeySecret ? apiKeySecret : authToken;
+  const authToken = decryptOptionalSecret(
+    setting.authTokenEncrypted
+  );
+
+  const apiKeySid = decryptOptionalSecret(
+    setting.apiKeyEncrypted
+  );
+
+  const apiKeySecret = decryptOptionalSecret(
+    setting.apiSecretEncrypted
+  );
+
+  const authUsername =
+    apiKeySid && apiKeySecret ? apiKeySid : accountSid;
+
+  const authPassword =
+    apiKeySid && apiKeySecret ? apiKeySecret : authToken;
 
   if (!authPassword) {
-    throw new Error("Twilio Auth Token veya API Key Secret eksik.");
+    throw new Error(
+      "Twilio Auth Token veya API Key Secret eksik."
+    );
   }
 
   const requestBody = new URLSearchParams({
@@ -361,26 +406,52 @@ async function sendWithTwilio(
   };
 }
 
+async function sendWithSetting(
+  setting: SmsSettingForSending,
+  input: SendSmsInput
+): Promise<SendSmsResult> {
+  if (setting.provider === "ILETIMERKEZI") {
+    return sendWithIletiMerkezi(setting, input);
+  }
+
+  if (setting.provider === "NETGSM") {
+    return sendWithNetgsm(setting, input);
+  }
+
+  if (setting.provider === "TWILIO") {
+    return sendWithTwilio(setting, input);
+  }
+
+  const unsupportedProvider: never = setting.provider;
+  throw new Error(
+    `Desteklenmeyen SMS sağlayıcısı: ${unsupportedProvider}`
+  );
+}
+
+export async function sendSmsWithSetting(params: {
+  smsSettingId: string;
+  toPhone: string;
+  message: string;
+}): Promise<SendSmsResult> {
+  const setting = await getSmsSettingById(params.smsSettingId);
+
+  try {
+    return await sendWithSetting(setting, {
+      to: params.toPhone,
+      message: params.message,
+    });
+  } catch (error) {
+    throw new Error(getErrorMessage(error));
+  }
+}
+
 export async function sendSmsWithActiveProvider(
   input: SendSmsInput
 ): Promise<SendSmsResult> {
   const setting = await getActiveSmsSetting();
 
   try {
-    if (setting.provider === "ILETIMERKEZI") {
-      return await sendWithIletiMerkezi(setting, input);
-    }
-
-    if (setting.provider === "NETGSM") {
-      return await sendWithNetgsm(setting, input);
-    }
-
-    if (setting.provider === "TWILIO") {
-      return await sendWithTwilio(setting, input);
-    }
-
-    const unsupportedProvider: never = setting.provider;
-    throw new Error(`Desteklenmeyen SMS sağlayıcısı: ${unsupportedProvider}`);
+    return await sendWithSetting(setting, input);
   } catch (error) {
     throw new Error(getErrorMessage(error));
   }

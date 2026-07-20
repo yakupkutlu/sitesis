@@ -14,6 +14,13 @@ export async function getSites(params = {}) {
   return apiRequest(`/sites${queryString ? `?${queryString}` : ""}`);
 }
 
+export async function createSiteWithStructure(payload) {
+  return apiRequest("/sites/with-structure", {
+    method: "POST",
+    body: payload,
+  });
+}
+
 export async function createSite(payload) {
   return apiRequest("/sites", {
     method: "POST",

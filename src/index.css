@@ -16176,3 +16176,338 @@ dashboard-layout .topbar-help-button {
     grid-template-columns: 1fr;
   }
 }
+/* BuildingForm - blok ve daire dağılımı */
+
+.building-block-distribution {
+  padding: 18px;
+  border: 1px solid var(--border-color, #dbe4ef);
+  border-radius: 16px;
+  background: var(--surface-soft, #f8fafc);
+}
+
+.building-block-distribution-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.building-block-distribution-header h4 {
+  margin: 4px 0 0;
+}
+
+.building-apartment-total {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 145px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-color, #dbe4ef);
+  border-radius: 12px;
+  background: var(--card-bg, #ffffff);
+}
+
+.building-apartment-total span {
+  font-size: 13px;
+  color: var(--text-muted, #64748b);
+}
+
+.building-apartment-total strong {
+  font-size: 22px;
+}
+
+.building-block-list {
+  display: grid;
+  gap: 12px;
+}
+
+.building-block-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 240px) auto;
+  align-items: end;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border-color, #dbe4ef);
+  border-radius: 14px;
+  background: var(--card-bg, #ffffff);
+}
+
+.building-block-remove-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 0 14px;
+  border: 1px solid var(--border-color, #dbe4ef);
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.building-block-remove-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.building-add-block-button {
+  margin-top: 14px;
+}
+
+.building-block-help {
+  margin: 12px 0 0;
+  color: var(--text-muted, #64748b);
+  font-size: 13px;
+}
+
+.dashboard-layout.dark-mode .building-block-distribution,
+.dashboard-layout.dark-mode .building-block-row,
+.dashboard-layout.dark-mode .building-apartment-total {
+  background: var(--dashboard-card-bg, #111827);
+  border-color: var(--dashboard-border-color, #334155);
+}
+
+@media (max-width: 760px) {
+  .building-block-distribution-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .building-block-row {
+    grid-template-columns: 1fr;
+  }
+
+  .building-block-remove-button {
+    width: 100%;
+  }
+}
+/* BuildingForm - blok ve daire dağılımı */
+
+.building-block-distribution {
+  padding: 18px;
+  border: 1px solid var(--border-color, #dbe4ef);
+  border-radius: 16px;
+  background: var(--surface-soft, #f8fafc);
+}
+
+.building-block-distribution-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.building-block-distribution-header h4 {
+  margin: 4px 0 0;
+}
+
+.building-apartment-total {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 145px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-color, #dbe4ef);
+  border-radius: 12px;
+  background: var(--card-bg, #ffffff);
+}
+
+.building-apartment-total span {
+  font-size: 13px;
+  color: var(--text-muted, #64748b);
+}
+
+.building-apartment-total strong {
+  font-size: 22px;
+}
+
+.building-block-list {
+  display: grid;
+  gap: 12px;
+}
+
+.building-block-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 240px) auto;
+  align-items: end;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border-color, #dbe4ef);
+  border-radius: 14px;
+  background: var(--card-bg, #ffffff);
+}
+
+.building-block-remove-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 0 14px;
+  border: 1px solid var(--border-color, #dbe4ef);
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.building-block-remove-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.building-add-block-button {
+  margin-top: 14px;
+}
+
+.building-block-help {
+  margin: 12px 0 0;
+  color: var(--text-muted, #64748b);
+  font-size: 13px;
+}
+
+.dashboard-layout.dark-mode .building-block-distribution,
+.dashboard-layout.dark-mode .building-block-row,
+.dashboard-layout.dark-mode .building-apartment-total {
+  background: var(--dashboard-card-bg, #111827);
+  border-color: var(--dashboard-border-color, #334155);
+}
+
+@media (max-width: 760px) {
+  .building-block-distribution-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .building-block-row {
+    grid-template-columns: 1fr;
+  }
+
+  .building-block-remove-button {
+    width: 100%;
+  }
+}
+/* BuildingForm - blok, daire ve yönetici dağılımı */
+
+.building-block-distribution {
+  padding: 18px;
+  border: 1px solid var(--border-color, #dbe4ef);
+  border-radius: 16px;
+  background: var(--surface-soft, #f8fafc);
+}
+
+.building-block-distribution-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.building-block-distribution-header h4 {
+  margin: 4px 0 0;
+}
+
+.building-apartment-total {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 145px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-color, #dbe4ef);
+  border-radius: 12px;
+  background: var(--card-bg, #ffffff);
+}
+
+.building-apartment-total span {
+  font-size: 13px;
+  color: var(--text-muted, #64748b);
+}
+
+.building-apartment-total strong {
+  font-size: 22px;
+}
+
+.building-block-list {
+  display: grid;
+  gap: 12px;
+}
+
+.building-block-row {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1fr)
+    minmax(140px, 190px)
+    minmax(220px, 1fr)
+    auto;
+  align-items: end;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border-color, #dbe4ef);
+  border-radius: 14px;
+  background: var(--card-bg, #ffffff);
+}
+
+.building-form label small {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-muted, #64748b);
+  font-size: 12px;
+}
+
+.building-block-remove-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 0 14px;
+  border: 1px solid var(--border-color, #dbe4ef);
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.building-block-remove-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.building-add-block-button {
+  margin-top: 14px;
+}
+
+.building-block-help {
+  margin: 12px 0 0;
+  color: var(--text-muted, #64748b);
+  font-size: 13px;
+}
+
+.dashboard-layout.dark-mode .building-block-distribution,
+.dashboard-layout.dark-mode .building-block-row,
+.dashboard-layout.dark-mode .building-apartment-total {
+  background: var(--dashboard-card-bg, #111827);
+  border-color: var(--dashboard-border-color, #334155);
+}
+
+@media (max-width: 1050px) {
+  .building-block-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .building-block-remove-button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 760px) {
+  .building-block-distribution-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .building-block-row {
+    grid-template-columns: 1fr;
+  }
+}

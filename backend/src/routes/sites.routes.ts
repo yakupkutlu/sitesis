@@ -37,6 +37,64 @@ const createSiteSchema = z.object({
   isActive: z.boolean().optional().default(true),
 });
 
+const optionalManagerIdSchema = z.string().uuid().optional();
+
+const createSiteWithStructureSchema = createSiteSchema
+  .extend({
+    siteManagerId: optionalManagerIdSchema,
+    blocks: z
+      .array(
+        z.object({
+          name: z.string().trim().min(1).max(100),
+          description: z.string().trim().max(500).optional(),
+          apartmentCount: z.number().int().min(1).max(1000),
+          managerId: optionalManagerIdSchema,
+        })
+      )
+      .min(1)
+      .max(100),
+  })
+  .superRefine((data, context) => {
+    const normalizedBlockNames = new Set<string>();
+    let totalApartmentCount = 0;
+
+    data.blocks.forEach((block, index) => {
+      const normalizedName = block.name.toLocaleLowerCase("tr-TR");
+
+      if (normalizedBlockNames.has(normalizedName)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["blocks", index, "name"],
+          message: "Aynı isimle birden fazla blok/apartman eklenemez.",
+        });
+      }
+
+      if (
+        data.siteManagerId &&
+        block.managerId &&
+        data.siteManagerId === block.managerId
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["blocks", index, "managerId"],
+          message:
+            "Site genel yöneticisi aynı bloğa ayrıca atanamaz. Genel yönetici tüm siteyi görebilir.",
+        });
+      }
+
+      normalizedBlockNames.add(normalizedName);
+      totalApartmentCount += block.apartmentCount;
+    });
+
+    if (totalApartmentCount > 5000) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["blocks"],
+        message: "Bir site için toplam daire sayısı en fazla 5000 olabilir.",
+      });
+    }
+  });
+
 const updateSiteSchema = z
   .object({
     name: z.string().trim().min(2).optional(),
@@ -336,6 +394,244 @@ router.get(
         limit: paginationParams.limit,
         totalCount,
       }),
+    });
+  })
+);
+
+router.post(
+  "/with-structure",
+  requireRole("SUPER_ADMIN"),
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    const validationResult = createSiteWithStructureSchema.safeParse(
+      request.body
+    );
+
+    if (!validationResult.success) {
+      throw new HttpError(
+        400,
+        "Gönderilen site, blok, daire veya yönetici bilgileri geçersiz.",
+        validationResult.error.flatten().fieldErrors
+      );
+    }
+
+    const {
+      name,
+      address,
+      description,
+      imageUrl,
+      hasElevator,
+      systems,
+      isActive,
+      siteManagerId,
+      blocks,
+    } = validationResult.data;
+
+    const requestedManagerIds = Array.from(
+      new Set(
+        [siteManagerId, ...blocks.map((block) => block.managerId)].filter(
+          (managerId): managerId is string => Boolean(managerId)
+        )
+      )
+    );
+
+    const site = await prisma.$transaction(async (transaction) => {
+      if (requestedManagerIds.length > 0) {
+        const validManagers = await transaction.user.findMany({
+          where: {
+            id: {
+              in: requestedManagerIds,
+            },
+            role: "MANAGER",
+            status: "ACTIVE",
+          },
+          select: {
+            id: true,
+          },
+        });
+
+        if (validManagers.length !== requestedManagerIds.length) {
+          throw new HttpError(
+            400,
+            "Seçilen yöneticilerden biri bulunamadı, pasif veya MANAGER rolünde değil."
+          );
+        }
+      }
+
+      const createdSite = await transaction.site.create({
+        data: {
+          name,
+          address,
+          description,
+          imageUrl,
+          hasElevator,
+          systems,
+          isActive,
+        },
+      });
+
+      if (siteManagerId) {
+        await transaction.managerAssignment.create({
+          data: {
+            managerId: siteManagerId,
+            scopeType: "SITE",
+            siteId: createdSite.id,
+          },
+        });
+      }
+
+      for (const blockInput of blocks) {
+        const createdBlock = await transaction.block.create({
+          data: {
+            siteId: createdSite.id,
+            name: blockInput.name,
+            description: blockInput.description,
+          },
+        });
+
+        const apartmentRows = Array.from(
+          { length: blockInput.apartmentCount },
+          (_, index) => {
+            const apartmentNumber = index + 1;
+
+            return {
+              blockId: createdBlock.id,
+              number: String(apartmentNumber),
+              floor: Math.ceil(apartmentNumber / 4),
+            };
+          }
+        );
+
+        await transaction.apartment.createMany({
+          data: apartmentRows,
+        });
+
+        if (blockInput.managerId) {
+          await transaction.managerAssignment.create({
+            data: {
+              managerId: blockInput.managerId,
+              scopeType: "BLOCK",
+              blockId: createdBlock.id,
+            },
+          });
+        }
+      }
+
+      for (const managerId of requestedManagerIds) {
+        const managerAssignments =
+          await transaction.managerAssignment.findMany({
+            where: {
+              managerId,
+            },
+            select: {
+              id: true,
+            },
+            orderBy: {
+              createdAt: "asc",
+            },
+            take: 2,
+          });
+
+        const [onlyAssignment] = managerAssignments;
+
+        if (managerAssignments.length === 1 && onlyAssignment) {
+          await transaction.user.update({
+            where: {
+              id: managerId,
+            },
+            data: {
+              activeManagerAssignmentId: onlyAssignment.id,
+            },
+          });
+        }
+      }
+
+      return transaction.site.findUniqueOrThrow({
+        where: {
+          id: createdSite.id,
+        },
+        include: {
+          blocks: {
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              createdAt: true,
+              updatedAt: true,
+              _count: {
+                select: {
+                  apartments: true,
+                },
+              },
+              managerAssignments: {
+                include: {
+                  manager: {
+                    select: {
+                      id: true,
+                      fullName: true,
+                      email: true,
+                    },
+                  },
+                },
+              },
+            },
+            orderBy: {
+              createdAt: "asc",
+            },
+          },
+          managerAssignments: {
+            where: {
+              scopeType: "SITE",
+            },
+            include: {
+              manager: {
+                select: {
+                  id: true,
+                  fullName: true,
+                  email: true,
+                },
+              },
+            },
+          },
+        },
+      });
+    });
+
+    const totalApartmentCount = blocks.reduce(
+      (total, block) => total + block.apartmentCount,
+      0
+    );
+
+    await createAuditLog({
+      request,
+      userId: authenticatedRequest.user.id,
+      action: "CREATE_SITE_WITH_STRUCTURE",
+      entityType: "Site",
+      entityId: site.id,
+      metadata: {
+        name: site.name,
+        address: site.address,
+        siteManagerId: siteManagerId ?? null,
+        blockCount: blocks.length,
+        totalApartmentCount,
+        blocks: blocks.map((block) => ({
+          name: block.name,
+          apartmentCount: block.apartmentCount,
+          managerId: block.managerId ?? null,
+        })),
+      },
+    });
+
+    response.status(201).json({
+      success: true,
+      message:
+        "Site, bloklar, daireler ve yönetici atamaları başarıyla oluşturuldu.",
+      data: site,
     });
   })
 );
