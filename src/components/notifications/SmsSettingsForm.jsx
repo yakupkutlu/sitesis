@@ -229,12 +229,17 @@ function SmsSettingsForm({
                 <input
                   name="fromPhone"
                   type="tel"
-                  placeholder="+905xxxxxxxxx"
+                  placeholder="Twilio Console'dan satın aldığınız numara, örn: +12025551234"
                   value={formData.fromPhone}
                   onChange={onInputChange}
                   disabled={isSaving}
                   required
                 />
+                <small>
+                  Rastgele bir telefon numarası girilemez — Twilio Console →
+                  Phone Numbers üzerinden satın aldığınız/kiraladığınız
+                  numara olmalıdır.
+                </small>
               </label>
 
               <label>
