@@ -94,6 +94,18 @@ const themeStorageKeyByRole = {
   Sakin: "residentThemeMode",
 };
 
+const accountModeHomePath = {
+  SUPER_ADMIN: "/super-admin/dashboard",
+  MANAGER: "/manager/dashboard",
+  RESIDENT: "/resident/dashboard",
+};
+
+const accountModeLabel = {
+  SUPER_ADMIN: "Süper Admin Paneline Geç",
+  MANAGER: "Yönetici Paneline Geç",
+  RESIDENT: "Sakin Paneline Geç",
+};
+
 function getStoredDarkMode(roleBadge) {
   const themeStorageKey =
     themeStorageKeyByRole[roleBadge] || "superAdminThemeMode";
@@ -166,7 +178,13 @@ function DashboardLayout({
 }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { logout } = useAuth();
+  const {
+    logout,
+    selectMode,
+    accountMode,
+    availableModes,
+    canSwitchAccountMode,
+  } = useAuth();
   const {
     activeAssignment,
     activeAssignmentLabel,
@@ -177,6 +195,8 @@ function DashboardLayout({
   const [isNotificationMenuOpen, setIsNotificationMenuOpen] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [switchingAccountMode, setSwitchingAccountMode] = useState("");
+  const [accountModeError, setAccountModeError] = useState("");
   const [openNavGroups, setOpenNavGroups] = useState({});
 
   const dashboardIsDarkMode =
@@ -188,6 +208,9 @@ function DashboardLayout({
   const settingsPath = settingsPathByRole[roleBadge] || "/super-admin/settings";
   const safeUserName = userName || "Kullanıcı";
   const safeTheme = theme || "manager";
+  const switchableAccountModes = canSwitchAccountMode
+    ? availableModes.filter((mode) => mode !== accountMode)
+    : [];
 
   useEffect(() => {
     document.body.classList.remove("dark-mode");
@@ -221,6 +244,7 @@ function DashboardLayout({
     setIsProfileMenuOpen(false);
     setIsNotificationMenuOpen(false);
     setIsHelpOpen(false);
+    setAccountModeError("");
   }
 
   function toggleProfileMenu() {
@@ -256,6 +280,32 @@ function DashboardLayout({
     setIsHelpOpen((currentValue) => !currentValue);
     setIsProfileMenuOpen(false);
     setIsNotificationMenuOpen(false);
+  }
+
+  async function handleAccountModeSwitch(nextMode) {
+    if (switchingAccountMode || nextMode === accountMode) {
+      return;
+    }
+
+    try {
+      setSwitchingAccountMode(nextMode);
+      setAccountModeError("");
+
+      const nextUser = await selectMode(nextMode);
+      const selectedMode = nextUser?.accountMode ?? nextUser?.role ?? nextMode;
+
+      closeTopbarMenus();
+
+      navigate(accountModeHomePath[selectedMode] ?? "/login", {
+        replace: true,
+      });
+    } catch (error) {
+      setAccountModeError(
+        error?.message ?? "Hesap modu değiştirilemedi."
+      );
+    } finally {
+      setSwitchingAccountMode("");
+    }
   }
 
   async function handleLogout() {
@@ -561,6 +611,41 @@ function DashboardLayout({
                       <strong>{roleTitle}</strong>
                     </div>
                   </div>
+
+                  {switchableAccountModes.length > 0 && (
+                    <div className="profile-account-mode-actions">
+                      {switchableAccountModes.map((mode) => (
+                        <button
+                          type="button"
+                          className="profile-dropdown-link"
+                          key={mode}
+                          onClick={() => handleAccountModeSwitch(mode)}
+                          disabled={Boolean(switchingAccountMode)}
+                          style={{
+                            width: "100%",
+                            border: 0,
+                            textAlign: "left",
+                            cursor: switchingAccountMode
+                              ? "not-allowed"
+                              : "pointer",
+                          }}
+                        >
+                          {switchingAccountMode === mode
+                            ? "Panel değiştiriliyor..."
+                            : accountModeLabel[mode] ?? "Panel Değiştir"}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {accountModeError && (
+                    <div
+                      className="login-error-message"
+                      style={{ margin: "10px 12px 0" }}
+                    >
+                      <p>{accountModeError}</p>
+                    </div>
+                  )}
 
                   <Link
                     to={settingsPath}

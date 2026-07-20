@@ -45,6 +45,9 @@ function UserTable({
             {safeUsers.length > 0 ? (
               safeUsers.map((user) => {
                 const statusClass = getUserStatusClass(user.status);
+                const requiresPassiveBeforeDelete =
+                  user.accountRole === "RESIDENT" &&
+                  user.status !== "Pasif";
 
                 return (
                   <tr key={user.id}>
@@ -126,7 +129,12 @@ function UserTable({
                           className="danger-table-button"
                           onClick={() => onDelete(user)}
                           aria-label={`${user.name || "Kullanıcı"} daire bağlantısını kaldır`}
-                          disabled={isSaving}
+                          title={
+                            requiresPassiveBeforeDelete
+                              ? "Önce sakin hesabını pasif yapın."
+                              : "Daire bağlantısını kaldır"
+                          }
+                          disabled={isSaving || requiresPassiveBeforeDelete}
                         >
                           <Trash2 size={16} />
                         </button>

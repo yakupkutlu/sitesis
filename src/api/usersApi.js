@@ -37,3 +37,16 @@ export async function deactivateUser(userId) {
     method: "PATCH",
   });
 }
+
+export async function updateLinkedResidentStatus(
+  apartmentResidentId,
+  status
+) {
+  return apiRequest(
+    `/apartment-residents/${apartmentResidentId}/resident-status`,
+    {
+      method: "PATCH",
+      body: { status },
+    }
+  );
+}

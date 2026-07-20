@@ -179,6 +179,7 @@ function mapApartmentResidentToUser(record) {
   return {
     id: record.id,
     userId: residentUser.id,
+    accountRole: residentUser.role,
     name: residentUser.fullName,
     role: getResidentTypeLabel(record.type),
     email: residentUser.email,
@@ -595,8 +596,21 @@ function UsersPage() {
   }
 
   async function handleDeleteApartmentResident(userRow) {
+    if (
+      userRow.accountRole === "RESIDENT" &&
+      userRow.status !== "Pasif"
+    ) {
+      setMessage("");
+      setErrorMessage(
+        "Daire bağlantısını kaldırmadan önce sakin hesabını pasif yapmalısınız."
+      );
+      return;
+    }
+
     const isConfirmed = window.confirm(
-      `${userRow.name} adlı sakinin daire bağlantısını kaldırmak istiyor musunuz?`
+      `${userRow.name} adlı sakinin daire bağlantısı kaldırılacak. ` +
+        "Kullanıcı hesabı ve geçmiş kayıtları veritabanında korunacaktır. " +
+        "Devam etmek istiyor musunuz?"
     );
 
     if (!isConfirmed) {

@@ -17,6 +17,7 @@ import {
   updateResidentPassword,
 } from "../../api/apartmentResidentsApi";
 import { getApartments } from "../../api/apartmentsApi";
+import { updateLinkedResidentStatus } from "../../api/usersApi";
 
 import { buildPaymentSummary } from "../../utils/paymentSummary";
 
@@ -134,6 +135,7 @@ function mapApartmentResidentToViewModel(item) {
 
   return {
     id: item.id,
+    accountRole: user.role,
     name: user.fullName ?? "-",
     role: typeToLabel[item.type] ?? item.type ?? "-",
     site: site.name ?? "-",
@@ -481,9 +483,21 @@ function ResidentsPage() {
     }
   }
 
-  async function handleDelete(residentId) {
+  async function handleToggleStatus(resident) {
+    if (resident.accountRole !== "RESIDENT") {
+      setMessage("");
+      setErrorMessage(
+        "Yönetici veya süper admin hesabının durumu bu ekrandan değiştirilemez."
+      );
+      return;
+    }
+
+    const nextStatus = resident.status === "Aktif" ? "PASSIVE" : "ACTIVE";
+
     const isConfirmed = window.confirm(
-      "Bu sakinin daire bağlantısını kaldırmak istiyor musunuz?"
+      nextStatus === "PASSIVE"
+        ? `${resident.name} adlı sakin pasif yapılacak. Bu işlemden sonra daire bağlantısını kaldırabilirsiniz.`
+        : `${resident.name} adlı sakin yeniden aktifleştirilecek. Devam etmek istiyor musunuz?`
     );
 
     if (!isConfirmed) {
@@ -495,7 +509,56 @@ function ResidentsPage() {
       setMessage("");
       setErrorMessage("");
 
-      const result = await deleteApartmentResident(residentId);
+      const result = await updateLinkedResidentStatus(
+        resident.id,
+        nextStatus
+      );
+
+      await loadPageData();
+
+      setMessage(
+        result?.message ??
+          (nextStatus === "PASSIVE"
+            ? "Sakin hesabı pasif yapıldı."
+            : "Sakin hesabı yeniden aktifleştirildi.")
+      );
+    } catch (error) {
+      setErrorMessage(
+        error?.message ?? "Sakin hesap durumu güncellenemedi."
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleDelete(resident) {
+    if (
+      resident.accountRole === "RESIDENT" &&
+      resident.status !== "Pasif"
+    ) {
+      setMessage("");
+      setErrorMessage(
+        "Daire bağlantısını kaldırmadan önce sakin hesabını pasif yapmalısınız."
+      );
+      return;
+    }
+
+    const isConfirmed = window.confirm(
+      `${resident.name} adlı sakinin daire bağlantısı kaldırılacak. ` +
+        "Kullanıcı hesabı ve geçmiş kayıtları korunacaktır. " +
+        "Devam etmek istiyor musunuz?"
+    );
+
+    if (!isConfirmed) {
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      setMessage("");
+      setErrorMessage("");
+
+      const result = await deleteApartmentResident(resident.id);
       await loadPageData();
 
       setMessage(
@@ -581,7 +644,9 @@ function ResidentsPage() {
           residents={filteredResidents}
           onView={setSelectedResident}
           onEdit={openEditForm}
+          onToggleStatus={handleToggleStatus}
           onDelete={handleDelete}
+          isSaving={isSaving}
         />
       )}
 

@@ -1,7 +1,15 @@
-﻿import { Edit, Eye, Trash2 } from "lucide-react";
+﻿import { Edit, Eye, Power, Trash2 } from "lucide-react";
 
-function ResidentTable({ residents, onView, onEdit, onDelete }) {
+function ResidentTable({
+  residents,
+  onView,
+  onEdit,
+  onToggleStatus,
+  onDelete,
+  isSaving = false,
+}) {
   const canEdit = typeof onEdit === "function";
+  const canToggleStatus = typeof onToggleStatus === "function";
   const canDelete = typeof onDelete === "function";
 
   return (
@@ -32,6 +40,10 @@ function ResidentTable({ residents, onView, onEdit, onDelete }) {
                     : resident.status === "Onay Bekliyor"
                     ? "pending"
                     : "passive";
+
+                const requiresPassiveBeforeDelete =
+                  resident.accountRole === "RESIDENT" &&
+                  resident.status !== "Pasif";
 
                 const paymentClass =
                   resident.paymentStatus === "Ödendi"
@@ -86,21 +98,45 @@ function ResidentTable({ residents, onView, onEdit, onDelete }) {
 
                     <td>
                       <div className="table-actions">
-                        <button type="button" onClick={() => onView(resident)}>
+                        <button type="button" onClick={() => onView(resident)} disabled={isSaving}>
                           <Eye size={16} />
                         </button>
 
                         {canEdit && (
-                          <button type="button" onClick={() => onEdit(resident)}>
+                          <button type="button" onClick={() => onEdit(resident)} disabled={isSaving}>
                             <Edit size={16} />
                           </button>
                         )}
+
+                        {canToggleStatus &&
+                          resident.accountRole === "RESIDENT" && (
+                            <button
+                              type="button"
+                              onClick={() => onToggleStatus(resident)}
+                              title={
+                                resident.status === "Aktif"
+                                  ? "Sakin hesabını pasif yap"
+                                  : "Sakin hesabını aktifleştir"
+                              }
+                              aria-label={`${resident.name} hesap durumunu değiştir`}
+                              disabled={isSaving}
+                            >
+                              <Power size={16} />
+                            </button>
+                          )}
 
                         {canDelete && (
                           <button
                             type="button"
                             className="danger-table-button"
-                            onClick={() => onDelete(resident.id)}
+                            onClick={() => onDelete(resident)}
+                            title={
+                              requiresPassiveBeforeDelete
+                                ? "Önce sakin hesabını pasif yapın."
+                                : "Daire bağlantısını kaldır"
+                            }
+                            aria-label={`${resident.name} daire bağlantısını kaldır`}
+                            disabled={isSaving || requiresPassiveBeforeDelete}
                           >
                             <Trash2 size={16} />
                           </button>

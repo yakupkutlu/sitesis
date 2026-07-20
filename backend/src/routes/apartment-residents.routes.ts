@@ -721,6 +721,138 @@ router.patch(
   })
 );
 
+
+const updateLinkedResidentStatusSchema = z
+  .object({
+    status: z.enum(["ACTIVE", "PASSIVE"]),
+  })
+  .strict();
+
+router.patch(
+  "/:apartmentResidentId/resident-status",
+  requireRole("SUPER_ADMIN", "MANAGER"),
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+    const authenticatedUser = authenticatedRequest.user;
+
+    if (!authenticatedUser) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    const apartmentResidentId = getRequiredParam(
+      request,
+      "apartmentResidentId"
+    );
+
+    const validationResult = updateLinkedResidentStatusSchema.safeParse(
+      request.body
+    );
+
+    if (!validationResult.success) {
+      throw new HttpError(
+        400,
+        "Gönderilen sakin durum bilgisi geçersiz.",
+        validationResult.error.flatten().fieldErrors
+      );
+    }
+
+    const targetApartmentResident = await prisma.apartmentResident.findUnique({
+      where: {
+        id: apartmentResidentId,
+      },
+      select: {
+        id: true,
+        apartmentId: true,
+        userId: true,
+        user: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            role: true,
+            status: true,
+          },
+        },
+      },
+    });
+
+    if (!targetApartmentResident) {
+      throw new HttpError(404, "Daire sakini kaydı bulunamadı.");
+    }
+
+    if (targetApartmentResident.user.role !== "RESIDENT") {
+      throw new HttpError(
+        403,
+        "Yönetici veya süper admin hesabının durumu sakin ekranından değiştirilemez."
+      );
+    }
+
+    if (authenticatedUser.role === "MANAGER") {
+      await ensureApartmentIsInsideUserScope({
+        userId: authenticatedUser.id,
+        userRole: authenticatedUser.role,
+        apartmentId: targetApartmentResident.apartmentId,
+      });
+    }
+
+    const nextStatus = validationResult.data.status;
+
+    if (targetApartmentResident.user.status === nextStatus) {
+      throw new HttpError(
+        409,
+        nextStatus === "ACTIVE"
+          ? "Sakin hesabı zaten aktif durumda."
+          : "Sakin hesabı zaten pasif durumda."
+      );
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: {
+        id: targetApartmentResident.userId,
+      },
+      data: {
+        status: nextStatus,
+      },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        role: true,
+        status: true,
+      },
+    });
+
+    await createAuditLog({
+      request,
+      userId: authenticatedUser.id,
+      action:
+        nextStatus === "PASSIVE"
+          ? "DEACTIVATE_LINKED_RESIDENT"
+          : "ACTIVATE_LINKED_RESIDENT",
+      entityType: "User",
+      entityId: updatedUser.id,
+      metadata: {
+        apartmentResidentId: targetApartmentResident.id,
+        apartmentId: targetApartmentResident.apartmentId,
+        residentEmail: updatedUser.email,
+        previousStatus: targetApartmentResident.user.status,
+        currentStatus: updatedUser.status,
+      },
+    });
+
+    response.status(200).json({
+      success: true,
+      message:
+        nextStatus === "PASSIVE"
+          ? "Sakin hesabı pasif yapıldı. Daire bağlantısını artık kaldırabilirsiniz."
+          : "Sakin hesabı yeniden aktifleştirildi.",
+      data: {
+        user: updatedUser,
+      },
+    });
+  })
+);
+
 router.delete(
   "/:apartmentResidentId",
   requireRole("SUPER_ADMIN", "MANAGER"),
@@ -747,6 +879,7 @@ router.delete(
             fullName: true,
             email: true,
             role: true,
+            status: true,
           },
         },
       },
@@ -759,6 +892,16 @@ router.delete(
     const targetUserRole = targetApartmentResident.user.role;
     const protectedAdministrativeAccount =
       targetUserRole === "MANAGER" || targetUserRole === "SUPER_ADMIN";
+
+    if (
+      targetUserRole === "RESIDENT" &&
+      targetApartmentResident.user.status !== "PASSIVE"
+    ) {
+      throw new HttpError(
+        409,
+        "Daire bağlantısını kaldırmadan önce sakin hesabını pasif yapmalısınız."
+      );
+    }
 
     if (
       authenticatedRequest.user.role === "MANAGER" &&
@@ -816,31 +959,12 @@ router.delete(
           },
         });
 
-      let userDeactivated = false;
-
-      /*
-       * Yönetici ve süper admin hesapları yalnızca sakinlik bağlantısını kaybeder.
-       * Yönetim hesabının durumu ve rolü kesinlikle değiştirilmez.
-       */
-      if (
-        remainingApartmentResidentCount === 0 &&
-        targetUserRole === "RESIDENT"
-      ) {
-        await transaction.user.update({
-          where: {
-            id: targetApartmentResident.userId,
-          },
-          data: {
-            status: "PASSIVE",
-          },
-        });
-
-        userDeactivated = true;
-      }
-
       return {
         remainingApartmentResidentCount,
-        userDeactivated,
+        userDeactivated: false,
+        userAlreadyPassive:
+          targetUserRole === "RESIDENT" &&
+          targetApartmentResident.user.status === "PASSIVE",
       };
     });
 
@@ -858,6 +982,7 @@ router.delete(
         type: targetApartmentResident.type,
         protectedAdministrativeAccount,
         userDeactivated: deleteResult.userDeactivated,
+        userAlreadyPassive: deleteResult.userAlreadyPassive,
         remainingApartmentResidentCount:
           deleteResult.remainingApartmentResidentCount,
       },
@@ -868,8 +993,8 @@ router.delete(
         ? "Kiracı bağlantısı kaldırıldı. Ev sahibi artık sakin olarak görüntülenecek."
         : targetApartmentResident.type === "OWNER" && !apartmentHasTenant
           ? "Ev sahibi bağlantısı kaldırıldı. Daire artık boş görünecek."
-          : deleteResult.userDeactivated
-            ? "Daire sakini bağlantısı kaldırıldı ve sakin hesabı pasif yapıldı."
+          : deleteResult.userAlreadyPassive
+            ? "Pasif sakin hesabının daire bağlantısı kaldırıldı. Aynı e-posta daha sonra yeniden kullanılabilir."
             : targetUserRole === "MANAGER"
               ? "Sakin bağlantısı kaldırıldı. Yönetici hesabı aktif bırakıldı."
               : targetUserRole === "SUPER_ADMIN"
@@ -882,6 +1007,7 @@ router.delete(
       data: {
         residentLinkRemoved: true,
         userDeactivated: deleteResult.userDeactivated,
+        userAlreadyPassive: deleteResult.userAlreadyPassive,
         protectedAdministrativeAccount,
         accountRole: targetUserRole,
         remainingApartmentResidentCount:
@@ -969,13 +1095,6 @@ async function resolveResidentAccount(params: {
   });
 
   if (existingUser) {
-    if (existingUser.status !== "ACTIVE") {
-      throw new HttpError(
-        400,
-        "Pasif kullanıcı hesabı daireye sakin olarak bağlanamaz."
-      );
-    }
-
     if (existingUser.role === "SUPER_ADMIN" && params.actorRole !== "SUPER_ADMIN") {
       throw new HttpError(
         403,
@@ -996,13 +1115,58 @@ async function resolveResidentAccount(params: {
     if (existingResidentLink) {
       throw new HttpError(
         409,
-        "Bu kullanıcı hesabı zaten bir daireye bağlı. Aynı hesap ikinci kez bağlanamaz."
+        "Bu kullanıcı hesabı zaten bir daireye bağlı. Önce mevcut daire bağlantısını kaldırın."
       );
+    }
+
+    if (existingUser.status === "PASSIVE") {
+      if (existingUser.role !== "RESIDENT") {
+        throw new HttpError(
+          409,
+          "Pasif yönetim hesabı otomatik olarak aktifleştirilemez. Önce süper admin hesap durumunu aktifleştirmelidir."
+        );
+      }
+
+      const reactivatedUser = await params.transaction.user.update({
+        where: {
+          id: existingUser.id,
+        },
+        data: {
+          status: "ACTIVE",
+          ...(normalizedAccount.fullName
+            ? { fullName: normalizedAccount.fullName }
+            : {}),
+          ...(normalizedAccount.phone !== undefined
+            ? { phone: normalizedAccount.phone }
+            : {}),
+          ...(params.passwordHash
+            ? {
+                passwordHash: params.passwordHash,
+                mustChangePassword: true,
+              }
+            : {}),
+        },
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          phone: true,
+          role: true,
+          status: true,
+        },
+      });
+
+      return {
+        user: reactivatedUser,
+        created: false,
+        reactivated: true,
+      };
     }
 
     return {
       user: existingUser,
       created: false,
+      reactivated: false,
     };
   }
 
@@ -1040,6 +1204,7 @@ async function resolveResidentAccount(params: {
   return {
     user,
     created: true,
+    reactivated: false,
   };
 }
 
@@ -1230,8 +1395,10 @@ router.post(
           apartmentResident,
           residentUser: residentResult.user,
           residentAccountCreated: residentResult.created,
+          residentAccountReactivated: residentResult.reactivated,
           ownerUser: ownerResult?.user,
           ownerAccountCreated: ownerResult?.created ?? false,
+          ownerAccountReactivated: ownerResult?.reactivated ?? false,
           ownerLinkId,
           usedExistingOwner: type === "TENANT" && Boolean(existingOwner),
         };
@@ -1254,16 +1421,21 @@ router.post(
         linkedUserEmail: result.residentUser.email,
         linkedUserRole: result.residentUser.role,
         residentAccountCreated: result.residentAccountCreated,
+        residentAccountReactivated: result.residentAccountReactivated,
         ownerLinkId: result.ownerLinkId,
         ownerUserId: result.ownerUser?.id,
         ownerUserEmail: result.ownerUser?.email,
         ownerAccountCreated: result.ownerAccountCreated,
+        ownerAccountReactivated: result.ownerAccountReactivated,
         usedExistingOwner: result.usedExistingOwner,
       },
     });
 
-    const message =
-      type === "TENANT"
+    const message = result.residentAccountReactivated
+      ? type === "TENANT"
+        ? "Eski pasif kiracı hesabı yeniden aktifleştirildi ve seçilen daireye bağlandı."
+        : "Eski pasif ev sahibi hesabı yeniden aktifleştirildi ve seçilen daireye bağlandı."
+      : type === "TENANT"
         ? result.usedExistingOwner
           ? "Kiracı hesabı mevcut ev sahibinin dairesine bağlandı."
           : "Ev sahibi ve kiracı hesapları daireye bağlandı. Kiracı sakin olarak gösterilecek."
