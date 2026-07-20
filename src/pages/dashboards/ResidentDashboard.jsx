@@ -175,10 +175,11 @@ function ResidentDashboard() {
     () => ({
       fullName: user?.fullName ?? "Sakin",
       role: "Sakin",
-      apartment:
-        Number(summary?.apartmentsCount ?? 0) > 0
-          ? `${formatNumber(summary?.apartmentsCount)} daire bağlantısı`
-          : "Daire bilgisi yok",
+      apartment: summary?.apartmentInfo
+        ? `${summary.apartmentInfo.site?.name ?? "Site"} / ${
+            summary.apartmentInfo.block?.name ?? "Blok"
+          } / Daire ${summary.apartmentInfo.number ?? "-"}`
+        : "Daire bilgisi yok",
     }),
     [summary, user]
   );

@@ -131,3 +131,28 @@ export async function managerConfirmPaymentReceipt({
     body: formData,
   });
 }
+
+export async function downloadPaymentReceiptFile(receiptId) {
+  const response = await fetch(getPaymentReceiptDownloadUrl(receiptId), {
+    method: "GET",
+    credentials: "include",
+    headers: {
+      Accept: "application/pdf,image/png,image/jpeg,image/webp,*/*",
+    },
+  });
+
+  if (!response.ok) {
+    let message = "Dekont dosyası görüntülenemedi.";
+
+    try {
+      const errorData = await response.json();
+      message = errorData?.message || message;
+    } catch {
+      // Sunucu JSON döndürmediyse güvenli genel mesaj kullanılır.
+    }
+
+    throw new Error(message);
+  }
+
+  return response.blob();
+}

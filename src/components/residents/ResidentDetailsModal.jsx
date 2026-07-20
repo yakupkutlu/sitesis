@@ -66,31 +66,33 @@ function ResidentDetailsModal({ resident, onClose }) {
           </div>
         </div>
 
-        <div className="details-description">
-          <span>Aidat / Ödeme Özeti</span>
+        {resident.owner && (
+          <div className="details-description">
+            <span>Ev Sahibi Bilgileri</span>
 
-          <div className="resident-payment-detail-grid">
-            <div>
-              <span>Toplam Borç</span>
-              <strong>{resident.totalDebt}</strong>
-            </div>
+            <div className="resident-payment-detail-grid">
+              <div>
+                <span>Ad Soyad</span>
+                <strong>{resident.owner.name}</strong>
+              </div>
 
-            <div>
-              <span>Ödenen Tutar</span>
-              <strong>{resident.paidAmount}</strong>
-            </div>
+              <div>
+                <span>Hesap Durumu</span>
+                <strong>{resident.owner.status}</strong>
+              </div>
 
-            <div>
-              <span>Kalan Borç</span>
-              <strong>{resident.remainingDebt}</strong>
-            </div>
+              <div>
+                <span>E-posta</span>
+                <strong>{resident.owner.email}</strong>
+              </div>
 
-            <div>
-              <span>Ödeme Durumu</span>
-              <strong>{resident.paymentStatus}</strong>
+              <div>
+                <span>Telefon</span>
+                <strong>{resident.owner.phone}</strong>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         <div className="details-description">
           <span>Not</span>

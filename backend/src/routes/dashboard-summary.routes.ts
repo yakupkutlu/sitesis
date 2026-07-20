@@ -449,6 +449,7 @@ router.get(
 
     const [
       apartmentsCount,
+      residentApartmentLink,
       paymentBatchesCount,
       paymentAllocationsCount,
       pendingAllocationsCount,
@@ -466,6 +467,36 @@ router.get(
     ] = await Promise.all([
       prisma.apartment.count({
         where: residentApartmentWhere,
+      }),
+      prisma.apartmentResident.findFirst({
+        where: {
+          userId: residentUserId,
+        },
+        orderBy: {
+          createdAt: "asc",
+        },
+        select: {
+          type: true,
+          apartment: {
+            select: {
+              id: true,
+              number: true,
+              floor: true,
+              block: {
+                select: {
+                  id: true,
+                  name: true,
+                  site: {
+                    select: {
+                      id: true,
+                      name: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
       }),
       prisma.paymentBatch.count({
         where: {
@@ -541,6 +572,16 @@ router.get(
       success: true,
       data: {
         apartmentsCount,
+        apartmentInfo: residentApartmentLink
+          ? {
+              id: residentApartmentLink.apartment.id,
+              number: residentApartmentLink.apartment.number,
+              floor: residentApartmentLink.apartment.floor,
+              residentType: residentApartmentLink.type,
+              block: residentApartmentLink.apartment.block,
+              site: residentApartmentLink.apartment.block.site,
+            }
+          : null,
         paymentBatchesCount,
         paymentAllocationsCount,
         pendingAllocationsCount,

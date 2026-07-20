@@ -13,7 +13,6 @@ import {
 import ResidentReceiptSummaryCards from "../../components/resident-receipts/ResidentReceiptSummaryCards";
 import ResidentReceiptUploadForm from "../../components/resident-receipts/ResidentReceiptUploadForm";
 import ResidentReceiptCards from "../../components/resident-receipts/ResidentReceiptCards";
-import ResidentReceiptDetailsModal from "../../components/resident-receipts/ResidentReceiptDetailsModal";
 
 import { getMyPaymentAllocations } from "../../api/paymentBatchesApi";
 import { uploadPaymentReceipt } from "../../api/paymentReceiptsApi";
@@ -132,7 +131,6 @@ function ResidentReceiptsPage() {
   const [formData, setFormData] = useState(emptyFormData);
   const [selectedFile, setSelectedFile] = useState(null);
   const [fileError, setFileError] = useState("");
-  const [selectedReceipt, setSelectedReceipt] = useState(null);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -343,14 +341,10 @@ function ResidentReceiptsPage() {
             <h3>Yüklenen Dekontlar</h3>
           </div>
 
-          <ResidentReceiptCards receipts={receipts} onView={setSelectedReceipt} />
+          <ResidentReceiptCards receipts={receipts} />
         </>
       )}
 
-      <ResidentReceiptDetailsModal
-        receipt={selectedReceipt}
-        onClose={() => setSelectedReceipt(null)}
-      />
     </DashboardLayout>
   );
 }

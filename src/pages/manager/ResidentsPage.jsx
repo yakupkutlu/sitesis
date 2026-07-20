@@ -101,12 +101,36 @@ function formatDate(value) {
   }
 }
 
+function getOwnerDetails(apartment) {
+  const apartmentResidents = Array.isArray(apartment?.residents)
+    ? apartment.residents
+    : [];
+
+  const ownerLink = apartmentResidents.find(
+    (residentLink) => residentLink.type === "OWNER"
+  );
+
+  const ownerUser = ownerLink?.user;
+
+  if (!ownerUser) {
+    return null;
+  }
+
+  return {
+    name: ownerUser.fullName ?? "-",
+    email: ownerUser.email ?? "-",
+    phone: ownerUser.phone ?? "-",
+    status: ownerUser.status === "ACTIVE" ? "Aktif" : "Pasif",
+  };
+}
+
 function mapApartmentResidentToViewModel(item) {
   const user = item.user ?? {};
   const apartment = item.apartment ?? {};
   const block = apartment.block ?? {};
   const site = block.site ?? {};
   const paymentSummary = buildPaymentSummary(item);
+  const owner = getOwnerDetails(apartment);
 
   return {
     id: item.id,
@@ -123,6 +147,7 @@ function mapApartmentResidentToViewModel(item) {
     paidAmount: paymentSummary.paidAmount,
     remainingDebt: paymentSummary.remainingDebt,
     lastPaymentDate: "-",
+    owner,
     note: `${site.name ?? "Site"} / ${block.name ?? "Blok"} / ${
       apartment.number ? `Daire ${apartment.number}` : "Daire"
     }`,

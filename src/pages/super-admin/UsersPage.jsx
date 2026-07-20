@@ -145,12 +145,36 @@ function getResidentTypeLabel(type) {
   return type === "OWNER" ? "Ev Sahibi" : "Kiracı";
 }
 
+function getOwnerDetails(apartment) {
+  const apartmentResidents = Array.isArray(apartment?.residents)
+    ? apartment.residents
+    : [];
+
+  const ownerLink = apartmentResidents.find(
+    (residentLink) => residentLink.type === "OWNER"
+  );
+
+  const ownerUser = ownerLink?.user;
+
+  if (!ownerUser) {
+    return null;
+  }
+
+  return {
+    name: ownerUser.fullName ?? "-",
+    email: ownerUser.email ?? "-",
+    phone: ownerUser.phone ?? "-",
+    status: ownerUser.status === "ACTIVE" ? "Aktif" : "Pasif",
+  };
+}
+
 function mapApartmentResidentToUser(record) {
   const residentUser = record.user ?? {};
   const apartment = record.apartment ?? {};
   const block = apartment.block ?? {};
   const site = block.site ?? {};
   const paymentSummary = buildPaymentSummary(record);
+  const owner = getOwnerDetails(apartment);
 
   return {
     id: record.id,
@@ -169,6 +193,7 @@ function mapApartmentResidentToUser(record) {
     paidAmount: paymentSummary.paidAmount,
     remainingDebt: paymentSummary.remainingDebt,
     lastPaymentDate: "-",
+    owner,
     paymentStatus: paymentSummary.paymentStatus,
     rawRecord: record,
   };

@@ -77,31 +77,33 @@ function UserDetailsModal({ user, onClose }) {
           </div>
         </div>
 
-        <div className="details-description">
-          <span>Aidat / Ödeme Özeti</span>
+        {user.owner && (
+          <div className="details-description">
+            <span>Ev Sahibi Bilgileri</span>
 
-          <div className="user-payment-detail-grid">
-            <div>
-              <span>Toplam Borç</span>
-              <strong>{user.totalDebt || "-"}</strong>
-            </div>
+            <div className="user-payment-detail-grid">
+              <div>
+                <span>Ad Soyad</span>
+                <strong>{user.owner.name}</strong>
+              </div>
 
-            <div>
-              <span>Ödenen Tutar</span>
-              <strong>{user.paidAmount || "-"}</strong>
-            </div>
+              <div>
+                <span>Hesap Durumu</span>
+                <strong>{user.owner.status}</strong>
+              </div>
 
-            <div>
-              <span>Kalan Borç</span>
-              <strong>{user.remainingDebt || "-"}</strong>
-            </div>
+              <div>
+                <span>E-posta</span>
+                <strong>{user.owner.email}</strong>
+              </div>
 
-            <div>
-              <span>Son Ödeme Tarihi</span>
-              <strong>{user.lastPaymentDate || "-"}</strong>
+              <div>
+                <span>Telefon</span>
+                <strong>{user.owner.phone}</strong>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </section>
     </div>
   );

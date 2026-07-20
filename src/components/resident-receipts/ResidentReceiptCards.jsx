@@ -1,4 +1,12 @@
-import { Eye, FileText } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  Eye,
+  FileText,
+  LoaderCircle,
+  X,
+} from "lucide-react";
+
+import { downloadPaymentReceiptFile } from "../../api/paymentReceiptsApi";
 
 function getReceiptStatusClass(status) {
   if (status === "Onaylandı") {
@@ -12,8 +20,102 @@ function getReceiptStatusClass(status) {
   return "waiting";
 }
 
-function ResidentReceiptCards({ receipts, onView }) {
+function getPreviewKind(receipt, mimeType) {
+  const normalizedMimeType = String(mimeType || "").toLowerCase();
+  const normalizedFileName = String(receipt?.fileName || "").toLowerCase();
+
+  if (
+    normalizedMimeType === "application/pdf" ||
+    normalizedFileName.endsWith(".pdf")
+  ) {
+    return "pdf";
+  }
+
+  if (
+    normalizedMimeType.startsWith("image/") ||
+    [".png", ".jpg", ".jpeg", ".webp"].some((extension) =>
+      normalizedFileName.endsWith(extension)
+    )
+  ) {
+    return "image";
+  }
+
+  return "other";
+}
+
+function ResidentReceiptCards({ receipts }) {
   const safeReceipts = receipts || [];
+
+  const [activeReceiptId, setActiveReceiptId] = useState(null);
+  const [previewState, setPreviewState] = useState({
+    isLoading: false,
+    url: "",
+    mimeType: "",
+    error: "",
+  });
+
+  const objectUrlRef = useRef("");
+
+  function releasePreviewUrl() {
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = "";
+    }
+  }
+
+  function closePreview() {
+    releasePreviewUrl();
+    setActiveReceiptId(null);
+    setPreviewState({
+      isLoading: false,
+      url: "",
+      mimeType: "",
+      error: "",
+    });
+  }
+
+  async function handlePreviewToggle(receipt) {
+    if (activeReceiptId === receipt.id) {
+      closePreview();
+      return;
+    }
+
+    releasePreviewUrl();
+    setActiveReceiptId(receipt.id);
+    setPreviewState({
+      isLoading: true,
+      url: "",
+      mimeType: "",
+      error: "",
+    });
+
+    try {
+      const fileBlob = await downloadPaymentReceiptFile(receipt.id);
+      const objectUrl = URL.createObjectURL(fileBlob);
+
+      objectUrlRef.current = objectUrl;
+
+      setPreviewState({
+        isLoading: false,
+        url: objectUrl,
+        mimeType: fileBlob.type,
+        error: "",
+      });
+    } catch (error) {
+      setPreviewState({
+        isLoading: false,
+        url: "",
+        mimeType: "",
+        error: error?.message || "Dekont dosyası görüntülenemedi.",
+      });
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      releasePreviewUrl();
+    };
+  }, []);
 
   if (safeReceipts.length === 0) {
     return (
@@ -27,6 +129,11 @@ function ResidentReceiptCards({ receipts, onView }) {
     <section className="resident-receipt-cards-grid">
       {safeReceipts.map((receipt) => {
         const statusClass = getReceiptStatusClass(receipt.status);
+        const isPreviewOpen = activeReceiptId === receipt.id;
+        const previewKind = getPreviewKind(
+          receipt,
+          isPreviewOpen ? previewState.mimeType : ""
+        );
 
         return (
           <article className="resident-receipt-card" key={receipt.id}>
@@ -73,13 +180,90 @@ function ResidentReceiptCards({ receipts, onView }) {
             <div className="resident-receipt-card-actions">
               <button
                 type="button"
-                onClick={() => onView(receipt)}
-                aria-label={`${receipt.paymentTitle || "Dekont"} detayını görüntüle`}
+                onClick={() => handlePreviewToggle(receipt)}
+                aria-expanded={isPreviewOpen}
+                aria-controls={`receipt-preview-${receipt.id}`}
+                aria-label={
+                  isPreviewOpen
+                    ? `${receipt.paymentTitle || "Dekont"} önizlemesini kapat`
+                    : `${receipt.paymentTitle || "Dekont"} dosyasını görüntüle`
+                }
               >
-                <Eye size={16} />
-                Görüntüle
+                {isPreviewOpen ? <X size={16} /> : <Eye size={16} />}
+                {isPreviewOpen ? "Kapat" : "Görüntüle"}
               </button>
             </div>
+
+            {isPreviewOpen && (
+              <div
+                id={`receipt-preview-${receipt.id}`}
+                className="resident-receipt-inline-preview"
+              >
+                <div className="resident-receipt-inline-preview-header">
+                  <div>
+                    <span>Dekont Önizlemesi</span>
+                    <strong>{receipt.fileName || "Dekont dosyası"}</strong>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="resident-receipt-inline-close"
+                    onClick={closePreview}
+                    aria-label="Dekont önizlemesini kapat"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                {previewState.isLoading && (
+                  <div className="resident-receipt-preview-message">
+                    <LoaderCircle
+                      size={22}
+                      className="resident-receipt-preview-spinner"
+                    />
+                    <span>Dekont yükleniyor...</span>
+                  </div>
+                )}
+
+                {!previewState.isLoading && previewState.error && (
+                  <div className="resident-receipt-preview-error">
+                    {previewState.error}
+                  </div>
+                )}
+
+                {!previewState.isLoading &&
+                  !previewState.error &&
+                  previewState.url &&
+                  previewKind === "image" && (
+                    <img
+                      className="resident-receipt-preview-image"
+                      src={previewState.url}
+                      alt={`${receipt.paymentTitle || "Ödeme"} dekontu`}
+                    />
+                  )}
+
+                {!previewState.isLoading &&
+                  !previewState.error &&
+                  previewState.url &&
+                  previewKind === "pdf" && (
+                    <iframe
+                      className="resident-receipt-preview-pdf"
+                      src={previewState.url}
+                      title={`${receipt.paymentTitle || "Ödeme"} dekont PDF önizlemesi`}
+                    />
+                  )}
+
+                {!previewState.isLoading &&
+                  !previewState.error &&
+                  previewState.url &&
+                  previewKind === "other" && (
+                    <div className="resident-receipt-preview-message">
+                      <FileText size={22} />
+                      <span>Bu dosya türü tarayıcı içinde önizlenemiyor.</span>
+                    </div>
+                  )}
+              </div>
+            )}
           </article>
         );
       })}
