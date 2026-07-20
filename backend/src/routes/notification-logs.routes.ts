@@ -91,6 +91,118 @@ const notificationLogParamsSchema = z.object({
   notificationLogId: z.string().uuid(),
 });
 
+
+router.get(
+  "/usage-summary",
+  asyncHandler(async (_request: Request, response: Response) => {
+    const whereCondition: Prisma.NotificationLogWhereInput = {
+      status: "SENT",
+      createdByUserId: {
+        not: null,
+      },
+      createdByUser: {
+        is: {
+          role: {
+            in: ["MANAGER", "SUPER_ADMIN"],
+          },
+        },
+      },
+    };
+
+    const [users, groupedUsage] = await Promise.all([
+      prisma.user.findMany({
+        where: {
+          role: {
+            in: ["MANAGER", "SUPER_ADMIN"],
+          },
+        },
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          role: true,
+          status: true,
+        },
+        orderBy: [
+          {
+            role: "asc",
+          },
+          {
+            fullName: "asc",
+          },
+        ],
+      }),
+      prisma.notificationLog.groupBy({
+        by: ["createdByUserId", "channel"],
+        where: whereCondition,
+        _count: {
+          _all: true,
+        },
+      }),
+    ]);
+
+    const usageByUserId = new Map<
+      string,
+      {
+        smsCount: number;
+        emailCount: number;
+      }
+    >();
+
+    for (const usage of groupedUsage) {
+      if (!usage.createdByUserId) {
+        continue;
+      }
+
+      const currentUsage = usageByUserId.get(usage.createdByUserId) ?? {
+        smsCount: 0,
+        emailCount: 0,
+      };
+
+      if (usage.channel === "SMS") {
+        currentUsage.smsCount += usage._count._all;
+      } else if (usage.channel === "EMAIL") {
+        currentUsage.emailCount += usage._count._all;
+      }
+
+      usageByUserId.set(usage.createdByUserId, currentUsage);
+    }
+
+    const usageRows = users
+      .map((user) => {
+        const usage = usageByUserId.get(user.id) ?? {
+          smsCount: 0,
+          emailCount: 0,
+        };
+
+        return {
+          userId: user.id,
+          fullName: user.fullName,
+          email: user.email,
+          role: user.role,
+          status: user.status,
+          smsCount: usage.smsCount,
+          emailCount: usage.emailCount,
+        };
+      })
+      .sort((firstUser, secondUser) => {
+        const firstTotal = firstUser.smsCount + firstUser.emailCount;
+        const secondTotal = secondUser.smsCount + secondUser.emailCount;
+
+        if (firstTotal !== secondTotal) {
+          return secondTotal - firstTotal;
+        }
+
+        return firstUser.fullName.localeCompare(secondUser.fullName, "tr");
+      });
+
+    response.status(200).json({
+      success: true,
+      data: usageRows,
+    });
+  })
+);
+
 router.get(
   "/",
   asyncHandler(async (request: Request, response: Response) => {

@@ -17,3 +17,7 @@ function buildQueryString(params = {}) {
 export async function getNotificationLogs(params = {}) {
   return apiRequest(`/notification-logs${buildQueryString(params)}`);
 }
+
+export async function getNotificationUsageSummary() {
+  return apiRequest("/notification-logs/usage-summary");
+}

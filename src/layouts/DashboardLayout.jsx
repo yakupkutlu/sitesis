@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
+  BarChart3,
   Bell,
   Building2,
   ChevronDown,
@@ -76,7 +77,7 @@ const notificationsByRole = {
 };
 
 const notificationHomePathByRole = {
-  "Süper Admin": "/super-admin/notifications/sms",
+  "Süper Admin": "/super-admin/notifications/overview",
   Yönetici: "/manager/requests",
   Sakin: "/resident/announcements",
 };
@@ -120,7 +121,8 @@ function normalizeNavigationItem(item) {
     item?.label === "SMS / E-posta" ||
     item?.path === "/super-admin/notifications" ||
     item?.path === "/super-admin/notifications/sms" ||
-    item?.path === "/super-admin/notifications/email";
+    item?.path === "/super-admin/notifications/email" ||
+    item?.path === "/super-admin/notifications/overview";
 
   if (!isNotificationItem) {
     return item;
@@ -140,6 +142,11 @@ function normalizeNavigationItem(item) {
         label: "E-posta Yönetimi",
         path: "/super-admin/notifications/email",
         icon: Mail,
+      },
+      {
+        label: "Genel Durum",
+        path: "/super-admin/notifications/overview",
+        icon: BarChart3,
       },
     ],
   };

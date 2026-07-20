@@ -26,6 +26,7 @@ import ManagersPage from "./pages/super-admin/ManagersPage";
 import AnnouncementsPage from "./pages/super-admin/AnnouncementsPage";
 import SmsManagementPage from "./pages/super-admin/SmsManagementPage";
 import EmailManagementPage from "./pages/super-admin/EmailManagementPage";
+import NotificationOverviewPage from "./pages/super-admin/NotificationOverviewPage";
 import ContactMessagesPage from "./pages/super-admin/ContactMessagesPage";
 import AiSettingsPage from "./pages/super-admin/AiSettingsPage";
 import SettingsPage from "./pages/super-admin/SettingsPage";
@@ -122,7 +123,7 @@ function App() {
             path="/super-admin/notifications"
             element={protect(
               ["SUPER_ADMIN"],
-              <Navigate to="/super-admin/notifications/sms" replace />
+              <Navigate to="/super-admin/notifications/overview" replace />
             )}
           />
 
@@ -134,6 +135,11 @@ function App() {
           <Route
             path="/super-admin/notifications/email"
             element={protect(["SUPER_ADMIN"], <EmailManagementPage />)}
+          />
+
+          <Route
+            path="/super-admin/notifications/overview"
+            element={protect(["SUPER_ADMIN"], <NotificationOverviewPage />)}
           />
 
           <Route
