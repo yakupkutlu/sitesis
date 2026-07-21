@@ -177,6 +177,7 @@ type ResidentLinkableUser = {
 async function ensureUserCanBeLinkedAsResident(params: {
   userId: string;
   actorRole: UserRoleValue;
+  residentType: "OWNER" | "TENANT";
   ignoreApartmentResidentId?: string;
 }): Promise<ResidentLinkableUser> {
   const user = await prisma.user.findUnique({
@@ -211,28 +212,31 @@ async function ensureUserCanBeLinkedAsResident(params: {
     );
   }
 
-  const existingResidentLink = await prisma.apartmentResident.findFirst({
-    where: {
-      userId: user.id,
-      ...(params.ignoreApartmentResidentId
-        ? {
-            id: {
-              not: params.ignoreApartmentResidentId,
-            },
-          }
-        : {}),
-    },
-    select: {
-      id: true,
-      apartmentId: true,
-    },
-  });
+  if (params.residentType === "TENANT") {
+    const existingTenantLink = await prisma.apartmentResident.findFirst({
+      where: {
+        userId: user.id,
+        type: "TENANT",
+        ...(params.ignoreApartmentResidentId
+          ? {
+              id: {
+                not: params.ignoreApartmentResidentId,
+              },
+            }
+          : {}),
+      },
+      select: {
+        id: true,
+        apartmentId: true,
+      },
+    });
 
-  if (existingResidentLink) {
-    throw new HttpError(
-      409,
-      "Bu kullanıcı hesabı zaten bir daireye sakin olarak bağlı. Aynı hesap ikinci kez bağlanamaz."
-    );
+    if (existingTenantLink) {
+      throw new HttpError(
+        409,
+        "Bu kullanıcı hesabı zaten başka bir daireye kiracı olarak bağlı. Bir kullanıcı yalnızca bir dairede kiracı olabilir."
+      );
+    }
   }
 
   return user;
@@ -485,6 +489,7 @@ router.post(
     await ensureUserCanBeLinkedAsResident({
       userId,
       actorRole: authenticatedRequest.user.role,
+      residentType: type,
     });
     await ensureApartmentResidentUnique({
       apartmentId,
@@ -604,13 +609,12 @@ router.patch(
       await ensureApartmentExists(apartmentId);
     }
 
-    if (userId !== undefined && userId !== targetApartmentResident.userId) {
-      await ensureUserCanBeLinkedAsResident({
-        userId,
-        actorRole: authenticatedRequest.user.role,
-        ignoreApartmentResidentId: targetApartmentResident.id,
-      });
-    }
+    await ensureUserCanBeLinkedAsResident({
+      userId: nextUserId,
+      actorRole: authenticatedRequest.user.role,
+      residentType: nextType,
+      ignoreApartmentResidentId: targetApartmentResident.id,
+    });
 
     if (
       authenticatedRequest.user.role === "MANAGER" &&
@@ -1077,6 +1081,7 @@ async function resolveResidentAccount(params: {
   account: ResidentAccountInput;
   passwordHash?: string;
   actorRole: ActorRole;
+  residentType: "OWNER" | "TENANT";
 }) {
   const normalizedAccount = normalizeAccountInput(params.account);
 
@@ -1102,21 +1107,24 @@ async function resolveResidentAccount(params: {
       );
     }
 
-    const existingResidentLink =
-      await params.transaction.apartmentResident.findFirst({
-        where: {
-          userId: existingUser.id,
-        },
-        select: {
-          id: true,
-        },
-      });
+    if (params.residentType === "TENANT") {
+      const existingTenantLink =
+        await params.transaction.apartmentResident.findFirst({
+          where: {
+            userId: existingUser.id,
+            type: "TENANT",
+          },
+          select: {
+            id: true,
+          },
+        });
 
-    if (existingResidentLink) {
-      throw new HttpError(
-        409,
-        "Bu kullanıcı hesabı zaten bir daireye bağlı. Önce mevcut daire bağlantısını kaldırın."
-      );
+      if (existingTenantLink) {
+        throw new HttpError(
+          409,
+          "Bu kullanıcı hesabı zaten başka bir daireye kiracı olarak bağlı. Bir kullanıcı yalnızca bir dairede kiracı olabilir."
+        );
+      }
     }
 
     if (existingUser.status === "PASSIVE") {
@@ -1359,6 +1367,7 @@ router.post(
             account: owner,
             passwordHash: ownerPasswordHash,
             actorRole: authenticatedUser.role,
+            residentType: "OWNER",
           });
 
           const ownerLink = await transaction.apartmentResident.create({
@@ -1380,6 +1389,7 @@ router.post(
           account: residentAccount,
           passwordHash: residentPasswordHash,
           actorRole: authenticatedUser.role,
+          residentType: type,
         });
 
         const apartmentResident = await transaction.apartmentResident.create({

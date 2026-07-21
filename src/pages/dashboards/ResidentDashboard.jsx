@@ -122,7 +122,7 @@ function mapRequestToDashboard(request) {
 }
 
 function ResidentDashboard() {
-  const { user } = useAuth();
+  const { user, selectedApartmentId } = useAuth();
 
   const [summary, setSummary] = useState(null);
   const [recentAnnouncements, setRecentAnnouncements] = useState([]);
@@ -169,7 +169,7 @@ function ResidentDashboard() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [selectedApartmentId]);
 
   const residentInfo = useMemo(
     () => ({

@@ -9,6 +9,7 @@ import {
   getCurrentUser,
   logoutUser,
   selectAccountMode as selectAccountModeRequest,
+  selectResidentApartment as selectResidentApartmentRequest,
 } from "../api/authApi";
 import AuthContext from "./auth-context-core";
 
@@ -81,6 +82,10 @@ function getUserHomePath(user) {
     return "/select-account-mode";
   }
 
+  if (user.requiresApartmentSelection) {
+    return "/select-apartment";
+  }
+
   const accountMode = user.accountMode ?? user.role;
   return modeHomePaths[accountMode] ?? "/login";
 }
@@ -134,6 +139,22 @@ export function AuthProvider({ children }) {
     [setUser]
   );
 
+  const selectApartment = useCallback(
+    async (apartmentId) => {
+      const result = await selectResidentApartmentRequest(apartmentId);
+      const nextUser =
+        result?.data?.user ?? result?.data ?? result?.user ?? null;
+
+      if (!nextUser) {
+        throw new Error("Seçilen daire doğrulanamadı.");
+      }
+
+      setUser(nextUser);
+      return nextUser;
+    },
+    [setUser]
+  );
+
   const logout = useCallback(async () => {
     try {
       await logoutUser();
@@ -174,14 +195,31 @@ export function AuthProvider({ children }) {
         : [],
       canSwitchAccountMode: Boolean(user?.canSwitchAccountMode),
       requiresModeSelection: Boolean(user?.requiresModeSelection),
+      residentApartments: Array.isArray(user?.residentApartments)
+        ? user.residentApartments
+        : [],
+      selectedApartmentId: user?.selectedApartmentId ?? null,
+      selectedApartment: user?.selectedApartment ?? null,
+      requiresApartmentSelection: Boolean(
+        user?.requiresApartmentSelection
+      ),
       requiresPasswordChange: Boolean(user?.mustChangePassword),
       roleHomePath: getUserHomePath(user),
       refreshUser,
       selectMode,
+      selectApartment,
       setUser,
       logout,
     }),
-    [isLoading, logout, refreshUser, selectMode, setUser, user]
+    [
+      isLoading,
+      logout,
+      refreshUser,
+      selectApartment,
+      selectMode,
+      setUser,
+      user,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

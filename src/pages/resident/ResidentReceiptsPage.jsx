@@ -125,7 +125,7 @@ function mapReceiptToViewModel(receipt, allocation) {
 }
 
 function ResidentReceiptsPage() {
-  const { user } = useAuth();
+  const { user, selectedApartmentId } = useAuth();
 
   const [allocations, setAllocations] = useState([]);
   const [formData, setFormData] = useState(emptyFormData);
@@ -149,6 +149,11 @@ function ResidentReceiptsPage() {
       try {
         setIsLoading(true);
         setErrorMessage("");
+        setMessage("");
+        setAllocations([]);
+        setFormData(emptyFormData);
+        setSelectedFile(null);
+        setFileError("");
 
         const result = await getMyPaymentAllocations();
 
@@ -171,7 +176,7 @@ function ResidentReceiptsPage() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [selectedApartmentId]);
 
   const paymentOptions = useMemo(() => {
     return allocations

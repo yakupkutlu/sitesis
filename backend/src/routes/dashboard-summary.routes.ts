@@ -422,14 +422,27 @@ router.get(
     }
 
     const residentUserId = authenticatedRequest.user.id;
+    const selectedApartmentId =
+      authenticatedRequest.user.selectedApartmentId;
     const now = new Date();
 
     const residentApartmentWhere = {
-      residents: {
-        some: {
-          userId: residentUserId,
+      AND: [
+        {
+          residents: {
+            some: {
+              userId: residentUserId,
+            },
+          },
         },
-      },
+        ...(selectedApartmentId
+          ? [
+              {
+                id: selectedApartmentId,
+              },
+            ]
+          : []),
+      ],
     } satisfies Prisma.ApartmentWhereInput;
 
     const residentAllocationWhere = {
@@ -471,6 +484,11 @@ router.get(
       prisma.apartmentResident.findFirst({
         where: {
           userId: residentUserId,
+          ...(selectedApartmentId
+            ? {
+                apartmentId: selectedApartmentId,
+              }
+            : {}),
         },
         orderBy: {
           createdAt: "asc",

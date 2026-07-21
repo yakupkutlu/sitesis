@@ -184,6 +184,8 @@ function DashboardLayout({
     accountMode,
     availableModes,
     canSwitchAccountMode,
+    residentApartments,
+    selectedApartment,
   } = useAuth();
   const {
     activeAssignment,
@@ -276,6 +278,20 @@ function DashboardLayout({
     });
   }
 
+  function openResidentApartmentSelector() {
+    if (residentApartments.length < 2) {
+      return;
+    }
+
+    closeTopbarMenus();
+
+    navigate("/select-apartment", {
+      state: {
+        from: location.pathname,
+      },
+    });
+  }
+
   function toggleHelp() {
     setIsHelpOpen((currentValue) => !currentValue);
     setIsProfileMenuOpen(false);
@@ -296,9 +312,14 @@ function DashboardLayout({
 
       closeTopbarMenus();
 
-      navigate(accountModeHomePath[selectedMode] ?? "/login", {
-        replace: true,
-      });
+      navigate(
+        nextUser?.requiresApartmentSelection
+          ? "/select-apartment"
+          : accountModeHomePath[selectedMode] ?? "/login",
+        {
+          replace: true,
+        }
+      );
     } catch (error) {
       setAccountModeError(
         error?.message ?? "Hesap modu değiştirilemedi."
@@ -509,6 +530,31 @@ function DashboardLayout({
                 <span>
                   <small>Çalışma Alanı</small>
                   <strong>{activeAssignmentLabel}</strong>
+                </span>
+              </button>
+            )}
+
+            {roleBadge === "Sakin" && selectedApartment && (
+              <button
+                type="button"
+                className="topbar-manager-scope-button"
+                onClick={openResidentApartmentSelector}
+                disabled={residentApartments.length < 2}
+                title={
+                  residentApartments.length > 1
+                    ? "Aktif daireyi değiştir"
+                    : "Bu hesaba bağlı tek daire"
+                }
+              >
+                <MapPin size={18} />
+
+                <span>
+                  <small>Aktif Daire</small>
+                  <strong>
+                    {selectedApartment.apartment.block.site.name} /{" "}
+                    {selectedApartment.apartment.block.name} / Daire{" "}
+                    {selectedApartment.apartment.number}
+                  </strong>
                 </span>
               </button>
             )}

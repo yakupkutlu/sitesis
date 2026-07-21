@@ -1,6 +1,7 @@
 ﻿import express, { type Request, type Response } from "express";
 
 import prisma from "../db/prisma.js";
+import { type Prisma } from "../generated/prisma/client.js";
 import {
   requireAuth,
   requireRole,
@@ -14,6 +15,30 @@ const router = express.Router();
 router.use(requireAuth);
 router.use(requireRole("RESIDENT"));
 
+function buildResidentApartmentWhere(
+  userId: string,
+  selectedApartmentId: string | null
+) {
+  return {
+    AND: [
+      {
+        residents: {
+          some: {
+            userId,
+          },
+        },
+      },
+      ...(selectedApartmentId
+        ? [
+            {
+              id: selectedApartmentId,
+            },
+          ]
+        : []),
+    ],
+  } satisfies Prisma.ApartmentWhereInput;
+}
+
 router.get(
   "/payments",
   asyncHandler(async (request: Request, response: Response) => {
@@ -23,15 +48,14 @@ router.get(
       throw new HttpError(401, "Oturum bulunamadı.");
     }
 
+    const residentApartmentWhere = buildResidentApartmentWhere(
+      authenticatedRequest.user.id,
+      authenticatedRequest.user.selectedApartmentId
+    );
+
     const payments = await prisma.paymentAllocation.findMany({
       where: {
-        apartment: {
-          residents: {
-            some: {
-              userId: authenticatedRequest.user.id,
-            },
-          },
-        },
+        apartment: residentApartmentWhere,
       },
       include: {
         paymentBatch: {
@@ -155,15 +179,14 @@ router.get(
       throw new HttpError(401, "Oturum bulunamadı.");
     }
 
+    const residentApartmentWhere = buildResidentApartmentWhere(
+      authenticatedRequest.user.id,
+      authenticatedRequest.user.selectedApartmentId
+    );
+
     const payments = await prisma.paymentAllocation.findMany({
       where: {
-        apartment: {
-          residents: {
-            some: {
-              userId: authenticatedRequest.user.id,
-            },
-          },
-        },
+        apartment: residentApartmentWhere,
       },
       select: {
         id: true,

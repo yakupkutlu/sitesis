@@ -146,7 +146,7 @@ function formatCurrency(value) {
 }
 
 function ResidentPaymentsPage() {
-  const { user } = useAuth();
+  const { user, selectedApartmentId } = useAuth();
 
   const [payments, setPayments] = useState([]);
   const [selectedPayment, setSelectedPayment] = useState(null);
@@ -165,6 +165,8 @@ function ResidentPaymentsPage() {
       try {
         setIsLoading(true);
         setErrorMessage("");
+        setPayments([]);
+        setSelectedPayment(null);
 
         const result = await getMyPaymentAllocations();
 
@@ -187,7 +189,7 @@ function ResidentPaymentsPage() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [selectedApartmentId]);
 
   const summary = useMemo(() => {
     const totalDebt = payments.reduce(

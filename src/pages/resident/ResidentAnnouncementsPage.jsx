@@ -124,7 +124,7 @@ function mapAnnouncementToViewModel(announcement) {
 }
 
 function ResidentAnnouncementsPage() {
-  const { user } = useAuth();
+  const { user, selectedApartmentId } = useAuth();
 
   const [announcements, setAnnouncements] = useState([]);
   const [selectedAnnouncement, setSelectedAnnouncement] = useState(null);
@@ -143,6 +143,8 @@ function ResidentAnnouncementsPage() {
       try {
         setIsLoading(true);
         setErrorMessage("");
+        setAnnouncements([]);
+        setSelectedAnnouncement(null);
 
         const result = await getAnnouncements({
           page: 1,
@@ -168,7 +170,7 @@ function ResidentAnnouncementsPage() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [selectedApartmentId]);
 
   const summary = useMemo(() => {
     return {

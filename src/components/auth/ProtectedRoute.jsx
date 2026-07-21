@@ -11,6 +11,7 @@ function ProtectedRoute({ allowedRoles, children }) {
     isAuthenticated,
     roleHomePath,
     requiresModeSelection,
+    requiresApartmentSelection,
     requiresPasswordChange,
   } = useAuth();
 
@@ -42,6 +43,19 @@ function ProtectedRoute({ allowedRoles, children }) {
     return (
       <Navigate
         to="/select-account-mode"
+        replace
+        state={{ from: location.pathname }}
+      />
+    );
+  }
+
+  if (
+    requiresApartmentSelection &&
+    location.pathname !== "/select-apartment"
+  ) {
+    return (
+      <Navigate
+        to="/select-apartment"
         replace
         state={{ from: location.pathname }}
       />

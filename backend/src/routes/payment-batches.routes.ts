@@ -408,8 +408,19 @@ router.get(
       throw new HttpError(401, "Oturum bulunamadı.");
     }
 
+    const selectedApartmentId =
+      authenticatedRequest.user.selectedApartmentId;
+
+    if (!selectedApartmentId) {
+      throw new HttpError(
+        409,
+        "Ödeme bilgilerini görüntülemek için aktif daire seçmelisiniz."
+      );
+    }
+
     const allocations = await prisma.paymentAllocation.findMany({
       where: {
+        apartmentId: selectedApartmentId,
         apartment: {
           residents: {
             some: {

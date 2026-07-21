@@ -17,7 +17,7 @@ import {
   getCurrentUser,
   updateOwnProfile,
 } from "../../api/authApi";
-
+import ResidentApartmentInfo from "../../components/resident-settings/ResidentApartmentInfo";
 
 const navItems = [
   { label: "Panel", path: "/resident/dashboard", icon: Home },
@@ -42,7 +42,7 @@ function getInitialAppearanceData() {
 }
 
 function ResidentSettingsPage() {
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, selectedApartment } = useAuth();
 
   const [profileData, setProfileData] = useState({
     fullName: "",
@@ -61,6 +61,24 @@ function ResidentSettingsPage() {
   const [errorMessage, setErrorMessage] = useState("");
 
   const isDarkMode = appearanceData.themeMode.toLowerCase().includes("koyu");
+
+  const activeApartmentInfo = selectedApartment
+    ? {
+        siteName:
+          selectedApartment.apartment?.block?.site?.name ?? "Tanımlanmamış",
+        blockName:
+          selectedApartment.apartment?.block?.name ?? "Tanımlanmamış",
+        apartmentNumber:
+          selectedApartment.apartment?.number ?? "Tanımlanmamış",
+        floor: selectedApartment.apartment?.floor ?? null,
+        residentType:
+          selectedApartment.residentType === "OWNER"
+            ? "Ev Sahibi"
+            : selectedApartment.residentType === "TENANT"
+              ? "Kiracı"
+              : "Tanımlanmamış",
+      }
+    : null;
 
   useEffect(() => {
     let isMounted = true;
@@ -259,7 +277,10 @@ function ResidentSettingsPage() {
           <p>Ayarlar yükleniyor...</p>
         </div>
       ) : (
-        <div className="resident-settings-grid">
+        <>
+          <ResidentApartmentInfo apartmentInfo={activeApartmentInfo} />
+
+          <div className="resident-settings-grid">
           <section className="dashboard-panel">
             <span className="section-kicker">Profil</span>
             <h3>Profil Bilgileri</h3>
@@ -409,7 +430,8 @@ function ResidentSettingsPage() {
               </div>
             </form>
           </section>
-        </div>
+          </div>
+        </>
       )}
     </DashboardLayout>
   );

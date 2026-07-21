@@ -447,11 +447,21 @@ async function ensureUserCanDownloadReceipt(params: {
   }
 
   if (params.user.role === "RESIDENT") {
+    const selectedApartmentId = params.user.selectedApartmentId;
+    const receiptApartmentId =
+      receipt.paymentAllocation.apartment.id;
     const isResidentOfApartment =
       receipt.paymentAllocation.apartment.residents.length > 0;
 
-    if (!isResidentOfApartment) {
-      throw new HttpError(403, "Bu dekontu indirme yetkiniz yok.");
+    if (
+      !selectedApartmentId ||
+      receiptApartmentId !== selectedApartmentId ||
+      !isResidentOfApartment
+    ) {
+      throw new HttpError(
+        403,
+        "Bu dekont aktif olarak seçtiğiniz daireye ait değildir."
+      );
     }
 
     return receipt;
@@ -979,6 +989,7 @@ router.post(
         status: true,
         apartment: {
           select: {
+            id: true,
             residents: {
               where: {
                 userId: authenticatedRequest.user.id,
@@ -1000,15 +1011,28 @@ router.post(
     }
 
     const isSuperAdmin = authenticatedRequest.user.role === "SUPER_ADMIN";
+    const isResidentMode = authenticatedRequest.user.role === "RESIDENT";
     const isResidentOwnerOfApartment =
       allocation.apartment.residents.length > 0;
+    const selectedApartmentId =
+      authenticatedRequest.user.selectedApartmentId;
+    const belongsToSelectedApartment =
+      selectedApartmentId === allocation.apartment.id;
 
-    if (!isSuperAdmin && !isResidentOwnerOfApartment) {
+    if (
+      !isSuperAdmin &&
+      (
+        !isResidentMode ||
+        !selectedApartmentId ||
+        !belongsToSelectedApartment ||
+        !isResidentOwnerOfApartment
+      )
+    ) {
       await deleteUploadedFile(request.file);
 
       throw new HttpError(
         403,
-        "Bu ödeme kaydı için dekont yükleme yetkiniz yok.",
+        "Bu ödeme kaydı aktif olarak seçtiğiniz daireye ait değildir.",
       );
     }
 

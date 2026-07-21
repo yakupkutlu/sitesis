@@ -82,9 +82,14 @@ function SelectAccountModePage() {
       const nextUser = await selectMode(mode);
       const selectedMode = nextUser?.accountMode ?? nextUser?.role ?? mode;
 
-      navigate(modePaths[selectedMode] ?? "/login", {
-        replace: true,
-      });
+      navigate(
+        nextUser?.requiresApartmentSelection
+          ? "/select-apartment"
+          : modePaths[selectedMode] ?? "/login",
+        {
+          replace: true,
+        }
+      );
     } catch (error) {
       setErrorMessage(error?.message ?? "Hesap modu seçilemedi.");
     } finally {

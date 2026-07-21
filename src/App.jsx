@@ -13,6 +13,7 @@ import Login from "./pages/Login";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import SelectAccountModePage from "./pages/SelectAccountModePage";
+import SelectApartmentPage from "./pages/SelectApartmentPage";
 import ChangePasswordRequiredPage from "./pages/ChangePasswordRequiredPage";
 import InstallPage from "./pages/InstallPage";
 import NotFound from "./pages/NotFound";
@@ -72,7 +73,8 @@ function App() {
     location.pathname.startsWith("/super-admin") ||
     location.pathname.startsWith("/manager") ||
     location.pathname.startsWith("/resident") ||
-    location.pathname === "/select-account-mode";
+    location.pathname === "/select-account-mode" ||
+    location.pathname === "/select-apartment";
 
   return (
     <div className="app">
@@ -92,6 +94,11 @@ function App() {
           <Route
             path="/select-account-mode"
             element={protect(undefined, <SelectAccountModePage />)}
+          />
+
+          <Route
+            path="/select-apartment"
+            element={protect(["RESIDENT"], <SelectApartmentPage />)}
           />
 
           <Route

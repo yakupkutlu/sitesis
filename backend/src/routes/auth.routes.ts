@@ -16,6 +16,7 @@ import {
   requireAuth,
   type AccountMode,
   type AuthenticatedRequest,
+  type ResidentApartmentOption,
 } from "../middlewares/auth.middleware.js";
 import { forgotPasswordLimiter, loginLimiter, resetPasswordLimiter } from "../middlewares/rate-limit.middleware.js";
 import { queueEmailNotification } from "../services/notification.service.js";
@@ -33,6 +34,12 @@ const loginSchema = z.object({
 const selectAccountModeSchema = z
   .object({
     mode: z.enum(["SUPER_ADMIN", "MANAGER", "RESIDENT"]),
+  })
+  .strict();
+
+const selectApartmentSchema = z
+  .object({
+    apartmentId: z.string().uuid(),
   })
   .strict();
 
@@ -89,6 +96,7 @@ function createAccessToken(params: {
   primaryRole: AccountMode;
   accountMode: AccountMode;
   modeSelected: boolean;
+  selectedApartmentId?: string | null;
 }) {
   const jwtExpiresIn = env.JWT_EXPIRES_IN as SignOptions["expiresIn"];
 
@@ -98,6 +106,7 @@ function createAccessToken(params: {
       primaryRole: params.primaryRole,
       accountMode: params.accountMode,
       modeSelected: params.modeSelected,
+      selectedApartmentId: params.selectedApartmentId ?? null,
     },
     env.JWT_SECRET,
     {
@@ -111,6 +120,8 @@ function buildAuthUserData(params: {
   accountMode: AccountMode;
   hasResidentAccess: boolean;
   modeSelected: boolean;
+  residentApartments: ResidentApartmentOption[];
+  selectedApartmentId?: string | null;
 }) {
   const primaryRole = params.user.role;
   const availableModes = getAvailableAccountModes(
@@ -118,6 +129,23 @@ function buildAuthUserData(params: {
     params.hasResidentAccess
   );
   const canSwitchAccountMode = availableModes.length > 1;
+  const selectedApartment =
+    params.accountMode === "RESIDENT"
+      ? params.residentApartments.find(
+          (item) => item.apartment.id === params.selectedApartmentId
+        ) ??
+        (params.residentApartments.length === 1
+          ? params.residentApartments[0]
+          : null)
+      : null;
+  const selectedApartmentId = selectedApartment?.apartment.id ?? null;
+  const requiresModeSelection =
+    canSwitchAccountMode && !params.modeSelected;
+  const requiresApartmentSelection =
+    !requiresModeSelection &&
+    params.accountMode === "RESIDENT" &&
+    params.residentApartments.length > 1 &&
+    !selectedApartment;
 
   return {
     id: params.user.id,
@@ -130,8 +158,11 @@ function buildAuthUserData(params: {
     availableModes,
     hasResidentAccess: params.hasResidentAccess,
     canSwitchAccountMode,
-    requiresModeSelection:
-      canSwitchAccountMode && !params.modeSelected,
+    requiresModeSelection,
+    residentApartments: params.residentApartments,
+    selectedApartmentId,
+    selectedApartment,
+    requiresApartmentSelection,
     mustChangePassword: params.user.mustChangePassword,
     status: params.user.status,
     createdAt: params.user.createdAt,
@@ -179,8 +210,30 @@ router.post(
         apartmentResidents: {
           select: {
             id: true,
+            type: true,
+            apartment: {
+              select: {
+                id: true,
+                number: true,
+                floor: true,
+                block: {
+                  select: {
+                    id: true,
+                    name: true,
+                    site: {
+                      select: {
+                        id: true,
+                        name: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
           },
-          take: 1,
+          orderBy: {
+            createdAt: "asc",
+          },
         },
       },
     });
@@ -200,8 +253,14 @@ router.post(
     }
 
     const primaryRole = user.role as AccountMode;
+    const residentApartments: ResidentApartmentOption[] =
+      user.apartmentResidents.map((residentLink) => ({
+        residentLinkId: residentLink.id,
+        residentType: residentLink.type,
+        apartment: residentLink.apartment,
+      }));
     const hasResidentAccess =
-      primaryRole === "RESIDENT" || user.apartmentResidents.length > 0;
+      primaryRole === "RESIDENT" || residentApartments.length > 0;
     const availableModes = getAvailableAccountModes(
       primaryRole,
       hasResidentAccess
@@ -210,12 +269,19 @@ router.post(
     /* Çift modlu hesaplarda girişten sonra kullanıcı seçim yapmalıdır. */
     const modeSelected = availableModes.length === 1;
     const accountMode = primaryRole;
+    const selectedApartmentId =
+      modeSelected &&
+      accountMode === "RESIDENT" &&
+      residentApartments.length === 1
+        ? residentApartments[0].apartment.id
+        : null;
 
     const token = createAccessToken({
       userId: user.id,
       primaryRole,
       accountMode,
       modeSelected,
+      selectedApartmentId,
     });
 
     response.cookie(accessTokenCookieName, token, accessTokenCookieOptions);
@@ -239,6 +305,8 @@ router.post(
           accountMode,
           hasResidentAccess,
           modeSelected,
+          residentApartments,
+          selectedApartmentId,
         }),
       },
     });
@@ -275,11 +343,26 @@ router.post(
     }
 
     const previousMode = request.user.accountMode;
+    const selectedApartmentId =
+      selectedMode === "RESIDENT" &&
+      request.user.residentApartments.length === 1
+        ? request.user.residentApartments[0].apartment.id
+        : null;
+    const selectedApartment =
+      request.user.residentApartments.find(
+        (item) => item.apartment.id === selectedApartmentId
+      ) ?? null;
+    const requiresApartmentSelection =
+      selectedMode === "RESIDENT" &&
+      request.user.residentApartments.length > 1 &&
+      !selectedApartment;
+
     const token = createAccessToken({
       userId: request.user.id,
       primaryRole: request.user.primaryRole,
       accountMode: selectedMode,
       modeSelected: true,
+      selectedApartmentId,
     });
 
     await createAuditLog({
@@ -311,6 +394,83 @@ router.post(
           role: selectedMode,
           accountMode: selectedMode,
           requiresModeSelection: false,
+          selectedApartmentId,
+          selectedApartment,
+          requiresApartmentSelection,
+        },
+      },
+    });
+  })
+);
+
+router.post(
+  "/select-apartment",
+  requireAuth,
+  asyncHandler(async (request: AuthenticatedRequest, response: Response) => {
+    if (!request.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    if (request.user.accountMode !== "RESIDENT") {
+      throw new HttpError(
+        403,
+        "Daire seçimi yalnızca sakin modunda yapılabilir."
+      );
+    }
+
+    const validationResult = selectApartmentSchema.safeParse(request.body);
+
+    if (!validationResult.success) {
+      throw new HttpError(
+        400,
+        "Daire seçim bilgisi geçersiz.",
+        validationResult.error.flatten().fieldErrors
+      );
+    }
+
+    const selectedApartment = request.user.residentApartments.find(
+      (item) => item.apartment.id === validationResult.data.apartmentId
+    );
+
+    if (!selectedApartment) {
+      throw new HttpError(
+        403,
+        "Bu daireye sakin olarak erişim yetkiniz bulunmamaktadır."
+      );
+    }
+
+    const token = createAccessToken({
+      userId: request.user.id,
+      primaryRole: request.user.primaryRole,
+      accountMode: "RESIDENT",
+      modeSelected: true,
+      selectedApartmentId: selectedApartment.apartment.id,
+    });
+
+    await createAuditLog({
+      request,
+      userId: request.user.id,
+      action: "SELECT_RESIDENT_APARTMENT",
+      entityType: "Apartment",
+      entityId: selectedApartment.apartment.id,
+      metadata: {
+        previousApartmentId: request.user.selectedApartmentId,
+        selectedApartmentId: selectedApartment.apartment.id,
+        residentType: selectedApartment.residentType,
+      },
+    });
+
+    response.cookie(accessTokenCookieName, token, accessTokenCookieOptions);
+
+    response.status(200).json({
+      success: true,
+      message: "Aktif daire başarıyla seçildi.",
+      data: {
+        user: {
+          ...request.user,
+          selectedApartmentId: selectedApartment.apartment.id,
+          selectedApartment,
+          requiresApartmentSelection: false,
         },
       },
     });

@@ -1,5 +1,5 @@
 import { useAuth } from "../../hooks/useAuth";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   Bell,
@@ -180,8 +180,17 @@ function mapRequestToViewModel(request) {
   };
 }
 
+async function fetchResidentRequests() {
+  const result = await getRequests({
+    page: 1,
+    limit: 100,
+  });
+
+  return getDataArray(result).map(mapRequestToViewModel);
+}
+
 function ResidentRequestsPage() {
-  const { user } = useAuth();
+  const { user, selectedApartmentId } = useAuth();
 
   const [requests, setRequests] = useState([]);
   const [formData, setFormData] = useState(emptyFormData);
@@ -193,57 +202,49 @@ function ResidentRequestsPage() {
   const [statusFilter, setStatusFilter] = useState("Tümü");
   const [categoryFilter, setCategoryFilter] = useState("Tümü");
 
-  const [isLoading, setIsLoading] = useState(true);
+  const [loadedApartmentId, setLoadedApartmentId] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
-const loadRequests = useCallback(async () => {
-  try {
-    setIsLoading(true);
+  const isLoading =
+    !selectedApartmentId || loadedApartmentId !== selectedApartmentId;
 
-    const result = await getRequests({
-      page: 1,
-      limit: 100,
-    });
+  useEffect(() => {
+    let isCancelled = false;
 
-    setRequests(getDataArray(result).map(mapRequestToViewModel));
-    setErrorMessage("");
-  } catch (error) {
-    setErrorMessage(error?.message ?? "Talepler alınamadı.");
-  } finally {
-    setIsLoading(false);
-  }
-}, []);
+    async function loadSelectedApartmentRequests() {
+      try {
+        const nextRequests = await fetchResidentRequests();
 
-useEffect(() => {
-  let isMounted = true;
+        if (isCancelled) {
+          return;
+        }
 
-  getRequests({
-    page: 1,
-    limit: 100,
-  })
-    .then((result) => {
-      if (!isMounted) return;
+        setRequests(nextRequests);
+        setSelectedRequest(null);
+        setErrorMessage("");
+      } catch (error) {
+        if (isCancelled) {
+          return;
+        }
 
-      setRequests(getDataArray(result).map(mapRequestToViewModel));
-      setErrorMessage("");
-    })
-    .catch((error) => {
-      if (!isMounted) return;
+        setRequests([]);
+        setSelectedRequest(null);
+        setErrorMessage(error?.message ?? "Talepler alınamadı.");
+      } finally {
+        if (!isCancelled) {
+          setLoadedApartmentId(selectedApartmentId);
+        }
+      }
+    }
 
-      setErrorMessage(error?.message ?? "Talepler alınamadı.");
-    })
-    .finally(() => {
-      if (!isMounted) return;
+    void loadSelectedApartmentRequests();
 
-      setIsLoading(false);
-    });
-
-  return () => {
-    isMounted = false;
-  };
-}, []);
+    return () => {
+      isCancelled = true;
+    };
+  }, [selectedApartmentId]);
 
   const summary = useMemo(() => {
     return {
@@ -349,14 +350,19 @@ useEffect(() => {
         title: formData.title.trim(),
         description: buildDescriptionWithFormInfo(formData),
         type: mapCategoryToRequestType(formData.category),
+        apartmentId: selectedApartmentId,
         attachment: selectedFile?.file,
         sendEmail: true,
         sendSms: false,
       });
 
+      const nextRequests = await fetchResidentRequests();
+
+      setRequests(nextRequests);
+      setSelectedRequest(null);
+      setLoadedApartmentId(selectedApartmentId);
       setSuccessMessage("Talebiniz başarıyla yönetime gönderildi.");
       resetForm();
-      await loadRequests();
     } catch (error) {
       setErrorMessage(error?.message ?? "Talep oluşturulamadı.");
     } finally {

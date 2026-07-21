@@ -23,6 +23,15 @@ export async function selectAccountMode(mode) {
   });
 }
 
+export async function selectResidentApartment(apartmentId) {
+  return apiRequest("/auth/select-apartment", {
+    method: "POST",
+    body: {
+      apartmentId,
+    },
+  });
+}
+
 export async function logoutUser() {
   const result = await apiRequest("/auth/logout", {
     method: "POST",

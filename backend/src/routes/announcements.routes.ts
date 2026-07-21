@@ -120,33 +120,42 @@ async function getAnnouncementWhereForUser(user: AuthenticatedUser) {
         };
         return whereCondition;
     }
-    const apartmentResidents = await prisma.apartmentResident.findMany({
+    const selectedApartmentId = user.selectedApartmentId;
+
+    if (!selectedApartmentId) {
+        throw new HttpError(
+            409,
+            "Duyuruları görüntülemek için aktif daire seçmelisiniz."
+        );
+    }
+
+    const selectedApartment = await prisma.apartment.findFirst({
         where: {
-            userId: user.id,
+            id: selectedApartmentId,
+            residents: {
+                some: {
+                    userId: user.id,
+                },
+            },
         },
         select: {
-            apartment: {
+            id: true,
+            blockId: true,
+            block: {
                 select: {
-                    id: true,
-                    blockId: true,
-                    block: {
-                        select: {
-                            siteId: true,
-                        },
-                    },
+                    siteId: true,
                 },
             },
         },
     });
-    const apartmentIds = [
-        ...new Set(apartmentResidents.map((item) => item.apartment.id)),
-    ];
-    const blockIds = [
-        ...new Set(apartmentResidents.map((item) => item.apartment.blockId)),
-    ];
-    const siteIds = [
-        ...new Set(apartmentResidents.map((item) => item.apartment.block.siteId)),
-    ];
+
+    if (!selectedApartment) {
+        throw new HttpError(
+            403,
+            "Seçili daire için duyuru görüntüleme yetkiniz bulunmamaktadır."
+        );
+    }
+
     const whereCondition: Prisma.AnnouncementWhereInput = {
         status: "ACTIVE",
         OR: [
@@ -159,9 +168,7 @@ async function getAnnouncementWhereForUser(user: AuthenticatedUser) {
                         targetType: "SITE",
                     },
                     {
-                        siteId: {
-                            in: siteIds,
-                        },
+                        siteId: selectedApartment.block.siteId,
                     },
                 ],
             },
@@ -171,9 +178,7 @@ async function getAnnouncementWhereForUser(user: AuthenticatedUser) {
                         targetType: "BLOCK",
                     },
                     {
-                        blockId: {
-                            in: blockIds,
-                        },
+                        blockId: selectedApartment.blockId,
                     },
                 ],
             },
@@ -183,14 +188,13 @@ async function getAnnouncementWhereForUser(user: AuthenticatedUser) {
                         targetType: "APARTMENT",
                     },
                     {
-                        apartmentId: {
-                            in: apartmentIds,
-                        },
+                        apartmentId: selectedApartment.id,
                     },
                 ],
             },
         ],
     };
+
     return whereCondition;
 }
 async function ensureTargetIsValidAndAccessible(params: {

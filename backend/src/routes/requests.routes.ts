@@ -159,7 +159,17 @@ async function getRequestWhereForUser(user: AuthenticatedUser) {
     return whereCondition;
   }
 
+  const selectedApartmentId = user.selectedApartmentId;
+
+  if (!selectedApartmentId) {
+    throw new HttpError(
+      409,
+      "Talepleri görüntülemek için aktif daire seçmelisiniz."
+    );
+  }
+
   const whereCondition: Prisma.ResidentRequestWhereInput = {
+    apartmentId: selectedApartmentId,
     OR: [
       {
         createdByUserId: user.id,
@@ -228,6 +238,16 @@ async function ensureApartmentIsAccessible(params: {
     return apartment;
   }
 
+  if (
+    !params.user.selectedApartmentId ||
+    apartment.id !== params.user.selectedApartmentId
+  ) {
+    throw new HttpError(
+      403,
+      "Bu daire aktif olarak seçtiğiniz daire değildir."
+    );
+  }
+
   if (apartment.residents.length === 0) {
     throw new HttpError(403, "Bu daire için talep oluşturma yetkiniz yok.");
   }
@@ -293,6 +313,16 @@ async function ensureRequestIsAccessible(params: {
     }
 
     return residentRequest;
+  }
+
+  if (
+    !params.user.selectedApartmentId ||
+    residentRequest.apartmentId !== params.user.selectedApartmentId
+  ) {
+    throw new HttpError(
+      403,
+      "Bu talep aktif olarak seçtiğiniz daireye ait değildir."
+    );
   }
 
   const isOwnerOfRequest = residentRequest.createdByUserId === params.user.id;
@@ -773,24 +803,25 @@ router.post(
 
       let resolvedApartmentId = apartmentId;
 
-      if (!resolvedApartmentId && authenticatedRequest.user.role === "RESIDENT") {
-        const residentApartment = await prisma.apartmentResident.findFirst({
-          where: {
-            userId: authenticatedRequest.user.id,
-          },
-          select: {
-            apartmentId: true,
-          },
-          orderBy: {
-            createdAt: "asc",
-          },
-        });
+      if (authenticatedRequest.user.role === "RESIDENT") {
+        const selectedApartmentId =
+          authenticatedRequest.user.selectedApartmentId;
 
-        if (!residentApartment) {
-          throw new HttpError(400, "Bu sakin için kayıtlı daire bulunamadı.");
+        if (!selectedApartmentId) {
+          throw new HttpError(
+            409,
+            "Talep oluşturmak için aktif daire seçmelisiniz."
+          );
         }
 
-        resolvedApartmentId = residentApartment.apartmentId;
+        if (apartmentId && apartmentId !== selectedApartmentId) {
+          throw new HttpError(
+            403,
+            "Talep yalnızca aktif olarak seçtiğiniz daire için oluşturulabilir."
+          );
+        }
+
+        resolvedApartmentId = selectedApartmentId;
       }
 
       if (!resolvedApartmentId) {

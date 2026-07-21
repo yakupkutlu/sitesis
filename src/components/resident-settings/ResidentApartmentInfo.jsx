@@ -1,25 +1,31 @@
-import { Building2, Home, MapPin, UserRound } from "lucide-react";
+import { Building2, Home, Layers3, UserRound } from "lucide-react";
 
 function ResidentApartmentInfo({ apartmentInfo }) {
   const items = [
     {
       label: "Site",
-      value: apartmentInfo.siteName,
+      value: apartmentInfo?.siteName,
       icon: Building2,
     },
     {
+      label: "Blok / Apartman",
+      value: apartmentInfo?.blockName,
+      icon: Layers3,
+    },
+    {
       label: "Daire",
-      value: apartmentInfo.apartment,
+      value: apartmentInfo
+        ? `Daire ${apartmentInfo.apartmentNumber}${
+            apartmentInfo.floor !== null
+              ? ` / Kat ${apartmentInfo.floor}`
+              : ""
+          }`
+        : null,
       icon: Home,
     },
     {
-      label: "Adres",
-      value: apartmentInfo.address,
-      icon: MapPin,
-    },
-    {
       label: "Kayıt Tipi",
-      value: apartmentInfo.residentType,
+      value: apartmentInfo?.residentType,
       icon: UserRound,
     },
   ];
@@ -28,13 +34,13 @@ function ResidentApartmentInfo({ apartmentInfo }) {
     <section className="resident-settings-card">
       <div className="resident-settings-card-header">
         <div>
-          <span className="section-kicker">Daire Bilgileri</span>
+          <span className="section-kicker">Aktif Daire</span>
 
-          <h3>Bağlı Olduğunuz Daire</h3>
+          <h3>Aktif Daire Bilgileri</h3>
 
           <p>
-            Bu bilgiler yönetim tarafından tanımlanır. Değişiklik için yönetici
-            ile iletişime geçebilirsiniz.
+            Bu bilgiler üst bardan seçtiğiniz aktif daireye göre otomatik
+            olarak değişir.
           </p>
         </div>
       </div>
@@ -59,8 +65,9 @@ function ResidentApartmentInfo({ apartmentInfo }) {
         <strong>Bilgilendirme</strong>
 
         <p>
-          Daire, blok veya kayıt tipi bilgileri güvenlik nedeniyle sakin
-          tarafından doğrudan değiştirilemez.
+          Profil, şifre ve görünüm ayarları kullanıcı hesabına aittir ve tüm
+          dairelerde aynıdır. Yalnızca bu daire bilgileri aktif seçime göre
+          değişir.
         </p>
       </div>
     </section>
