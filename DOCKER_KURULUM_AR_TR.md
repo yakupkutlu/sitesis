@@ -1,66 +1,67 @@
-# Sitesis Docker Kurulumu
+# Sitesis Docker Setup
 
-## العربية
+## Arabic
 
-تعمل هذه الملفات على تشغيل المشروع داخل ثلاث حاويات:
+These files run the project within three containers:
 
-- `frontend`: React production build بواسطة Nginx.
+- `frontend`: React production build using Nginx.
+
 - `backend`: Node.js + Express + TypeScript + Prisma.
+
 - `db`: PostgreSQL.
 
-يتم حفظ قاعدة البيانات وملفات الرفع في Docker Volumes حتى لا تضيع عند إعادة التشغيل.
+The database and upload files are saved in Docker Volumes so they are not lost upon restart.
 
-### الخطوات
+### Steps
 
-انسخ الملفات إلى جذر مشروع `sitesis`.
+Copy the files to the root of the `sitesis` project.
 
-أنشئ ملف الإعدادات الحقيقي:
+
+Create the actual configuration file:
 
 ```powershell
 Copy-Item .env.docker.example .env.docker
 ```
 
-غيّر جميع كلمات السر داخل `.env.docker`، ثم أضف إلى `.gitignore`:
+Change all passwords inside `.env.docker`, then add them to `.gitignore`:
 
 ```gitignore
 .env.docker
 ```
 
-شغّل المشروع:
+Run the project:
 
 ```powershell
 docker compose --env-file .env.docker up -d --build
 ```
 
-أنشئ أول Super Admin:
+Create the first Super Admin:
 
 ```powershell
 docker compose --env-file .env.docker exec backend npm run db:seed:super-admin
 ```
 
-اعرض السجلات:
+View the logs:
 
 ```powershell
 docker compose --env-file .env.docker logs -f
 ```
 
-أوقف المشروع:
+Stop the project:
 
 ```powershell
 docker compose --env-file .env.docker down
-```
 
-لحذف قاعدة البيانات والملفات المرفوعة أيضًا:
+To delete the database and uploaded files:
 
 ```powershell
 docker compose --env-file .env.docker down -v
-```
 
-تحذير: الخيار `-v` يحذف البيانات نهائيًا.
+Warning: The `-v` option permanently deletes the data.
 
-## Türkçe
+## Turkish
 
-Bu yapı `frontend`, `backend` ve `PostgreSQL` servislerini Docker ile çalıştırır.
+This works with Docker's frontend, backend, and PostgreSQL services.
 
 Kurulum:
 
@@ -87,7 +88,7 @@ Durdurma:
 docker compose --env-file .env.docker down
 ```
 
-GitHub'a gönderilebilir:
+GitHub'a gonderilebilir:
 
 - `Dockerfile`
 - `backend/Dockerfile`
