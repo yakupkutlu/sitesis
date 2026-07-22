@@ -5,10 +5,7 @@ import prisma from "../db/prisma.js";
 import { type Prisma } from "../generated/prisma/client.js";
 import {requireAuth,requireRole,type AuthenticatedRequest,type AuthenticatedUser,} from "../middlewares/auth.middleware.js";
 import { createAuditLog } from "../services/audit-log.service.js";
-import {
-  queueEmailNotification,
-  queueSmsNotification,
-} from "../services/notification.service.js";
+import { addNotificationDispatchJob } from "../queues/notification.queues.js";
 import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
 import {distributeAmountToApartments,excludeExemptApartments,findInvalidExemptApartments,} from "../services/payment-distribution.service.js";
 import { asyncHandler } from "../utils/async-handler.js";
@@ -133,6 +130,12 @@ function getUniqueIds(ids: string[] = []) {
   return Array.from(new Set(ids));
 }
 
+function getQueueErrorMessage(error: unknown) {
+  return error instanceof Error
+    ? error.message
+    : "Bilinmeyen bildirim kuyruğu hatası oluştu.";
+}
+
 async function ensureManagerCanCreatePayment(params: {
   managerId: string;
   scopeType: "SITE" | "BLOCK" | "APARTMENTS";
@@ -238,165 +241,6 @@ async function getPaymentBatchForManagement(paymentBatchId: string, user: Authen
 
   return paymentBatch;
 }
-
-function formatKurusAsTry(amountKurus: number) {
-  return (amountKurus / 100).toFixed(2);
-}
-
-async function getPaymentBatchRecipients(paymentBatchId: string) {
-  const allocations = await prisma.paymentAllocation.findMany({
-    where: {
-      paymentBatchId,
-      status: "PENDING",
-    },
-    select: {
-      amountKurus: true,
-      apartment: {
-        select: {
-          id: true,
-          number: true,
-          residents: {
-            where: {
-              user: {
-                status: "ACTIVE",
-              },
-            },
-            select: {
-              user: {
-                select: {
-                  id: true,
-                  email: true,
-                  phone: true,
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-  });
-
-  const recipientMap = new Map<
-    string,
-    {
-      id: string;
-      email: string;
-      phone: string | null;
-      totalAmountKurus: number;
-      apartmentNumbers: string[];
-    }
-  >();
-
-  for (const allocation of allocations) {
-    for (const resident of allocation.apartment.residents) {
-      const existingRecipient = recipientMap.get(resident.user.id);
-
-      if (existingRecipient) {
-        existingRecipient.totalAmountKurus += allocation.amountKurus;
-        existingRecipient.apartmentNumbers.push(allocation.apartment.number);
-        continue;
-      }
-
-      recipientMap.set(resident.user.id, {
-        id: resident.user.id,
-        email: resident.user.email,
-        phone: resident.user.phone,
-        totalAmountKurus: allocation.amountKurus,
-        apartmentNumbers: [allocation.apartment.number],
-      });
-    }
-  }
-
-  return Array.from(recipientMap.values());
-}
-
-async function queuePaymentBatchNotifications(params: {
-  paymentBatch: {
-    id: string;
-    title: string;
-    description: string | null;
-    dueDate: Date;
-  };
-  sendSms: boolean;
-  sendEmail: boolean;
-  createdByUserId: string;
-}) {
-  const summary = {
-    recipientCount: 0,
-    emailNotificationCount: 0,
-    smsNotificationCount: 0,
-  };
-
-  if (!params.sendSms && !params.sendEmail) {
-    return summary;
-  }
-
-  const recipients = await getPaymentBatchRecipients(params.paymentBatch.id);
-
-  summary.recipientCount = recipients.length;
-
-  const notificationJobs: Promise<unknown>[] = [];
-
-  for (const recipient of recipients) {
-    const amountText = formatKurusAsTry(recipient.totalAmountKurus);
-    const apartmentsText = recipient.apartmentNumbers.join(", ");
-    const dueDateText = params.paymentBatch.dueDate.toISOString().slice(0, 10);
-
-    const message =
-      `Yeni ödeme oluşturuldu: ${params.paymentBatch.title}. ` +
-      `Daire: ${apartmentsText}. ` +
-      `Tutar: ${amountText} TL. ` +
-      `Son ödeme tarihi: ${dueDateText}.`;
-
-    const metadata = {
-      purpose: "PAYMENT_BATCH",
-      paymentBatchId: params.paymentBatch.id,
-      apartmentNumbers: recipient.apartmentNumbers,
-      totalAmountKurus: recipient.totalAmountKurus,
-      dueDate: params.paymentBatch.dueDate.toISOString(),
-    };
-
-    if (params.sendEmail && recipient.email) {
-      summary.emailNotificationCount += 1;
-
-      notificationJobs.push(
-        queueEmailNotification({
-          recipientUserId: recipient.id,
-          recipientEmail: recipient.email,
-          subject: params.paymentBatch.title,
-          message,
-          sourceType: "PAYMENT_BATCH",
-          entityType: "PaymentBatch",
-          entityId: params.paymentBatch.id,
-          metadata,
-          createdByUserId: params.createdByUserId,
-        })
-      );
-    }
-
-    if (params.sendSms && recipient.phone) {
-      summary.smsNotificationCount += 1;
-
-      notificationJobs.push(
-        queueSmsNotification({
-          recipientUserId: recipient.id,
-          recipientPhone: recipient.phone,
-          message,
-          sourceType: "PAYMENT_BATCH",
-          entityType: "PaymentBatch",
-          entityId: params.paymentBatch.id,
-          metadata,
-          createdByUserId: params.createdByUserId,
-        })
-      );
-    }
-  }
-
-  await Promise.all(notificationJobs);
-
-  return summary;
-}
-
 
 router.get(
   "/my-allocations",
@@ -794,18 +638,28 @@ router.post(
       },
     });
 
-    const notificationSummary = await queuePaymentBatchNotifications({
-      paymentBatch: {
-        id: paymentBatch.id,
-        title: paymentBatch.title,
-        description: paymentBatch.description,
-        dueDate: paymentBatch.dueDate,
-      },
-      sendSms,
-      sendEmail,
-      createdByUserId: authenticatedRequest.user.id,
-    });
+    const notificationRequested = sendSms || sendEmail;
+    let notificationDispatchQueued = false;
+    let notificationDispatchError: string | null = null;
 
+    if (notificationRequested) {
+      try {
+        await addNotificationDispatchJob({
+          kind: "PAYMENT_BATCH",
+          paymentBatchId: paymentBatch.id,
+          sendSms,
+          sendEmail,
+          createdByUserId: authenticatedRequest.user.id,
+        });
+        notificationDispatchQueued = true;
+      } catch (error) {
+        notificationDispatchError = getQueueErrorMessage(error);
+        console.error(
+          "Ödeme bildirimleri arka plan kuyruğuna eklenemedi:",
+          error
+        );
+      }
+    }
 
     await createAuditLog({
       request,
@@ -821,14 +675,25 @@ router.post(
         exemptionCount: paymentBatch.exemptions.length,
         sendSms,
         sendEmail,
-        notificationSummary,
+        notificationDispatch: {
+          requested: notificationRequested,
+          queued: notificationDispatchQueued,
+          ...(notificationDispatchError
+            ? { error: notificationDispatchError }
+            : {}),
+        },
       },
     });
 
     response.status(201).json({
       success: true,
-      message: "Ödeme başarıyla oluşturuldu.",
+      message: notificationDispatchError
+        ? "Ödeme oluşturuldu ancak bildirimler kuyruğa eklenemedi."
+        : notificationRequested
+          ? "Ödeme başarıyla oluşturuldu. Bildirimler arka planda gönderiliyor."
+          : "Ödeme başarıyla oluşturuldu.",
       data: paymentBatch,
+      notificationQueued: notificationDispatchQueued,
     });
   })
 );

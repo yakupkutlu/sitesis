@@ -8,13 +8,16 @@ import { notificationWorkerConnection } from "../config/redis.js";
 import prisma from "../db/prisma.js";
 import {
   EMAIL_NOTIFICATION_QUEUE_NAME,
+  NOTIFICATION_DISPATCH_QUEUE_NAME,
   SMS_NOTIFICATION_QUEUE_NAME,
+  type NotificationDispatchJobData,
   type NotificationJobData,
 } from "../queues/notification.queues.js";
 import { sendEmailWithActiveSmtp } from "../services/email-sender.service.js";
+import { processNotificationDispatch } from "../services/notification-dispatch.service.js";
 import { sendSmsWithActiveProvider } from "../services/sms-sender.service.js";
 
-const workers: Worker<NotificationJobData>[] = [];
+const workers: Worker[] = [];
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error
@@ -302,10 +305,13 @@ async function processSmsNotification(job: Job<NotificationJobData>) {
   }
 }
 
-function registerWorkerLogging(
-  worker: Worker<NotificationJobData>,
-  label: string
+async function processNotificationDispatchJob(
+  job: Job<NotificationDispatchJobData>
 ) {
+  return processNotificationDispatch(job.data);
+}
+
+function registerWorkerLogging(worker: Worker, label: string) {
   worker.on("completed", (job) => {
     console.log(
       `[${label}] Bildirim tamamlandı. Job: ${job.id ?? "bilinmiyor"}`
@@ -331,6 +337,15 @@ export function startNotificationWorkers() {
     return workers;
   }
 
+  const dispatchWorker = new Worker<NotificationDispatchJobData>(
+    NOTIFICATION_DISPATCH_QUEUE_NAME,
+    processNotificationDispatchJob,
+    {
+      connection: notificationWorkerConnection,
+      concurrency: 1,
+    }
+  );
+
   const emailWorker = new Worker<NotificationJobData>(
     EMAIL_NOTIFICATION_QUEUE_NAME,
     processEmailNotification,
@@ -349,10 +364,11 @@ export function startNotificationWorkers() {
     }
   );
 
+  registerWorkerLogging(dispatchWorker, "DISPATCH");
   registerWorkerLogging(emailWorker, "EMAIL");
   registerWorkerLogging(smsWorker, "SMS");
 
-  workers.push(emailWorker, smsWorker);
+  workers.push(dispatchWorker, emailWorker, smsWorker);
 
   return workers;
 }

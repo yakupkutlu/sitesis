@@ -2,12 +2,29 @@ import { Queue } from "bullmq";
 
 import { notificationQueueConnection } from "../config/redis.js";
 
+export const NOTIFICATION_DISPATCH_QUEUE_NAME = "notification-dispatch";
 export const EMAIL_NOTIFICATION_QUEUE_NAME = "notification-email";
 export const SMS_NOTIFICATION_QUEUE_NAME = "notification-sms";
 
 export type NotificationJobData = {
   notificationLogId: string;
 };
+
+export type NotificationDispatchJobData =
+  | {
+      kind: "PAYMENT_BATCH";
+      paymentBatchId: string;
+      sendSms: boolean;
+      sendEmail: boolean;
+      createdByUserId: string;
+    }
+  | {
+      kind: "ANNOUNCEMENT";
+      announcementId: string;
+      sendSms: boolean;
+      sendEmail: boolean;
+      createdByUserId: string;
+    };
 
 const defaultJobOptions = {
   attempts: 3,
@@ -24,6 +41,15 @@ const defaultJobOptions = {
     count: 5_000,
   },
 };
+
+export const notificationDispatchQueue =
+  new Queue<NotificationDispatchJobData>(
+    NOTIFICATION_DISPATCH_QUEUE_NAME,
+    {
+      connection: notificationQueueConnection,
+      defaultJobOptions,
+    }
+  );
 
 export const emailNotificationQueue = new Queue<NotificationJobData>(
   EMAIL_NOTIFICATION_QUEUE_NAME,
@@ -42,12 +68,32 @@ export const smsNotificationQueue = new Queue<NotificationJobData>(
 );
 
 export async function initializeNotificationQueues() {
-  // Birden fazla backend/worker çalışsa bile kanal başına yalnızca
-  // bir bildirim aynı anda sağlayıcıya gönderilir.
+  // Hazırlama işi arka planda alıcıları bulur ve kanal kuyruklarına dağıtır.
+  // SMS ve e-posta kanalları kendi içinde sırayla gönderilir.
   await Promise.all([
+    notificationDispatchQueue.setGlobalConcurrency(1),
     emailNotificationQueue.setGlobalConcurrency(1),
     smsNotificationQueue.setGlobalConcurrency(1),
   ]);
+}
+
+export async function addNotificationDispatchJob(
+  data: NotificationDispatchJobData
+) {
+  const entityId =
+    data.kind === "PAYMENT_BATCH"
+      ? data.paymentBatchId
+      : data.announcementId;
+
+  const jobId = `${data.kind.toLowerCase().replaceAll("_", "-")}-${entityId}`;
+
+  return notificationDispatchQueue.add(
+    "prepare-notifications",
+    data,
+    {
+      jobId,
+    }
+  );
 }
 
 export async function addEmailNotificationJob(notificationLogId: string) {
@@ -76,6 +122,7 @@ export async function addSmsNotificationJob(notificationLogId: string) {
 
 export async function closeNotificationQueues() {
   await Promise.allSettled([
+    notificationDispatchQueue.close(),
     emailNotificationQueue.close(),
     smsNotificationQueue.close(),
   ]);

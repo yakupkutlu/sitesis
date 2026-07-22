@@ -1,44 +1,57 @@
-﻿export function distributeAmountToApartments(
-  totalAmountKurus: number,
-  apartmentIds: string[]
+﻿export type PaymentDistributionItem = {
+  apartmentId: string;
+  amountKurus: number;
+};
+
+function getUniqueIds(ids: string[]) {
+  return Array.from(new Set(ids));
+}
+
+export function findInvalidExemptApartments(
+  scopedApartmentIds: string[],
+  exemptApartmentIds: string[]
 ) {
-  if (totalAmountKurus <= 0) {
-    throw new Error("Toplam tutar sıfırdan büyük olmalıdır.");
-  }
+  const scopedApartmentIdSet = new Set(scopedApartmentIds);
 
-  if (apartmentIds.length === 0) {
-    throw new Error("Ödeme dağıtılacak daire bulunamadı.");
-  }
-
-  const baseAmount = Math.floor(totalAmountKurus / apartmentIds.length);
-  const remainder = totalAmountKurus % apartmentIds.length;
-
-  return apartmentIds.map((apartmentId, index) => {
-    return {
-      apartmentId,
-      amountKurus: baseAmount + (index < remainder ? 1 : 0),
-    };
-  });
+  return getUniqueIds(exemptApartmentIds).filter(
+    (apartmentId) => !scopedApartmentIdSet.has(apartmentId)
+  );
 }
 
 export function excludeExemptApartments(
-  apartmentIds: string[],
+  scopedApartmentIds: string[],
   exemptApartmentIds: string[]
 ) {
   const exemptApartmentIdSet = new Set(exemptApartmentIds);
 
-  return apartmentIds.filter((apartmentId) => {
-    return !exemptApartmentIdSet.has(apartmentId);
-  });
+  return getUniqueIds(scopedApartmentIds).filter(
+    (apartmentId) => !exemptApartmentIdSet.has(apartmentId)
+  );
 }
 
-export function findInvalidExemptApartments(
-  apartmentIds: string[],
-  exemptApartmentIds: string[]
-) {
-  const apartmentIdSet = new Set(apartmentIds);
+export function distributeAmountToApartments(
+  totalAmountKurus: number,
+  apartmentIds: string[]
+): PaymentDistributionItem[] {
+  if (!Number.isInteger(totalAmountKurus) || totalAmountKurus <= 0) {
+    throw new Error("Toplam ödeme tutarı pozitif bir kuruş değeri olmalıdır.");
+  }
 
-  return exemptApartmentIds.filter((apartmentId) => {
-    return !apartmentIdSet.has(apartmentId);
-  });
+  const uniqueApartmentIds = getUniqueIds(apartmentIds);
+
+  if (uniqueApartmentIds.length === 0) {
+    throw new Error("Ödeme dağıtımı için en az bir daire bulunmalıdır.");
+  }
+
+  const baseAmountKurus = Math.floor(
+    totalAmountKurus / uniqueApartmentIds.length
+  );
+  const remainderKurus =
+    totalAmountKurus % uniqueApartmentIds.length;
+
+  return uniqueApartmentIds.map((apartmentId, index) => ({
+    apartmentId,
+    amountKurus:
+      baseAmountKurus + (index < remainderKurus ? 1 : 0),
+  }));
 }

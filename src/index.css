@@ -19550,3 +19550,354 @@ dashboard-layout .topbar-help-button {
     width: 100%;
   }
 }
+
+
+/* =========================================
+   SUPER ADMIN - MANUEL SMS / E-POSTA
+   ALICI KARTLARI GÖRÜNÜM İYİLEŞTİRMESİ
+========================================= */
+
+.notification-manual-card .notification-recipient-list {
+  grid-template-columns: repeat(3, minmax(240px, 1fr));
+  gap: 12px;
+  max-height: 380px;
+  padding: 6px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.notification-manual-card .notification-recipient-item {
+  position: relative;
+  min-height: 76px;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #dbe3ee;
+  border-radius: 17px;
+  background: #ffffff;
+  box-shadow: 0 5px 16px rgba(15, 23, 42, 0.04);
+  overflow: hidden;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.notification-manual-card .notification-recipient-item:hover {
+  transform: translateY(-2px);
+  border-color: #93c5fd;
+  background: #f8fbff;
+  box-shadow: 0 10px 24px rgba(30, 64, 175, 0.09);
+}
+
+.notification-manual-card .notification-recipient-item.selected {
+  border-color: var(--dashboard-accent, #f59e0b);
+  background: linear-gradient(135deg, #fffbeb, #ffffff);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.13);
+}
+
+.notification-manual-card
+  .notification-recipient-item
+  input[type="checkbox"] {
+  width: 19px;
+  height: 19px;
+  min-width: 19px;
+  min-height: 19px;
+  flex: 0 0 19px;
+  accent-color: var(--dashboard-secondary, #b45309);
+}
+
+.notification-manual-card .notification-recipient-avatar {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border-radius: 14px;
+  background: linear-gradient(
+    135deg,
+    var(--dashboard-secondary, #b45309),
+    var(--dashboard-accent, #f59e0b)
+  );
+  color: #ffffff;
+  box-shadow: 0 8px 18px rgba(180, 83, 9, 0.16);
+}
+
+.notification-manual-card .notification-recipient-details {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.notification-manual-card .notification-recipient-details strong {
+  display: block;
+  margin: 0;
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notification-manual-card .notification-recipient-details small {
+  display: block;
+  margin: 0;
+  overflow: hidden;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notification-manual-card .notification-recipient-item.unavailable {
+  background: #f8fafc;
+  opacity: 0.58;
+  box-shadow: none;
+}
+
+.notification-manual-card .notification-recipient-list::-webkit-scrollbar {
+  width: 9px;
+}
+
+.notification-manual-card .notification-recipient-list::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: #f1f5f9;
+}
+
+.notification-manual-card .notification-recipient-list::-webkit-scrollbar-thumb {
+  border: 2px solid #f1f5f9;
+  border-radius: 999px;
+  background: #cbd5e1;
+}
+
+.dashboard-layout.dark-mode
+  .notification-manual-card
+  .notification-recipient-item {
+  background: #111c2f !important;
+  border-color: #334155 !important;
+  box-shadow: none;
+}
+
+.dashboard-layout.dark-mode
+  .notification-manual-card
+  .notification-recipient-item:hover {
+  background: #172033 !important;
+  border-color: #64748b !important;
+}
+
+.dashboard-layout.dark-mode
+  .notification-manual-card
+  .notification-recipient-item.selected {
+  background: rgba(245, 158, 11, 0.13) !important;
+  border-color: var(--dashboard-accent, #f59e0b) !important;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+}
+
+.dashboard-layout.dark-mode
+  .notification-manual-card
+  .notification-recipient-details strong {
+  color: #f8fafc !important;
+}
+
+.dashboard-layout.dark-mode
+  .notification-manual-card
+  .notification-recipient-details small {
+  color: #cbd5e1 !important;
+}
+
+@media (max-width: 1250px) {
+  .notification-manual-card .notification-recipient-list {
+    grid-template-columns: repeat(2, minmax(230px, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .notification-manual-card .notification-recipient-list {
+    grid-template-columns: 1fr;
+    max-height: 420px;
+  }
+
+  .notification-manual-card .notification-recipient-item {
+    min-height: 72px;
+    padding: 13px;
+  }
+}
+
+/* =========================================
+   SUPER ADMIN - MANUEL SMS / E-POSTA
+   ALICI KARTLARI GÖRÜNÜM İYİLEŞTİRMESİ
+========================================= */
+
+.notification-manual-card .notification-recipient-list {
+  grid-template-columns: repeat(3, minmax(240px, 1fr));
+  gap: 12px;
+  max-height: 380px;
+  padding: 6px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.notification-manual-card .notification-recipient-item {
+  position: relative;
+  min-height: 76px;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #dbe3ee;
+  border-radius: 17px;
+  background: #ffffff;
+  box-shadow: 0 5px 16px rgba(15, 23, 42, 0.04);
+  overflow: hidden;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.notification-manual-card .notification-recipient-item:hover {
+  transform: translateY(-2px);
+  border-color: #93c5fd;
+  background: #f8fbff;
+  box-shadow: 0 10px 24px rgba(30, 64, 175, 0.09);
+}
+
+.notification-manual-card .notification-recipient-item.selected {
+  border-color: var(--dashboard-accent, #f59e0b);
+  background: linear-gradient(135deg, #fffbeb, #ffffff);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.13);
+}
+
+.notification-manual-card
+  .notification-recipient-item
+  input[type="checkbox"] {
+  width: 19px;
+  height: 19px;
+  min-width: 19px;
+  min-height: 19px;
+  flex: 0 0 19px;
+  accent-color: var(--dashboard-secondary, #b45309);
+}
+
+.notification-manual-card .notification-recipient-avatar {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border-radius: 14px;
+  background: linear-gradient(
+    135deg,
+    var(--dashboard-secondary, #b45309),
+    var(--dashboard-accent, #f59e0b)
+  );
+  color: #ffffff;
+  box-shadow: 0 8px 18px rgba(180, 83, 9, 0.16);
+}
+
+.notification-manual-card .notification-recipient-details {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.notification-manual-card .notification-recipient-details strong {
+  display: block;
+  margin: 0;
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notification-manual-card .notification-recipient-details small {
+  display: block;
+  margin: 0;
+  overflow: hidden;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notification-manual-card .notification-recipient-item.unavailable {
+  background: #f8fafc;
+  opacity: 0.58;
+  box-shadow: none;
+}
+
+.notification-manual-card .notification-recipient-list::-webkit-scrollbar {
+  width: 9px;
+}
+
+.notification-manual-card .notification-recipient-list::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: #f1f5f9;
+}
+
+.notification-manual-card .notification-recipient-list::-webkit-scrollbar-thumb {
+  border: 2px solid #f1f5f9;
+  border-radius: 999px;
+  background: #cbd5e1;
+}
+
+.dashboard-layout.dark-mode
+  .notification-manual-card
+  .notification-recipient-item {
+  background: #111c2f !important;
+  border-color: #334155 !important;
+  box-shadow: none;
+}
+
+.dashboard-layout.dark-mode
+  .notification-manual-card
+  .notification-recipient-item:hover {
+  background: #172033 !important;
+  border-color: #64748b !important;
+}
+
+.dashboard-layout.dark-mode
+  .notification-manual-card
+  .notification-recipient-item.selected {
+  background: rgba(245, 158, 11, 0.13) !important;
+  border-color: var(--dashboard-accent, #f59e0b) !important;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+}
+
+.dashboard-layout.dark-mode
+  .notification-manual-card
+  .notification-recipient-details strong {
+  color: #f8fafc !important;
+}
+
+.dashboard-layout.dark-mode
+  .notification-manual-card
+  .notification-recipient-details small {
+  color: #cbd5e1 !important;
+}
+
+@media (max-width: 1250px) {
+  .notification-manual-card .notification-recipient-list {
+    grid-template-columns: repeat(2, minmax(230px, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .notification-manual-card .notification-recipient-list {
+    grid-template-columns: 1fr;
+    max-height: 420px;
+  }
+
+  .notification-manual-card .notification-recipient-item {
+    min-height: 72px;
+    padding: 13px;
+  }
+}

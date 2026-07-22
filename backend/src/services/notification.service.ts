@@ -15,6 +15,7 @@ type NotificationSourceType =
   | "SYSTEM";
 
 type CreateNotificationLogInput = {
+  id?: string;
   channel: NotificationChannel;
   status?: NotificationStatus;
   sourceType?: NotificationSourceType;
@@ -39,6 +40,7 @@ type CreateNotificationLogInput = {
 };
 
 type QueueEmailNotificationInput = {
+  notificationLogId?: string;
   recipientUserId?: string;
   recipientEmail: string;
   subject: string;
@@ -51,6 +53,7 @@ type QueueEmailNotificationInput = {
 };
 
 type QueueSmsNotificationInput = {
+  notificationLogId?: string;
   recipientUserId?: string;
   recipientPhone: string;
   message: string;
@@ -80,31 +83,43 @@ export async function createNotificationLog(input: CreateNotificationLogInput) {
     throw new Error("En az bir alıcı bilgisi gönderilmelidir.");
   }
 
-  return prisma.notificationLog.create({
-    data: {
-      channel: input.channel,
-      status: input.status ?? "PENDING",
-      sourceType: input.sourceType ?? "SYSTEM",
+  const data = {
+    ...(input.id ? { id: input.id } : {}),
+    channel: input.channel,
+    status: input.status ?? "PENDING",
+    sourceType: input.sourceType ?? "SYSTEM",
 
-      recipientUserId: input.recipientUserId,
-      recipientEmail: input.recipientEmail,
-      recipientPhone: input.recipientPhone,
+    recipientUserId: input.recipientUserId,
+    recipientEmail: input.recipientEmail,
+    recipientPhone: input.recipientPhone,
 
-      subject: input.subject,
-      message: input.message,
+    subject: input.subject,
+    message: input.message,
 
-      provider: input.provider,
-      providerMessageId: input.providerMessageId,
+    provider: input.provider,
+    providerMessageId: input.providerMessageId,
 
-      entityType: input.entityType,
-      entityId: input.entityId,
+    entityType: input.entityType,
+    entityId: input.entityId,
 
-      errorMessage: input.errorMessage,
-      metadata: input.metadata,
+    errorMessage: input.errorMessage,
+    metadata: input.metadata,
 
-      createdByUserId: input.createdByUserId,
-      sentAt: input.status === "SENT" ? new Date() : null,
+    createdByUserId: input.createdByUserId,
+    sentAt: input.status === "SENT" ? new Date() : null,
+  };
+
+  if (!input.id) {
+    return prisma.notificationLog.create({ data });
+  }
+
+  // Dispatch job tekrar çalışırsa aynı alıcı için ikinci kayıt oluşturulmaz.
+  return prisma.notificationLog.upsert({
+    where: {
+      id: input.id,
     },
+    create: data,
+    update: {},
   });
 }
 
@@ -128,6 +143,7 @@ export async function queueEmailNotification(
   input: QueueEmailNotificationInput
 ) {
   const notificationLog = await createNotificationLog({
+    id: input.notificationLogId,
     channel: "EMAIL",
     status: "PENDING",
     sourceType: input.sourceType ?? "SYSTEM",
@@ -141,6 +157,13 @@ export async function queueEmailNotification(
     createdByUserId: input.createdByUserId,
   });
 
+  if (
+    notificationLog.status === "SENT" ||
+    notificationLog.status === "SKIPPED"
+  ) {
+    return notificationLog;
+  }
+
   try {
     await addEmailNotificationJob(notificationLog.id);
     return notificationLog;
@@ -153,6 +176,7 @@ export async function queueSmsNotification(
   input: QueueSmsNotificationInput
 ) {
   const notificationLog = await createNotificationLog({
+    id: input.notificationLogId,
     channel: "SMS",
     status: "PENDING",
     sourceType: input.sourceType ?? "SYSTEM",
@@ -164,6 +188,13 @@ export async function queueSmsNotification(
     metadata: input.metadata,
     createdByUserId: input.createdByUserId,
   });
+
+  if (
+    notificationLog.status === "SENT" ||
+    notificationLog.status === "SKIPPED"
+  ) {
+    return notificationLog;
+  }
 
   try {
     await addSmsNotificationJob(notificationLog.id);

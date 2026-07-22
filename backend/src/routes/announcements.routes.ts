@@ -4,7 +4,7 @@ import prisma from "../db/prisma.js";
 import { type Prisma } from "../generated/prisma/client.js";
 import { requireAuth, requireRole, type AuthenticatedRequest, type AuthenticatedUser, } from "../middlewares/auth.middleware.js";
 import { createAuditLog } from "../services/audit-log.service.js";
-import { createNotificationLog, queueEmailNotification, queueSmsNotification, } from "../services/notification.service.js";
+import { addNotificationDispatchJob } from "../queues/notification.queues.js";
 import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
@@ -69,6 +69,11 @@ const listAnnouncementFiltersSchema = z.object({
     status: z.enum(["ACTIVE", "ARCHIVED"]).optional(),
     targetType: z.enum(["ALL", "SITE", "BLOCK", "APARTMENT"]).optional(),
 });
+function getQueueErrorMessage(error: unknown) {
+    return error instanceof Error
+        ? error.message
+        : "Bilinmeyen bildirim kuyruğu hatası oluştu.";
+}
 async function getAnnouncementWhereForUser(user: AuthenticatedUser) {
     if (user.role === "SUPER_ADMIN") {
         return {};
@@ -304,194 +309,6 @@ async function ensureTargetIsValidAndAccessible(params: {
         apartmentId: params.apartmentId,
     };
 }
-type AnnouncementTargetType = "ALL" | "SITE" | "BLOCK" | "APARTMENT";
-async function getAnnouncementRecipients(params: {
-    targetType: AnnouncementTargetType;
-    siteId: string | null;
-    blockId: string | null;
-    apartmentId: string | null;
-}) {
-    const apartmentResidentWhere: Prisma.ApartmentResidentWhereInput = {};
-    if (params.targetType === "SITE" && params.siteId) {
-        apartmentResidentWhere.apartment = {
-            block: {
-                siteId: params.siteId,
-            },
-        };
-    }
-    if (params.targetType === "BLOCK" && params.blockId) {
-        apartmentResidentWhere.apartment = {
-            blockId: params.blockId,
-        };
-    }
-    if (params.targetType === "APARTMENT" && params.apartmentId) {
-        apartmentResidentWhere.apartmentId = params.apartmentId;
-    }
-    return prisma.user.findMany({
-        where: {
-            status: "ACTIVE",
-            apartmentResidents: {
-                some: apartmentResidentWhere,
-            },
-        },
-        select: {
-            id: true,
-            email: true,
-            phone: true,
-        },
-    });
-}
-async function queueAnnouncementNotifications(params: {
-    announcement: {
-        id: string;
-        title: string;
-        content: string;
-        targetType: AnnouncementTargetType;
-        siteId: string | null;
-        blockId: string | null;
-        apartmentId: string | null;
-    };
-    sendSms: boolean;
-    sendEmail: boolean;
-    createdByUserId: string;
-}) {
-    const summary = {
-        recipientCount: 0,
-        emailNotificationCount: 0,
-        smsNotificationCount: 0,
-        skippedNotificationCount: 0,
-    };
-    const metadata = {
-        purpose: "ANNOUNCEMENT",
-        targetType: params.announcement.targetType,
-        ...(params.announcement.siteId ? { siteId: params.announcement.siteId } : {}),
-        ...(params.announcement.blockId ? { blockId: params.announcement.blockId } : {}),
-        ...(params.announcement.apartmentId
-            ? { apartmentId: params.announcement.apartmentId }
-            : {}),
-    } as Prisma.InputJsonObject;
-    if (!params.sendSms && !params.sendEmail) {
-        summary.skippedNotificationCount += 1;
-        await createNotificationLog({
-            channel: "EMAIL",
-            status: "SKIPPED",
-            sourceType: "ANNOUNCEMENT",
-            subject: params.announcement.title,
-            message: params.announcement.content,
-            entityType: "Announcement",
-            entityId: params.announcement.id,
-            errorMessage: "Duyuru oluşturuldu ancak SMS/E-posta gönderimi seçilmedi.",
-            metadata,
-            createdByUserId: params.createdByUserId,
-        });
-        return summary;
-    }
-    const recipients = await getAnnouncementRecipients({
-        targetType: params.announcement.targetType,
-        siteId: params.announcement.siteId,
-        blockId: params.announcement.blockId,
-        apartmentId: params.announcement.apartmentId,
-    });
-    summary.recipientCount = recipients.length;
-    const notificationJobs: Promise<unknown>[] = [];
-    if (recipients.length === 0) {
-        if (params.sendEmail) {
-            summary.skippedNotificationCount += 1;
-            notificationJobs.push(createNotificationLog({
-                channel: "EMAIL",
-                status: "SKIPPED",
-                sourceType: "ANNOUNCEMENT",
-                subject: params.announcement.title,
-                message: params.announcement.content,
-                entityType: "Announcement",
-                entityId: params.announcement.id,
-                errorMessage: "Duyuru hedefinde aktif sakin bulunamadı.",
-                metadata,
-                createdByUserId: params.createdByUserId,
-            }));
-        }
-        if (params.sendSms) {
-            summary.skippedNotificationCount += 1;
-            notificationJobs.push(createNotificationLog({
-                channel: "SMS",
-                status: "SKIPPED",
-                sourceType: "ANNOUNCEMENT",
-                message: `${params.announcement.title}: ${params.announcement.content}`,
-                entityType: "Announcement",
-                entityId: params.announcement.id,
-                errorMessage: "Duyuru hedefinde aktif sakin bulunamadı.",
-                metadata,
-                createdByUserId: params.createdByUserId,
-            }));
-        }
-        await Promise.all(notificationJobs);
-        return summary;
-    }
-    let emailRecipientCount = 0;
-    let smsRecipientCount = 0;
-    for (const recipient of recipients) {
-        if (params.sendEmail && recipient.email) {
-            emailRecipientCount += 1;
-            summary.emailNotificationCount += 1;
-            notificationJobs.push(queueEmailNotification({
-                recipientUserId: recipient.id,
-                recipientEmail: recipient.email,
-                subject: params.announcement.title,
-                message: params.announcement.content,
-                sourceType: "ANNOUNCEMENT",
-                entityType: "Announcement",
-                entityId: params.announcement.id,
-                metadata,
-                createdByUserId: params.createdByUserId,
-            }));
-        }
-        if (params.sendSms && recipient.phone) {
-            smsRecipientCount += 1;
-            summary.smsNotificationCount += 1;
-            notificationJobs.push(queueSmsNotification({
-                recipientUserId: recipient.id,
-                recipientPhone: recipient.phone,
-                message: `${params.announcement.title}: ${params.announcement.content}`,
-                sourceType: "ANNOUNCEMENT",
-                entityType: "Announcement",
-                entityId: params.announcement.id,
-                metadata,
-                createdByUserId: params.createdByUserId,
-            }));
-        }
-    }
-    if (params.sendEmail && emailRecipientCount === 0) {
-        summary.skippedNotificationCount += 1;
-        notificationJobs.push(createNotificationLog({
-            channel: "EMAIL",
-            status: "SKIPPED",
-            sourceType: "ANNOUNCEMENT",
-            subject: params.announcement.title,
-            message: params.announcement.content,
-            entityType: "Announcement",
-            entityId: params.announcement.id,
-            errorMessage: "Hedef sakinlerde e-posta adresi bulunamadı.",
-            metadata,
-            createdByUserId: params.createdByUserId,
-        }));
-    }
-    if (params.sendSms && smsRecipientCount === 0) {
-        summary.skippedNotificationCount += 1;
-        notificationJobs.push(createNotificationLog({
-            channel: "SMS",
-            status: "SKIPPED",
-            sourceType: "ANNOUNCEMENT",
-            message: `${params.announcement.title}: ${params.announcement.content}`,
-            entityType: "Announcement",
-            entityId: params.announcement.id,
-            errorMessage: "Hedef sakinlerde telefon numarası bulunamadı.",
-            metadata,
-            createdByUserId: params.createdByUserId,
-        }));
-    }
-    await Promise.all(notificationJobs);
-    return summary;
-}
 router.get("/", requireRole("SUPER_ADMIN", "MANAGER", "RESIDENT"), asyncHandler(async (request: Request, response: Response) => {
     const authenticatedRequest = request as AuthenticatedRequest;
     if (!authenticatedRequest.user) {
@@ -617,20 +434,24 @@ router.post("/", requireRole("SUPER_ADMIN", "MANAGER"), asyncHandler(async (requ
         },
         include: announcementInclude,
     });
-    const notificationSummary = await queueAnnouncementNotifications({
-        announcement: {
-            id: announcement.id,
-            title: announcement.title,
-            content: announcement.content,
-            targetType: announcement.targetType,
-            siteId: announcement.siteId,
-            blockId: announcement.blockId,
-            apartmentId: announcement.apartmentId,
-        },
-        sendSms,
-        sendEmail,
-        createdByUserId: authenticatedRequest.user.id,
-    });
+    const notificationRequested = sendSms || sendEmail;
+    let notificationDispatchQueued = false;
+    let notificationDispatchError: string | null = null;
+
+    try {
+        await addNotificationDispatchJob({
+            kind: "ANNOUNCEMENT",
+            announcementId: announcement.id,
+            sendSms,
+            sendEmail,
+            createdByUserId: authenticatedRequest.user.id,
+        });
+        notificationDispatchQueued = true;
+    }
+    catch (error) {
+        notificationDispatchError = getQueueErrorMessage(error);
+        console.error("Duyuru bildirimleri arka plan kuyruğuna eklenemedi:", error);
+    }
     await createAuditLog({
         request,
         userId: authenticatedRequest.user.id,
@@ -645,13 +466,24 @@ router.post("/", requireRole("SUPER_ADMIN", "MANAGER"), asyncHandler(async (requ
             apartmentId: announcement.apartmentId,
             sendSms,
             sendEmail,
-            notificationSummary,
+            notificationDispatch: {
+                requested: notificationRequested,
+                queued: notificationDispatchQueued,
+                ...(notificationDispatchError
+                    ? { error: notificationDispatchError }
+                    : {}),
+            },
         },
     });
     response.status(201).json({
         success: true,
-        message: "Duyuru başarıyla oluşturuldu.",
+        message: notificationDispatchError
+            ? "Duyuru oluşturuldu ancak bildirimler kuyruğa eklenemedi."
+            : notificationRequested
+                ? "Duyuru başarıyla oluşturuldu. Bildirimler arka planda gönderiliyor."
+                : "Duyuru başarıyla oluşturuldu.",
         data: announcement,
+        notificationQueued: notificationDispatchQueued,
     });
 }));
 router.patch("/:announcementId/read", requireRole("RESIDENT"), asyncHandler(async (request: Request, response: Response) => {
