@@ -17,6 +17,7 @@ import {
   analyzeReceiptWithAiFallback,
   type ReceiptAiAnalyzeResult,
 } from "../services/receipt-ai.service.js";
+import { verifyPaymentReceiptWithAi } from "../services/receipt-ai-verification.service.js";
 import {
   getManagerScope,
   hasManagerScope,
@@ -242,6 +243,13 @@ function parseSavedAiResult(value: string | undefined) {
           ? parsed.payerName.trim()
           : null,
       aiAmountKurus: amountKurus,
+      aiRecipientIban:
+        typeof parsed.recipientIban === "string" &&
+        parsed.recipientIban.trim().length > 0
+          ? parsed.recipientIban
+              .toUpperCase()
+              .replace(/[^A-Z0-9]/g, "")
+          : null,
       aiApartmentNumber:
         typeof parsed.apartmentNumber === "string" &&
         parsed.apartmentNumber.trim().length > 0
@@ -550,6 +558,7 @@ router.post(
             payerName: null,
             amount: null,
             amountKurus: null,
+            recipientIban: null,
             apartmentNumber: null,
             description: null,
             paymentDate: null,
@@ -1097,10 +1106,228 @@ router.post(
       },
     });
 
+    const queuedReceipt = await prisma.paymentReceipt.update({
+      where: {
+        id: receipt.id,
+      },
+      data: {
+        aiStatus: "PROCESSING",
+        aiReasons: [],
+        aiErrorMessage: null,
+        aiVerifiedAt: null,
+      },
+    });
+
     response.status(201).json({
       success: true,
-      message: "Dekont başarıyla yüklendi ve onay bekliyor.",
-      data: receipt,
+      message:
+        "Dekont başarıyla yüklendi ve onay bekliyor. AI kontrolü arka planda devam ediyor.",
+      data: queuedReceipt,
+    });
+
+    /*
+     * AI analizi yavaş olabilir ve birden fazla sağlayıcı deneyebilir.
+     * Kullanıcının yükleme isteğini bekletmemek için cevap gönderildikten
+     * sonra aynı Node.js sürecinde arka planda çalıştırılır.
+     */
+    setImmediate(() => {
+      void (async () => {
+        try {
+          const verifiedReceipt = await verifyPaymentReceiptWithAi(receipt.id);
+
+          await createAuditLog({
+            request,
+            userId: authenticatedRequest.user!.id,
+            action: "AI_VERIFY_PAYMENT_RECEIPT",
+            entityType: "PaymentReceipt",
+            entityId: receipt.id,
+            metadata: {
+              paymentAllocationId: receipt.paymentAllocationId,
+              aiStatus: verifiedReceipt.aiStatus,
+              aiProvider: verifiedReceipt.aiProvider,
+              aiAmountMatches: verifiedReceipt.aiAmountMatches,
+              aiIbanMatches: verifiedReceipt.aiIbanMatches,
+              aiConfidence: verifiedReceipt.aiConfidence,
+              aiReasons: verifiedReceipt.aiReasons,
+            },
+          });
+        } catch (error) {
+          console.error(
+            "Dekont yüklendi ancak arka plan AI kontrolü tamamlanamadı:",
+            {
+              receiptId: receipt.id,
+              error,
+            },
+          );
+
+          try {
+            await prisma.paymentReceipt.update({
+              where: {
+                id: receipt.id,
+              },
+              data: {
+                aiStatus: "FAILED",
+                aiReasons: ["AI dekont kontrolü tamamlanamadı."],
+                aiErrorMessage:
+                  error instanceof Error
+                    ? error.message.slice(0, 500)
+                    : "Bilinmeyen AI kontrol hatası oluştu.",
+                aiVerifiedAt: new Date(),
+              },
+            });
+          } catch (updateError) {
+            console.error("AI hata durumu dekonta kaydedilemedi:", {
+              receiptId: receipt.id,
+              error: updateError,
+            });
+          }
+        }
+      })();
+    });
+  }),
+);
+
+router.post(
+  "/:receiptId/retry-ai",
+  requireRole("SUPER_ADMIN", "MANAGER"),
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+    const paramsResult = receiptParamsSchema.safeParse(request.params);
+
+    if (!paramsResult.success) {
+      throw new HttpError(400, "Dekont bilgisi geçersiz.");
+    }
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    const { receiptId } = paramsResult.data;
+
+    if (authenticatedRequest.user.role === "MANAGER") {
+      await ensureManagerCanAccessReceipt({
+        managerId: authenticatedRequest.user.id,
+        receiptId,
+      });
+    }
+
+    const receipt = await prisma.paymentReceipt.findUnique({
+      where: {
+        id: receiptId,
+      },
+      select: {
+        id: true,
+        status: true,
+        aiStatus: true,
+        paymentAllocationId: true,
+      },
+    });
+
+    if (!receipt) {
+      throw new HttpError(404, "Dekont bulunamadı.");
+    }
+
+    if (receipt.status !== "PENDING") {
+      throw new HttpError(
+        409,
+        "Sadece onay bekleyen dekontlar AI ile tekrar kontrol edilebilir.",
+      );
+    }
+
+    if (receipt.aiStatus === "PROCESSING") {
+      throw new HttpError(409, "Bu dekont için AI kontrolü zaten devam ediyor.");
+    }
+
+    if (receipt.aiStatus !== "FAILED") {
+      throw new HttpError(
+        409,
+        "AI ile tekrar kontrol yalnızca başarısız olan dekontlarda kullanılabilir.",
+      );
+    }
+
+    const queuedReceipt = await prisma.paymentReceipt.update({
+      where: {
+        id: receipt.id,
+      },
+      data: {
+        aiStatus: "PROCESSING",
+        aiReasons: [],
+        aiErrorMessage: null,
+        aiVerifiedAt: null,
+      },
+    });
+
+    await createAuditLog({
+      request,
+      userId: authenticatedRequest.user.id,
+      action: "RETRY_AI_VERIFY_PAYMENT_RECEIPT",
+      entityType: "PaymentReceipt",
+      entityId: receipt.id,
+      metadata: {
+        paymentAllocationId: receipt.paymentAllocationId,
+        previousAiStatus: receipt.aiStatus,
+        aiStatus: queuedReceipt.aiStatus,
+      },
+    });
+
+    response.status(202).json({
+      success: true,
+      message:
+        "Dekont AI ile tekrar kontrol edilmeye başlandı. Sonuç arka planda güncellenecek.",
+      data: queuedReceipt,
+    });
+
+    setImmediate(() => {
+      void (async () => {
+        try {
+          const verifiedReceipt = await verifyPaymentReceiptWithAi(receipt.id);
+
+          await createAuditLog({
+            request,
+            userId: authenticatedRequest.user!.id,
+            action: "AI_VERIFY_PAYMENT_RECEIPT",
+            entityType: "PaymentReceipt",
+            entityId: receipt.id,
+            metadata: {
+              paymentAllocationId: receipt.paymentAllocationId,
+              retry: true,
+              aiStatus: verifiedReceipt.aiStatus,
+              aiProvider: verifiedReceipt.aiProvider,
+              aiAmountMatches: verifiedReceipt.aiAmountMatches,
+              aiIbanMatches: verifiedReceipt.aiIbanMatches,
+              aiConfidence: verifiedReceipt.aiConfidence,
+              aiReasons: verifiedReceipt.aiReasons,
+            },
+          });
+        } catch (error) {
+          console.error("Dekontun tekrar AI kontrolü tamamlanamadı:", {
+            receiptId: receipt.id,
+            error,
+          });
+
+          try {
+            await prisma.paymentReceipt.update({
+              where: {
+                id: receipt.id,
+              },
+              data: {
+                aiStatus: "FAILED",
+                aiReasons: ["AI dekont kontrolü tamamlanamadı."],
+                aiErrorMessage:
+                  error instanceof Error
+                    ? error.message.slice(0, 500)
+                    : "Bilinmeyen AI kontrol hatası oluştu.",
+                aiVerifiedAt: new Date(),
+              },
+            });
+          } catch (updateError) {
+            console.error("AI tekrar kontrol hata durumu kaydedilemedi:", {
+              receiptId: receipt.id,
+              error: updateError,
+            });
+          }
+        }
+      })();
     });
   }),
 );
@@ -1531,6 +1758,7 @@ router.post(
                   aiModelName: savedAiResult.aiModelName,
                   aiPayerName: savedAiResult.aiPayerName,
                   aiAmountKurus: savedAiResult.aiAmountKurus,
+                  aiRecipientIban: savedAiResult.aiRecipientIban,
                   aiApartmentNumber: savedAiResult.aiApartmentNumber,
                   aiDescription: savedAiResult.aiDescription,
                   aiPaymentDate: savedAiResult.aiPaymentDate,

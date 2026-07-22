@@ -12,6 +12,18 @@ function getReceiptStatusClass(status) {
   return "waiting";
 }
 
+function getAiStatusClass(aiStatus) {
+  if (aiStatus === "MATCHED") {
+    return "approved";
+  }
+
+  if (aiStatus === "FAILED") {
+    return "rejected";
+  }
+
+  return "waiting";
+}
+
 function ReceiptTable({
   receipts,
   onView,
@@ -33,6 +45,7 @@ function ReceiptTable({
               <th>Ödeme</th>
               <th>Tutar</th>
               <th>Dosya</th>
+              <th>AI Kontrolü</th>
               <th>Durum</th>
               <th>Tarih</th>
               <th>İşlem</th>
@@ -43,6 +56,7 @@ function ReceiptTable({
             {safeReceipts.length > 0 ? (
               safeReceipts.map((receipt) => {
                 const statusClass = getReceiptStatusClass(receipt.status);
+                const aiStatusClass = getAiStatusClass(receipt.aiStatus);
                 const isWaitingApproval = receipt.status === "Onay Bekliyor";
 
                 return (
@@ -58,6 +72,15 @@ function ReceiptTable({
                     <td>{receipt.paymentTitle || "-"}</td>
                     <td>{receipt.amountText || "-"}</td>
                     <td>{receipt.fileName || "-"}</td>
+
+                    <td>
+                      <span
+                        className={`receipt-status-badge ${aiStatusClass}`}
+                        title={receipt.aiStatusLabel || "AI kontrol bilgisi"}
+                      >
+                        {receipt.aiStatusLabel || "Kontrol edilmedi"}
+                      </span>
+                    </td>
 
                     <td>
                       <span className={`receipt-status-badge ${statusClass}`}>
@@ -117,7 +140,7 @@ function ReceiptTable({
               })
             ) : (
               <tr>
-                <td colSpan="8" className="empty-table-message">
+                <td colSpan="9" className="empty-table-message">
                   Arama kriterlerine uygun dekont bulunamadı.
                 </td>
               </tr>

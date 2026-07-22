@@ -9,7 +9,7 @@ import {
   markAiSettingFailure,
   markAiSettingSuccess,
 } from "./ai-setting-health.service.js";
-
+import type { AiProvider } from "../generated/prisma/client.js";
 type ReceiptAiAnalyzeInput = {
   filePath: string;
   mimeType: string;
@@ -20,11 +20,12 @@ export type ReceiptAiAnalyzeResult = {
   payerName: string | null;
   amount: number | null;
   amountKurus: number | null;
+  recipientIban: string | null;
   apartmentNumber: string | null;
   description: string | null;
   paymentDate: string | null;
   confidence: number;
-  provider: string | null;
+  provider: AiProvider | null;
   modelName: string | null;
 };
 
@@ -32,6 +33,7 @@ const emptyAiResult: ReceiptAiAnalyzeResult = {
   payerName: null,
   amount: null,
   amountKurus: null,
+  recipientIban: null,
   apartmentNumber: null,
   description: null,
   paymentDate: null,
@@ -55,6 +57,7 @@ JSON formatı:
 {
   "payerName": string | null,
   "amount": number | null,
+  "recipientIban": string | null,
   "apartmentNumber": string | null,
   "description": string | null,
   "paymentDate": string | null,
@@ -63,9 +66,13 @@ JSON formatı:
 
 Kurallar:
 - amount TL cinsinden sayı olmalı. Örnek: 1250.50
+- recipientIban yalnızca paranın gönderildiği alıcı/lehtar IBAN olmalı.
+- Gönderen kişinin IBAN'ını recipientIban alanına yazma.
+- Alıcı IBAN açıkça belirlenemiyorsa recipientIban için null yaz.
+- recipientIban boşluksuz ve büyük harfli olmalı. Örnek: TR001234...
 - apartmentNumber dekont açıklamasında daire no varsa çıkar.
 - bilgi yoksa null yaz.
-- TCKN, TC kimlik no, IBAN, banka hesap numarası, telefon numarası veya özel kimlik numarası döndürme.
+- TCKN, TC kimlik no, gönderen banka hesap numarası, telefon numarası veya özel kimlik numarası döndürme.
 - Açıklama içinde hassas bilgi varsa "[HASSAS BİLGİ GİZLENDİ]" yaz.
 - confidence 0 ile 1 arasında olmalı.
 `;
@@ -82,6 +89,20 @@ function maskSensitiveReceiptText(value: string | null) {
     .replace(/\b\d{12,}\b/g, "[NUMARA GİZLENDİ]")
     .replace(/\b0?5\d{9}\b/g, "[TELEFON GİZLENDİ]")
     .trim();
+}
+
+function normalizeRecipientIban(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+  if (!/^[A-Z]{2}[A-Z0-9]{13,32}$/.test(normalized)) {
+    return null;
+  }
+
+  return normalized;
 }
 
 function normalizeAiJson(rawText: string) {
@@ -106,6 +127,7 @@ function normalizeAiJson(rawText: string) {
         : null,
     amount,
     amountKurus: amount !== null ? Math.round(amount * 100) : null,
+    recipientIban: normalizeRecipientIban(parsed.recipientIban),
     apartmentNumber:
       typeof parsed.apartmentNumber === "string" &&
       parsed.apartmentNumber.trim().length > 0

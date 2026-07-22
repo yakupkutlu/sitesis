@@ -32,6 +32,12 @@ export async function rejectPaymentReceipt(receiptId, payload = {}) {
   });
 }
 
+export async function retryPaymentReceiptAi(receiptId) {
+  return apiRequest(`/payment-receipts/${receiptId}/retry-ai`, {
+    method: "POST",
+  });
+}
+
 export function getPaymentReceiptDownloadUrl(receiptId) {
   const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
   return `${baseUrl}/payment-receipts/${receiptId}/download`;

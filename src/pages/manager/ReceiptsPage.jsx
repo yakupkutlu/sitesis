@@ -16,6 +16,7 @@ import {
   managerConfirmPaymentReceipt,
   getPaymentReceipts,
   rejectPaymentReceipt,
+  retryPaymentReceiptAi,
 } from "../../api/paymentReceiptsApi";
 import { getApartments } from "../../api/apartmentsApi";
 import { useAuth } from "../../hooks/useAuth";
@@ -24,6 +25,14 @@ const statusLabels = {
   PENDING: "Onay Bekliyor",
   APPROVED: "Onaylandı",
   REJECTED: "Reddedildi",
+};
+
+const aiStatusLabels = {
+  NOT_CHECKED: "Kontrol edilmedi",
+  PROCESSING: "AI kontrol ediyor",
+  MATCHED: "AI kontrolü uyumlu",
+  REVIEW_REQUIRED: "Manuel kontrol gerekli",
+  FAILED: "AI kontrolü tamamlanamadı",
 };
 
 const emptyUploadFormData = {
@@ -147,6 +156,11 @@ function mapReceiptToViewModel(receipt) {
     createdAt: formatDate(receipt.createdAt),
     reviewedBy: receipt.reviewedByUser?.fullName ?? "-",
     reviewNote: receipt.reviewNote ?? "",
+    aiStatus: receipt.aiStatus ?? "NOT_CHECKED",
+    aiStatusLabel:
+      aiStatusLabels[receipt.aiStatus] ??
+      receipt.aiStatus ??
+      aiStatusLabels.NOT_CHECKED,
     raw: receipt,
   };
 }
@@ -199,7 +213,22 @@ function ReceiptsPage() {
       search: searchTerm.trim(),
     });
 
-    setReceipts(getDataArray(result).map(mapReceiptToViewModel));
+    const mappedReceipts = getDataArray(result).map(mapReceiptToViewModel);
+
+    setReceipts(mappedReceipts);
+    setSelectedReceipt((currentReceipt) => {
+      if (!currentReceipt) {
+        return currentReceipt;
+      }
+
+      return (
+        mappedReceipts.find(
+          (receipt) => receipt.id === currentReceipt.id,
+        ) ?? currentReceipt
+      );
+    });
+
+    return mappedReceipts;
   }
 
   useEffect(() => {
@@ -237,6 +266,49 @@ function ReceiptsPage() {
     };
   }, []);
 
+  const hasProcessingAi = useMemo(
+    () => receipts.some((receipt) => receipt.aiStatus === "PROCESSING"),
+    [receipts],
+  );
+
+  useEffect(() => {
+    if (!hasProcessingAi) {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(async () => {
+      try {
+        const result = await getPaymentReceipts({
+          page: 1,
+          limit: 100,
+        });
+
+        const mappedReceipts = getDataArray(result).map(
+          mapReceiptToViewModel,
+        );
+
+        setReceipts(mappedReceipts);
+        setSelectedReceipt((currentReceipt) => {
+          if (!currentReceipt) {
+            return currentReceipt;
+          }
+
+          return (
+            mappedReceipts.find(
+              (receipt) => receipt.id === currentReceipt.id,
+            ) ?? currentReceipt
+          );
+        });
+      } catch (error) {
+        console.error("AI dekont durumları yenilenemedi:", error);
+      }
+    }, 5000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [hasProcessingAi]);
+
   const summary = useMemo(() => {
     return {
       total: receipts.length,
@@ -258,6 +330,7 @@ function ReceiptsPage() {
         receipt.amountText,
         receipt.description,
         receipt.status,
+        receipt.aiStatusLabel,
         receipt.fileName,
       ]
         .join(" ")
@@ -554,6 +627,43 @@ function ReceiptsPage() {
     }
   }
 
+  async function handleRetryAi(receiptId) {
+    const isConfirmed = window.confirm(
+      "Bu dekontu AI ile tekrar kontrol etmek istiyor musunuz?",
+    );
+
+    if (!isConfirmed) {
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      setMessage("");
+      setErrorMessage("");
+
+      await retryPaymentReceiptAi(receiptId);
+
+      const refreshedReceipts = await loadReceipts();
+      const refreshedReceipt = refreshedReceipts.find(
+        (receipt) => receipt.id === receiptId,
+      );
+
+      if (refreshedReceipt) {
+        setSelectedReceipt(refreshedReceipt);
+      }
+
+      setMessage(
+        "Dekont AI ile tekrar kontrol edilmeye başlandı. Sonuç arka planda güncellenecek.",
+      );
+    } catch (error) {
+      setErrorMessage(
+        error?.message ?? "Dekont AI ile tekrar kontrol edilemedi.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   function handleDownload(receiptId) {
     window.open(
       getPaymentReceiptDownloadUrl(receiptId),
@@ -668,6 +778,8 @@ function ReceiptsPage() {
       <ReceiptDetailsModal
         receipt={selectedReceipt}
         onClose={() => setSelectedReceipt(null)}
+        onRetryAi={handleRetryAi}
+        isRetryingAi={isSaving}
       />
     </DashboardLayout>
   );

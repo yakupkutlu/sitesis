@@ -1,4 +1,4 @@
-﻿import { X } from "lucide-react";
+﻿import { RefreshCw, X } from "lucide-react";
 
 function formatAiAmount(amountKurus) {
   if (amountKurus === null || amountKurus === undefined) {
@@ -19,6 +19,42 @@ function formatAiConfidence(confidence) {
   return `%${Math.round(Number(confidence) * 100)}`;
 }
 
+const aiStatusLabels = {
+  NOT_CHECKED: "Kontrol edilmedi",
+  PROCESSING: "AI kontrol ediyor",
+  MATCHED: "AI kontrolü uyumlu",
+  REVIEW_REQUIRED: "Manuel kontrol gerekli",
+  FAILED: "AI kontrolü tamamlanamadı",
+};
+
+function formatMatchResult(value) {
+  if (value === true) {
+    return "Eşleşiyor";
+  }
+
+  if (value === false) {
+    return "Eşleşmiyor";
+  }
+
+  return "Kontrol edilemedi";
+}
+
+function maskIban(value) {
+  if (!value) {
+    return "-";
+  }
+
+  const normalized = String(value)
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+
+  if (normalized.length <= 8) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, 4)} **** **** **** **** **${normalized.slice(-4)}`;
+}
+
 function formatDateTime(value) {
   if (!value) {
     return "-";
@@ -31,14 +67,32 @@ function formatDateTime(value) {
   }
 }
 
-function ReceiptDetailsModal({ receipt, onClose }) {
+function ReceiptDetailsModal({
+  receipt,
+  onClose,
+  onRetryAi,
+  isRetryingAi = false,
+}) {
   if (!receipt) {
     return null;
   }
 
   const rawReceipt = receipt.raw || {};
 
+  const aiStatus = rawReceipt.aiStatus ?? "NOT_CHECKED";
+  const aiStatusLabel =
+    aiStatusLabels[aiStatus] ?? aiStatus ?? aiStatusLabels.NOT_CHECKED;
+  const aiReasons = Array.isArray(rawReceipt.aiReasons)
+    ? rawReceipt.aiReasons
+    : [];
+
+  const canRetryAi =
+    receipt.rawStatus === "PENDING" &&
+    aiStatus === "FAILED" &&
+    typeof onRetryAi === "function";
+
   const hasAiInfo = Boolean(
+    rawReceipt.aiStatus ||
     rawReceipt.aiProvider ||
     rawReceipt.aiModelName ||
     rawReceipt.aiPayerName ||
@@ -121,6 +175,11 @@ function ReceiptDetailsModal({ receipt, onClose }) {
           </div>
 
           <div>
+            <span>AI Kontrolü</span>
+            <strong>{aiStatusLabel}</strong>
+          </div>
+
+          <div>
             <span>Yükleme Tarihi</span>
             <strong>{receipt.createdAt || "-"}</strong>
           </div>
@@ -140,6 +199,11 @@ function ReceiptDetailsModal({ receipt, onClose }) {
 
             <div className="receipt-match-grid">
               <div>
+                <span>AI Durumu</span>
+                <strong>{aiStatusLabel}</strong>
+              </div>
+
+              <div>
                 <span>Sağlayıcı</span>
                 <strong>{rawReceipt.aiProvider || "-"}</strong>
               </div>
@@ -150,13 +214,42 @@ function ReceiptDetailsModal({ receipt, onClose }) {
               </div>
 
               <div>
+                <span>Güven Oranı</span>
+                <strong>{formatAiConfidence(rawReceipt.aiConfidence)}</strong>
+              </div>
+
+              <div>
+                <span>Beklenen Tutar</span>
+                <strong>
+                  {formatAiAmount(rawReceipt.aiExpectedAmountKurus)}
+                </strong>
+              </div>
+
+              <div>
                 <span>Okunan Tutar</span>
                 <strong>{formatAiAmount(rawReceipt.aiAmountKurus)}</strong>
               </div>
 
               <div>
-                <span>Güven Oranı</span>
-                <strong>{formatAiConfidence(rawReceipt.aiConfidence)}</strong>
+                <span>Tutar Eşleşmesi</span>
+                <strong>
+                  {formatMatchResult(rawReceipt.aiAmountMatches)}
+                </strong>
+              </div>
+
+              <div>
+                <span>IBAN Eşleşmesi</span>
+                <strong>{formatMatchResult(rawReceipt.aiIbanMatches)}</strong>
+              </div>
+
+              <div>
+                <span>Beklenen IBAN</span>
+                <strong>{maskIban(rawReceipt.aiExpectedIban)}</strong>
+              </div>
+
+              <div>
+                <span>Okunan Alıcı IBAN</span>
+                <strong>{maskIban(rawReceipt.aiRecipientIban)}</strong>
               </div>
 
               <div>
@@ -179,11 +272,48 @@ function ReceiptDetailsModal({ receipt, onClose }) {
                 <strong>{formatDateTime(rawReceipt.aiAnalyzedAt)}</strong>
               </div>
 
+              <div>
+                <span>Kontrol Tarihi</span>
+                <strong>{formatDateTime(rawReceipt.aiVerifiedAt)}</strong>
+              </div>
+
               <div className="full-width">
                 <span>Okunan Açıklama</span>
                 <strong>{rawReceipt.aiDescription || "-"}</strong>
               </div>
             </div>
+
+            {aiReasons.length > 0 && (
+              <div className="details-description">
+                <span>Manuel Kontrol Nedenleri</span>
+                <ul>
+                  {aiReasons.map((reason, index) => (
+                    <li key={`${reason}-${index}`}>{reason}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {rawReceipt.aiErrorMessage && (
+              <div className="details-description">
+                <span>AI Hata Bilgisi</span>
+                <p>{rawReceipt.aiErrorMessage}</p>
+              </div>
+            )}
+
+            {canRetryAi && (
+              <button
+                type="button"
+                className="dashboard-action-button"
+                onClick={() => onRetryAi(receipt.id)}
+                disabled={isRetryingAi}
+              >
+                <RefreshCw size={18} />
+                {isRetryingAi
+                  ? "AI kontrolü başlatılıyor..."
+                  : "AI ile Tekrar Kontrol Et"}
+              </button>
+            )}
           </div>
         )}
 

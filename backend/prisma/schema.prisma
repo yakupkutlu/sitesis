@@ -41,6 +41,14 @@ enum ReceiptStatus {
   REJECTED
 }
 
+enum ReceiptAiStatus {
+  NOT_CHECKED
+  PROCESSING
+  MATCHED
+  REVIEW_REQUIRED
+  FAILED
+}
+
 
 enum AccountingExpenseCategory {
   ELEVATOR
@@ -377,22 +385,33 @@ model PaymentReceipt {
 
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
+  aiStatus          ReceiptAiStatus @default(NOT_CHECKED)
   aiProvider        AiProvider?
   aiModelName       String?
   aiPayerName       String?
   aiAmountKurus     Int?
+  aiRecipientIban   String?
+  aiExpectedAmountKurus Int?
+  aiExpectedIban    String?
+  aiAmountMatches   Boolean?
+  aiIbanMatches     Boolean?
   aiApartmentNumber String?
   aiDescription     String?
   aiPaymentDate     String?
   aiConfidence      Float?
+  aiReasons         String[] @default([])
+  aiErrorMessage    String?
   aiAnalyzedAt      DateTime?
+  aiVerifiedAt      DateTime?
 
   @@index([paymentAllocationId])
   @@index([uploadedByUserId])
   @@index([reviewedByUserId])
   @@index([status])
+  @@index([aiStatus])
   @@index([aiProvider])
   @@index([aiAnalyzedAt])
+  @@index([aiVerifiedAt])
 }
 
 model AccountingExpense {

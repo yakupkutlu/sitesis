@@ -388,7 +388,7 @@ router.get(
     const managerSelect = {
       id: true,
       fullName: true,
-      email: true,
+      
     } as const;
 
     const blockAssignments = await prisma.managerAssignment.findMany({
