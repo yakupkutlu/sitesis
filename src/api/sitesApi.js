@@ -48,3 +48,22 @@ export async function uploadSiteImage(siteId, imageFile) {
 export function getSiteImageUrl(siteId) {
   return `${API_BASE_URL}/sites/${siteId}/image`;
 }
+
+export async function getSiteBankAccount(siteId) {
+  return apiRequest(`/sites/${siteId}/bank-account`);
+}
+
+export async function saveSiteBankAccount(siteId, payload) {
+  return apiRequest(`/sites/${siteId}/bank-account`, {
+    method: "PUT",
+    body: payload,
+  });
+}
+
+export async function getManagerSiteBankAccountsOverview() {
+  return apiRequest("/sites/bank-accounts/overview");
+}
+
+export async function getMyBankAccount() {
+  return apiRequest("/sites/my-bank-account");
+}

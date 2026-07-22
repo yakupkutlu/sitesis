@@ -14,6 +14,7 @@ import ResidentPaymentSummaryCards from "../../components/resident-payments/Resi
 import ResidentPaymentToolbar from "../../components/resident-payments/ResidentPaymentToolbar";
 import ResidentPaymentTable from "../../components/resident-payments/ResidentPaymentTable";
 import ResidentPaymentDetailsModal from "../../components/resident-payments/ResidentPaymentDetailsModal";
+import ResidentBankAccountCard from "../../components/resident-payments/ResidentBankAccountCard";
 
 import { getMyPaymentAllocations } from "../../api/paymentBatchesApi";
 
@@ -146,7 +147,7 @@ function formatCurrency(value) {
 }
 
 function ResidentPaymentsPage() {
-  const { user, selectedApartmentId } = useAuth();
+  const { user, selectedApartment } = useAuth();
 
   const [payments, setPayments] = useState([]);
   const [selectedPayment, setSelectedPayment] = useState(null);
@@ -165,8 +166,6 @@ function ResidentPaymentsPage() {
       try {
         setIsLoading(true);
         setErrorMessage("");
-        setPayments([]);
-        setSelectedPayment(null);
 
         const result = await getMyPaymentAllocations();
 
@@ -189,7 +188,7 @@ function ResidentPaymentsPage() {
     return () => {
       isMounted = false;
     };
-  }, [selectedApartmentId]);
+  }, []);
 
   const summary = useMemo(() => {
     const totalDebt = payments.reduce(
@@ -269,6 +268,12 @@ function ResidentPaymentsPage() {
           <p>{errorMessage}</p>
         </div>
       )}
+
+      <ResidentBankAccountCard
+        selectedApartmentId={
+          selectedApartment?.apartment?.id ?? null
+        }
+      />
 
       <ResidentPaymentSummaryCards summary={summary} />
 

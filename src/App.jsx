@@ -32,6 +32,7 @@ import ContactMessagesPage from "./pages/super-admin/ContactMessagesPage";
 import AiSettingsPage from "./pages/super-admin/AiSettingsPage";
 import SettingsPage from "./pages/super-admin/SettingsPage";
 import UsersPage from "./pages/super-admin/UsersPage";
+import SuperAdminBankAccountPage from "./pages/super-admin/BankAccountPage";
 
 import ApartmentsPage from "./pages/manager/ApartmentsPage";
 import ResidentsPage from "./pages/manager/ResidentsPage";
@@ -44,6 +45,7 @@ import ManagerScopeSelectPage from "./pages/manager/ManagerScopeSelectPage";
 import AccountingOverviewPage from "./pages/manager/AccountingOverviewPage";
 import AccountingIncomePage from "./pages/manager/AccountingIncomePage";
 import AccountingExpensesPage from "./pages/manager/AccountingExpensesPage";
+import ManagerBankAccountPage from "./pages/manager/ManagerBankAccountPage";
 
 import ResidentPaymentsPage from "./pages/resident/ResidentPaymentsPage";
 import ResidentReceiptsPage from "./pages/resident/ResidentReceiptsPage";
@@ -165,6 +167,11 @@ function App() {
           />
 
           <Route
+            path="/super-admin/bank-account"
+            element={protect(["SUPER_ADMIN"], <SuperAdminBankAccountPage />)}
+          />
+
+          <Route
             path="/super-admin/contact-messages"
             element={protect(["SUPER_ADMIN"], <ContactMessagesPage />)}
           />
@@ -227,6 +234,11 @@ function App() {
           <Route
             path="/manager/settings"
             element={protectManager(<ManagerSettingsPage />)}
+          />
+
+          <Route
+            path="/manager/bank-account"
+            element={protectManager(<ManagerBankAccountPage />)}
           />
 
           <Route

@@ -22,6 +22,7 @@ import { HttpError } from "../utils/http-error.js";
 import { buildPaginationMeta, getPaginationParams } from "../utils/pagination.js";
 import { siteBlockImageUpload } from "../uploads/site-block-image-upload.js";
 import { isAllowedImageFile } from "../utils/image-signature.js";
+import { isValidIban, maskIban, normalizeIban } from "../utils/iban.js";
 
 const router = express.Router();
 
@@ -110,6 +111,48 @@ const updateSiteSchema = z
     message: "En az bir alan gönderilmelidir.",
   });
 
+
+
+const upsertManagerSiteBankAccountSchema = z
+  .object({
+    bankName: z.string().trim().min(2).max(120),
+    branchName: z.string().trim().max(120).nullable().optional(),
+    accountHolder: z.string().trim().min(2).max(160),
+    accountNumber: z.string().trim().max(80).nullable().optional(),
+    iban: z.string().trim().min(15).max(42),
+    currency: z.enum(["TRY", "EUR", "USD"]).optional().default("TRY"),
+  })
+  .strict()
+  .superRefine((data, context) => {
+    if (!isValidIban(data.iban)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["iban"],
+        message: "IBAN bilgisi geçerli değildir.",
+      });
+    }
+  });
+
+const superAdminBankAccountQuerySchema = z
+  .object({
+    managerId: z.string().uuid().optional(),
+  })
+  .strict();
+
+const managerSiteBankAccountSelect = {
+  id: true,
+  managerId: true,
+  siteId: true,
+  bankName: true,
+  branchName: true,
+  accountHolder: true,
+  accountNumber: true,
+  iban: true,
+  currency: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
 function getRequiredParam(request: Request, paramName: string) {
   const paramValue = request.params[paramName];
 
@@ -118,6 +161,106 @@ function getRequiredParam(request: Request, paramName: string) {
   }
 
   return paramValue;
+}
+
+
+function normalizeNullableText(value: string | null | undefined) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  const normalizedValue = value.trim();
+
+  return normalizedValue.length > 0 ? normalizedValue : null;
+}
+
+function maskAccountNumber(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  const compactValue = value.replace(/\s+/g, "");
+
+  if (compactValue.length <= 4) {
+    return compactValue;
+  }
+
+  return `${"*".repeat(Math.max(0, compactValue.length - 4))}${compactValue.slice(-4)}`;
+}
+
+
+async function ensureManagerCanUseSiteBankAccount(params: {
+  managerId: string;
+  siteId: string;
+}) {
+  const managerScope = await getManagerScope(params.managerId);
+
+  if (!hasManagerScope(managerScope)) {
+    throw new HttpError(
+      403,
+      "Bu yöneticiye atanmış aktif bir site veya blok bulunamadı."
+    );
+  }
+
+  if (managerScope.siteIds.includes(params.siteId)) {
+    return;
+  }
+
+  if (managerScope.blockIds.length > 0) {
+    const accessibleBlock = await prisma.block.findFirst({
+      where: {
+        id: {
+          in: managerScope.blockIds,
+        },
+        siteId: params.siteId,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (accessibleBlock) {
+      return;
+    }
+  }
+
+  throw new HttpError(
+    403,
+    "Aktif çalışma alanınız bu siteye ait değildir."
+  );
+}
+
+async function ensureManagerHasAssignmentInSite(params: {
+  managerId: string;
+  siteId: string;
+}) {
+  const assignment = await prisma.managerAssignment.findFirst({
+    where: {
+      managerId: params.managerId,
+      OR: [
+        {
+          scopeType: "SITE",
+          siteId: params.siteId,
+        },
+        {
+          scopeType: "BLOCK",
+          block: {
+            siteId: params.siteId,
+          },
+        },
+      ],
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (!assignment) {
+    throw new HttpError(
+      404,
+      "Bu yönetici için seçilen sitede görev kaydı bulunamadı."
+    );
+  }
 }
 
 async function deleteUploadedImage(file?: Express.Multer.File) {
@@ -217,6 +360,616 @@ async function ensureUserCanAccessSiteImage(params: {
 
   throw new HttpError(403, "Bu site görselini görüntüleme yetkiniz yok.");
 }
+
+
+router.get(
+  "/my-bank-account",
+  requireRole("RESIDENT"),
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    const selectedApartment =
+      authenticatedRequest.user.selectedApartment?.apartment;
+
+    if (!selectedApartment) {
+      throw new HttpError(
+        409,
+        "Banka bilgilerini görmek için aktif daire seçmelisiniz."
+      );
+    }
+
+    const blockId = selectedApartment.block.id;
+    const site = selectedApartment.block.site;
+
+    const managerSelect = {
+      id: true,
+      fullName: true,
+      email: true,
+    } as const;
+
+    const blockAssignments = await prisma.managerAssignment.findMany({
+      where: {
+        scopeType: "BLOCK",
+        blockId,
+        manager: {
+          role: "MANAGER",
+          status: "ACTIVE",
+        },
+      },
+      select: {
+        manager: {
+          select: managerSelect,
+        },
+      },
+      orderBy: {
+        createdAt: "asc",
+      },
+    });
+
+    const blockManagerMap = new Map(
+      blockAssignments.map((assignment) => [
+        assignment.manager.id,
+        assignment.manager,
+      ])
+    );
+
+    let responsibleManagers = Array.from(blockManagerMap.values());
+    let responsibilityLevel: "BLOCK" | "SITE" = "BLOCK";
+
+    /*
+     * Blok yöneticisi varsa önceliklidir. Blok yöneticisi yoksa
+     * site genel yöneticisine geçilir.
+     */
+    if (responsibleManagers.length === 0) {
+      responsibilityLevel = "SITE";
+
+      const siteAssignments = await prisma.managerAssignment.findMany({
+        where: {
+          scopeType: "SITE",
+          siteId: site.id,
+          manager: {
+            role: "MANAGER",
+            status: "ACTIVE",
+          },
+        },
+        select: {
+          manager: {
+            select: managerSelect,
+          },
+        },
+        orderBy: {
+          createdAt: "asc",
+        },
+      });
+
+      responsibleManagers = Array.from(
+        new Map(
+          siteAssignments.map((assignment) => [
+            assignment.manager.id,
+            assignment.manager,
+          ])
+        ).values()
+      );
+    }
+
+    const baseData = {
+      apartment: {
+        id: selectedApartment.id,
+        number: selectedApartment.number,
+      },
+      block: {
+        id: selectedApartment.block.id,
+        name: selectedApartment.block.name,
+      },
+      site: {
+        id: site.id,
+        name: site.name,
+      },
+      responsibilityLevel,
+    };
+
+    if (responsibleManagers.length === 0) {
+      response.status(200).json({
+        success: true,
+        data: {
+          ...baseData,
+          status: "MANAGER_NOT_ASSIGNED",
+          isConfigured: false,
+          manager: null,
+          bankAccount: null,
+        },
+      });
+      return;
+    }
+
+    if (responsibleManagers.length > 1) {
+      response.status(200).json({
+        success: true,
+        data: {
+          ...baseData,
+          status: "MULTIPLE_MANAGERS",
+          isConfigured: false,
+          manager: null,
+          managers: responsibleManagers,
+          bankAccount: null,
+        },
+      });
+      return;
+    }
+
+    const responsibleManager = responsibleManagers[0];
+
+    const bankAccount = await prisma.managerSiteBankAccount.findUnique({
+      where: {
+        managerId_siteId: {
+          managerId: responsibleManager.id,
+          siteId: site.id,
+        },
+      },
+      select: managerSiteBankAccountSelect,
+    });
+
+    response.status(200).json({
+      success: true,
+      data: {
+        ...baseData,
+        status: bankAccount
+          ? "CONFIGURED"
+          : "BANK_ACCOUNT_MISSING",
+        isConfigured: Boolean(bankAccount),
+        manager: responsibleManager,
+        bankAccount,
+      },
+    });
+  })
+);
+
+router.get(
+  "/bank-accounts/overview",
+  requireRole("SUPER_ADMIN"),
+  asyncHandler(async (_request: Request, response: Response) => {
+    const assignments = await prisma.managerAssignment.findMany({
+      where: {
+        manager: {
+          role: "MANAGER",
+        },
+      },
+      select: {
+        managerId: true,
+        scopeType: true,
+        manager: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            status: true,
+          },
+        },
+        site: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        block: {
+          select: {
+            id: true,
+            name: true,
+            site: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        createdAt: "asc",
+      },
+    });
+
+    type OverviewRow = {
+      manager: {
+        id: string;
+        fullName: string;
+        email: string;
+        status: "ACTIVE" | "PASSIVE";
+      };
+      site: {
+        id: string;
+        name: string;
+      };
+      hasSiteScope: boolean;
+      blocks: Map<string, string>;
+    };
+
+    const overviewMap = new Map<string, OverviewRow>();
+
+    for (const assignment of assignments) {
+      const site =
+        assignment.scopeType === "SITE"
+          ? assignment.site
+          : assignment.block?.site;
+
+      if (!site) {
+        continue;
+      }
+
+      const mapKey = `${assignment.managerId}:${site.id}`;
+      const currentRow = overviewMap.get(mapKey) ?? {
+        manager: assignment.manager,
+        site,
+        hasSiteScope: false,
+        blocks: new Map<string, string>(),
+      };
+
+      if (assignment.scopeType === "SITE") {
+        currentRow.hasSiteScope = true;
+      }
+
+      if (assignment.scopeType === "BLOCK" && assignment.block) {
+        currentRow.blocks.set(
+          assignment.block.id,
+          assignment.block.name
+        );
+      }
+
+      overviewMap.set(mapKey, currentRow);
+    }
+
+    const overviewRows = Array.from(overviewMap.entries());
+
+    const bankAccounts =
+      overviewRows.length > 0
+        ? await prisma.managerSiteBankAccount.findMany({
+            where: {
+              OR: overviewRows.map(([, row]) => ({
+                managerId: row.manager.id,
+                siteId: row.site.id,
+              })),
+            },
+            select: managerSiteBankAccountSelect,
+          })
+        : [];
+
+    const bankAccountMap = new Map(
+      bankAccounts.map((bankAccount) => [
+        `${bankAccount.managerId}:${bankAccount.siteId}`,
+        bankAccount,
+      ])
+    );
+
+    const data = overviewRows
+      .map(([mapKey, row]) => {
+        const blockNames = Array.from(row.blocks.values()).sort((left, right) =>
+          left.localeCompare(right, "tr-TR")
+        );
+
+        return {
+          manager: row.manager,
+          site: row.site,
+          responsibleAreas: row.hasSiteScope
+            ? ["Tüm Site"]
+            : blockNames,
+          isConfigured: bankAccountMap.has(mapKey),
+          bankAccount: bankAccountMap.get(mapKey) ?? null,
+        };
+      })
+      .sort((left, right) => {
+        const siteComparison = left.site.name.localeCompare(
+          right.site.name,
+          "tr-TR"
+        );
+
+        if (siteComparison !== 0) {
+          return siteComparison;
+        }
+
+        return left.manager.fullName.localeCompare(
+          right.manager.fullName,
+          "tr-TR"
+        );
+      });
+
+    response.status(200).json({
+      success: true,
+      data,
+    });
+  })
+);
+
+router.get(
+  "/:siteId/bank-account",
+  requireRole("SUPER_ADMIN", "MANAGER"),
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    const siteId = getRequiredParam(request, "siteId");
+
+    const site = await prisma.site.findUnique({
+      where: {
+        id: siteId,
+      },
+      select: {
+        id: true,
+        name: true,
+      },
+    });
+
+    if (!site) {
+      throw new HttpError(404, "Site bulunamadı.");
+    }
+
+    let managerId = authenticatedRequest.user.id;
+
+    if (authenticatedRequest.user.role === "MANAGER") {
+      await ensureManagerCanUseSiteBankAccount({
+        managerId,
+        siteId,
+      });
+    } else {
+      const queryResult = superAdminBankAccountQuerySchema.safeParse({
+        managerId: request.query.managerId,
+      });
+
+      if (!queryResult.success) {
+        throw new HttpError(
+          400,
+          "Yönetici seçimi geçersiz.",
+          queryResult.error.flatten().fieldErrors
+        );
+      }
+
+      if (!queryResult.data.managerId) {
+        const managerCount = await prisma.managerAssignment.findMany({
+          where: {
+            OR: [
+              {
+                scopeType: "SITE",
+                siteId,
+              },
+              {
+                scopeType: "BLOCK",
+                block: {
+                  siteId,
+                },
+              },
+            ],
+          },
+          distinct: ["managerId"],
+          select: {
+            managerId: true,
+          },
+          take: 2,
+        });
+
+        response.status(200).json({
+          success: true,
+          data: {
+            site,
+            requiresManagerSelection: managerCount.length > 0,
+            managerCount: managerCount.length,
+            isConfigured: false,
+            bankAccount: null,
+          },
+        });
+        return;
+      }
+
+      managerId = queryResult.data.managerId;
+
+      await ensureManagerHasAssignmentInSite({
+        managerId,
+        siteId,
+      });
+    }
+
+    const manager = await prisma.user.findUnique({
+      where: {
+        id: managerId,
+      },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        status: true,
+      },
+    });
+
+    if (!manager || manager.status !== "ACTIVE") {
+      throw new HttpError(404, "Aktif yönetici bulunamadı.");
+    }
+
+    const bankAccount = await prisma.managerSiteBankAccount.findUnique({
+      where: {
+        managerId_siteId: {
+          managerId,
+          siteId,
+        },
+      },
+      select: managerSiteBankAccountSelect,
+    });
+
+    response.status(200).json({
+      success: true,
+      data: {
+        manager,
+        site,
+        isConfigured: Boolean(bankAccount),
+        bankAccount,
+      },
+    });
+  })
+);
+
+router.put(
+  "/:siteId/bank-account",
+  requireRole("MANAGER"),
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    const managerId = authenticatedRequest.user.id;
+    const siteId = getRequiredParam(request, "siteId");
+
+    await ensureManagerCanUseSiteBankAccount({
+      managerId,
+      siteId,
+    });
+
+    const validationResult =
+      upsertManagerSiteBankAccountSchema.safeParse(request.body);
+
+    if (!validationResult.success) {
+      throw new HttpError(
+        400,
+        "Gönderilen banka bilgileri geçersiz.",
+        validationResult.error.flatten().fieldErrors
+      );
+    }
+
+    const [targetSite, manager, previousBankAccount] = await Promise.all([
+      prisma.site.findUnique({
+        where: {
+          id: siteId,
+        },
+        select: {
+          id: true,
+          name: true,
+        },
+      }),
+      prisma.user.findUnique({
+        where: {
+          id: managerId,
+        },
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+        },
+      }),
+      prisma.managerSiteBankAccount.findUnique({
+        where: {
+          managerId_siteId: {
+            managerId,
+            siteId,
+          },
+        },
+        select: managerSiteBankAccountSelect,
+      }),
+    ]);
+
+    if (!targetSite) {
+      throw new HttpError(404, "Site bulunamadı.");
+    }
+
+    if (!manager) {
+      throw new HttpError(404, "Yönetici bulunamadı.");
+    }
+
+    const {
+      bankName,
+      branchName,
+      accountHolder,
+      accountNumber,
+      iban,
+      currency,
+    } = validationResult.data;
+
+    const normalizedIban = normalizeIban(iban);
+    const normalizedBranchName = normalizeNullableText(branchName);
+    const normalizedAccountNumber = normalizeNullableText(accountNumber);
+
+    const bankAccount = await prisma.managerSiteBankAccount.upsert({
+      where: {
+        managerId_siteId: {
+          managerId,
+          siteId,
+        },
+      },
+      create: {
+        managerId,
+        siteId,
+        bankName,
+        branchName: normalizedBranchName,
+        accountHolder,
+        accountNumber: normalizedAccountNumber,
+        iban: normalizedIban,
+        currency,
+      },
+      update: {
+        bankName,
+        branchName: normalizedBranchName,
+        accountHolder,
+        accountNumber: normalizedAccountNumber,
+        iban: normalizedIban,
+        currency,
+      },
+      select: managerSiteBankAccountSelect,
+    });
+
+    await createAuditLog({
+      request,
+      userId: managerId,
+      action: previousBankAccount
+        ? "UPDATE_MANAGER_SITE_BANK_ACCOUNT"
+        : "CREATE_MANAGER_SITE_BANK_ACCOUNT",
+      entityType: "ManagerSiteBankAccount",
+      entityId: bankAccount.id,
+      metadata: {
+        managerId,
+        managerName: manager.fullName,
+        siteId: targetSite.id,
+        siteName: targetSite.name,
+        previous: previousBankAccount
+          ? {
+              bankName: previousBankAccount.bankName,
+              branchName: previousBankAccount.branchName,
+              accountHolder: previousBankAccount.accountHolder,
+              accountNumber: maskAccountNumber(
+                previousBankAccount.accountNumber
+              ),
+              iban: maskIban(previousBankAccount.iban),
+              currency: previousBankAccount.currency,
+            }
+          : null,
+        current: {
+          bankName: bankAccount.bankName,
+          branchName: bankAccount.branchName,
+          accountHolder: bankAccount.accountHolder,
+          accountNumber: maskAccountNumber(bankAccount.accountNumber),
+          iban: maskIban(bankAccount.iban),
+          currency: bankAccount.currency,
+        },
+      },
+    });
+
+    response.status(previousBankAccount ? 200 : 201).json({
+      success: true,
+      message: previousBankAccount
+        ? "Yönetici banka bilgileri başarıyla güncellendi."
+        : "Yönetici banka bilgileri başarıyla oluşturuldu.",
+      data: {
+        manager,
+        site: targetSite,
+        isConfigured: true,
+        bankAccount,
+      },
+    });
+  })
+);
 
 router.get(
   "/:siteId/image",

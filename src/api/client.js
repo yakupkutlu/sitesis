@@ -21,9 +21,11 @@ export async function getCsrfToken(forceRefresh = false) {
   csrfToken = result.data.csrfToken;
   return csrfToken;
 }
+
 export async function apiRequest(path, options = {}) {
   const method = options.method ?? "GET";
   const upperMethod = method.toUpperCase();
+  const csrfProtectedMethods = ["POST", "PUT", "PATCH", "DELETE"];
 
   async function sendRequest(shouldRefreshCsrf = false) {
     const headers = {
@@ -36,7 +38,7 @@ export async function apiRequest(path, options = {}) {
       headers["Content-Type"] = "application/json";
     }
 
-    if (["POST", "PATCH", "DELETE"].includes(upperMethod)) {
+    if (csrfProtectedMethods.includes(upperMethod)) {
       headers["x-csrf-token"] = await getCsrfToken(shouldRefreshCsrf);
     }
 
@@ -62,7 +64,7 @@ export async function apiRequest(path, options = {}) {
     response.status === 403 &&
     String(result?.message || "").toLowerCase().includes("csrf");
 
-  if (isCsrfError && ["POST", "PATCH", "DELETE"].includes(upperMethod)) {
+  if (isCsrfError && csrfProtectedMethods.includes(upperMethod)) {
     clearCachedCsrfToken();
     const retryResult = await sendRequest(true);
     response = retryResult.response;

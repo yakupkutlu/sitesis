@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronLeft,
   CircleHelp,
+  Landmark,
   LogOut,
   Mail,
   MapPin,
@@ -19,6 +20,7 @@ import {
 
 import { useAuth } from "../hooks/useAuth";
 import { useManagerScope } from "../hooks/useManagerScope";
+import ManagerBankAccountWarning from "../components/bank/ManagerBankAccountWarning";
 
 const notificationsByRole = {
   "Süper Admin": [
@@ -164,6 +166,59 @@ function normalizeNavigationItem(item) {
   };
 }
 
+function buildRoleNavigationItems(navItems, roleBadge) {
+  const safeNavItems = Array.isArray(navItems) ? navItems : [];
+
+  const bankPath =
+    roleBadge === "Yönetici"
+      ? "/manager/bank-account"
+      : roleBadge === "Süper Admin"
+        ? "/super-admin/bank-account"
+        : null;
+
+  if (!bankPath) {
+    return safeNavItems;
+  }
+
+  const alreadyExists = safeNavItems.some((item) => {
+    if (item?.path === bankPath) {
+      return true;
+    }
+
+    return Array.isArray(item?.children)
+      ? item.children.some((child) => child?.path === bankPath)
+      : false;
+  });
+
+  if (alreadyExists) {
+    return safeNavItems;
+  }
+
+  const bankItem = {
+    label: "Banka Bilgileri",
+    path: bankPath,
+    icon: Landmark,
+  };
+
+  const settingsIndex = safeNavItems.findIndex(
+    (item) =>
+      item?.label === "Ayarlar" ||
+      item?.label === "Genel Ayarlar" ||
+      item?.path === "/manager/settings" ||
+      item?.path === "/super-admin/settings"
+  );
+
+  if (settingsIndex < 0) {
+    return [...safeNavItems, bankItem];
+  }
+
+  return [
+    ...safeNavItems.slice(0, settingsIndex),
+    bankItem,
+    ...safeNavItems.slice(settingsIndex),
+  ];
+}
+
 function DashboardLayout({
   roleTitle,
   roleBadge,
@@ -210,6 +265,7 @@ function DashboardLayout({
   const settingsPath = settingsPathByRole[roleBadge] || "/super-admin/settings";
   const safeUserName = userName || "Kullanıcı";
   const safeTheme = theme || "manager";
+  const dashboardNavItems = buildRoleNavigationItems(navItems, roleBadge);
   const switchableAccountModes = canSwitchAccountMode
     ? availableModes.filter((mode) => mode !== accountMode)
     : [];
@@ -392,7 +448,7 @@ function DashboardLayout({
         </div>
 
         <nav className="sidebar-nav">
-          {navItems.map((rawItem) => {
+          {dashboardNavItems.map((rawItem) => {
             const item = normalizeNavigationItem(rawItem);
             const Icon = item.icon;
             const hasChildren =
@@ -706,7 +762,16 @@ function DashboardLayout({
           </div>
         </header>
 
-        <main className="dashboard-content">{children}</main>
+        <main className="dashboard-content">
+          {roleBadge === "Yönetici" &&
+            location.pathname === "/manager/dashboard" && (
+              <ManagerBankAccountWarning
+                activeAssignment={activeAssignment}
+              />
+            )}
+
+          {children}
+        </main>
       </div>
 
       {isHelpOpen && (

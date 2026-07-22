@@ -153,6 +153,7 @@ model User {
   uploadedReceipts              PaymentReceipt[]        @relation("UploadedReceipts")
   reviewedReceipts              PaymentReceipt[]        @relation("ReviewedReceipts")
   managerAssignments            ManagerAssignment[]     @relation("ManagerAssignments")
+  managerSiteBankAccounts       ManagerSiteBankAccount[]
   activeManagerAssignmentId     String?                 @unique
   activeManagerAssignment       ManagerAssignment?      @relation("ActiveManagerAssignment", fields: [activeManagerAssignmentId], references: [id], onDelete: SetNull)
   auditLogs                     AuditLog[]              @relation("UserAuditLogs")
@@ -195,10 +196,37 @@ model Site {
   managerAssignments ManagerAssignment[]
   announcements      Announcement[]      @relation("SiteAnnouncements")
   accountingExpenses AccountingExpense[]
+  managerBankAccounts ManagerSiteBankAccount[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+
+model ManagerSiteBankAccount {
+  id            String @id @default(uuid())
+
+  managerId String
+  manager   User   @relation(fields: [managerId], references: [id], onDelete: Cascade)
+
+  siteId String
+  site   Site   @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  bankName      String
+  branchName    String?
+  accountHolder String
+  accountNumber String?
+  iban          String
+  currency      String @default("TRY")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([managerId, siteId])
+  @@index([siteId])
+  @@index([iban])
+}
+
 
 model Block {
   id          String  @id @default(uuid())
