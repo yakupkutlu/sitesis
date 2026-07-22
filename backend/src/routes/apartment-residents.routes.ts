@@ -1,5 +1,6 @@
 ﻿import express, { type Request, type Response } from "express";
 import bcrypt from "bcryptjs";
+import multer from "multer";
 import { z } from "zod";
 
 import prisma from "../db/prisma.js";
@@ -10,6 +11,13 @@ import {
   type AuthenticatedRequest,
 } from "../middlewares/auth.middleware.js";
 import { createAuditLog } from "../services/audit-log.service.js";
+import {
+  commitResidentImportRows,
+  parseResidentWorkbook,
+  residentImportRowsRequestSchema,
+  validateResidentImportRows,
+} from "../services/resident-import.service.js";
+import { createResidentImportTemplate } from "../services/resident-import-template.service.js";
 import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { HttpError } from "../utils/http-error.js";
@@ -18,6 +26,26 @@ import { buildPaginationMeta, getPaginationParams } from "../utils/pagination.js
 const router = express.Router();
 
 router.use(requireAuth);
+
+const residentExcelUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    files: 1,
+    fileSize: 2 * 1024 * 1024,
+  },
+  fileFilter: (_request, file, callback) => {
+    const normalizedName = file.originalname.toLowerCase();
+    const hasAllowedExtension =
+      normalizedName.endsWith(".xlsx") || normalizedName.endsWith(".xls");
+
+    if (!hasAllowedExtension) {
+      callback(new HttpError(400, "Yalnızca XLSX veya XLS dosyası yüklenebilir."));
+      return;
+    }
+
+    callback(null, true);
+  },
+});
 
 const residentUserSelect = {
   id: true,
@@ -373,6 +401,162 @@ async function executeResidentMutation<T>(operation: Promise<T>): Promise<T> {
 }
 
 router.get(
+  "/import/template",
+  requireRole("SUPER_ADMIN", "MANAGER"),
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    const templateBuffer = await createResidentImportTemplate({
+      actor: {
+        id: authenticatedRequest.user.id,
+        role: authenticatedRequest.user.role,
+      },
+    });
+
+    response.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    response.setHeader(
+      "Content-Disposition",
+      'attachment; filename="sitesis-sakin-toplu-yukleme-sablonu.xlsx"'
+    );
+    response.setHeader("Cache-Control", "no-store");
+    response.status(200).send(templateBuffer);
+  })
+);
+
+router.post(
+  "/import/preview",
+  requireRole("SUPER_ADMIN", "MANAGER"),
+  residentExcelUpload.single("file"),
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    if (!request.file) {
+      throw new HttpError(400, "Excel dosyası seçilmelidir.");
+    }
+
+    const rows = parseResidentWorkbook(request.file.buffer);
+    const validation = await validateResidentImportRows({
+      actor: {
+        id: authenticatedRequest.user.id,
+        role: authenticatedRequest.user.role,
+      },
+      rows,
+    });
+
+    response.status(200).json({
+      success: true,
+      message: "Excel dosyası okundu. Kayıtları kontrol edip hatalı satırları düzeltin.",
+      data: {
+        fileName: request.file.originalname,
+        ...validation,
+      },
+    });
+  })
+);
+
+router.post(
+  "/import/validate",
+  requireRole("SUPER_ADMIN", "MANAGER"),
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    const validationResult = residentImportRowsRequestSchema.safeParse(
+      request.body
+    );
+
+    if (!validationResult.success) {
+      throw new HttpError(
+        400,
+        "Toplu sakin satırları geçersiz.",
+        validationResult.error.flatten().fieldErrors
+      );
+    }
+
+    const validation = await validateResidentImportRows({
+      actor: {
+        id: authenticatedRequest.user.id,
+        role: authenticatedRequest.user.role,
+      },
+      rows: validationResult.data.rows,
+    });
+
+    response.status(200).json({
+      success: true,
+      message:
+        validation.summary.error > 0
+          ? "Bazı satırlarda hata bulundu. Kırmızı satırları düzeltin."
+          : "Tüm satırlar kontrol edildi. Toplu kayıt işlemini başlatabilirsiniz.",
+      data: validation,
+    });
+  })
+);
+
+router.post(
+  "/import/commit",
+  requireRole("SUPER_ADMIN", "MANAGER"),
+  asyncHandler(async (request: Request, response: Response) => {
+    const authenticatedRequest = request as AuthenticatedRequest;
+
+    if (!authenticatedRequest.user) {
+      throw new HttpError(401, "Oturum bulunamadı.");
+    }
+
+    const validationResult = residentImportRowsRequestSchema.safeParse(
+      request.body
+    );
+
+    if (!validationResult.success) {
+      throw new HttpError(
+        400,
+        "Toplu sakin satırları geçersiz.",
+        validationResult.error.flatten().fieldErrors
+      );
+    }
+
+    const importResult = await commitResidentImportRows({
+      actor: {
+        id: authenticatedRequest.user.id,
+        role: authenticatedRequest.user.role,
+      },
+      rows: validationResult.data.rows,
+    });
+
+    await createAuditLog({
+      request,
+      userId: authenticatedRequest.user.id,
+      action: "IMPORT_RESIDENTS_FROM_EXCEL",
+      entityType: "ApartmentResident",
+      entityId: authenticatedRequest.user.id,
+      metadata: {
+        source: "EXCEL",
+        ...importResult,
+      },
+    });
+
+    response.status(201).json({
+      success: true,
+      message: importResult.message,
+      data: importResult,
+    });
+  })
+);
+
+router.get(
   "/",
   requireRole("SUPER_ADMIN", "MANAGER"),
   asyncHandler(async (request: Request, response: Response) => {
@@ -419,10 +603,20 @@ router.get(
         }
       : {};
 
+    const includeAllLinks = request.query.includeAllLinks === "true";
+
     const whereParts: Prisma.ApartmentResidentWhereInput[] = [
-      currentOccupantFilter,
       searchCondition,
     ];
+
+    /*
+     * Yönetici ve süper admin sakin tabloları, ev sahibinin kiracılı
+     * daire bağlantılarını da yönetebilmek için includeAllLinks=true
+     * gönderir. Diğer çağrılarda mevcut sakin görünümü korunur.
+     */
+    if (!includeAllLinks) {
+      whereParts.unshift(currentOccupantFilter);
+    }
 
     if (authenticatedRequest.user.role === "MANAGER") {
       const managerFilter = await getManagerApartmentResidentFilter(

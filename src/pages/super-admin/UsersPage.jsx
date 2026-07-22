@@ -17,6 +17,8 @@ import UserToolbar from "../../components/users/UserToolbar";
 import UserTable from "../../components/users/UserTable";
 import UserDetailsModal from "../../components/users/UserDetailsModal";
 import UserForm from "../../components/users/UserForm";
+import ResidentExcelActions from "../../components/residents/ResidentExcelActions";
+import ResidentExcelImportModal from "../../components/residents/ResidentExcelImportModal";
 
 import { getApartments } from "../../api/apartmentsApi";
 import {
@@ -28,6 +30,7 @@ import {
 import { updateUser } from "../../api/usersApi";
 import { useAuth } from "../../hooks/useAuth";
 import { buildPaymentSummary } from "../../utils/paymentSummary";
+import { groupResidentRows } from "../../utils/groupResidentRows";
 
 const navItems = [
   { label: "Panel", path: "/super-admin/dashboard", icon: BarChart3 },
@@ -244,6 +247,7 @@ function UsersPage() {
   const [apartments, setApartments] = useState([]);
 
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [selectedUser, setSelectedUser] = useState(null);
 
@@ -260,7 +264,7 @@ function UsersPage() {
 
   async function loadUsersPageData() {
     const [residentRecords, apartmentList] = await Promise.all([
-      getAllPaginatedData(getApartmentResidents),
+      getAllPaginatedData(getApartmentResidents, { includeAllLinks: true }),
       getAllPaginatedData(getApartments),
     ]);
 
@@ -296,10 +300,27 @@ function UsersPage() {
     };
   }, []);
 
+  const groupedUsers = useMemo(() => {
+    return groupResidentRows(userList);
+  }, [userList]);
+
   const filteredUsers = useMemo(() => {
     const searchValue = searchTerm.trim().toLowerCase();
 
-    return userList.filter((item) => {
+    return groupedUsers.filter((item) => {
+      const apartmentRows = Array.isArray(item.apartmentRows)
+        ? item.apartmentRows
+        : [];
+
+      const apartmentSearchText = apartmentRows
+        .flatMap((apartmentRow) => [
+          apartmentRow.site,
+          apartmentRow.block,
+          apartmentRow.apartment,
+          apartmentRow.paymentStatus,
+        ])
+        .join(" ");
+
       const searchableText = [
         item.name,
         item.email,
@@ -311,6 +332,7 @@ function UsersPage() {
         item.role,
         item.status,
         item.paymentStatus,
+        apartmentSearchText,
       ]
         .join(" ")
         .toLowerCase();
@@ -323,7 +345,7 @@ function UsersPage() {
 
       return matchesSearch && matchesRole && matchesStatus;
     });
-  }, [userList, searchTerm, roleFilter, statusFilter]);
+  }, [groupedUsers, searchTerm, roleFilter, statusFilter]);
 
   function resetForm() {
     setEditingUser(null);
@@ -595,6 +617,14 @@ function UsersPage() {
     }
   }
 
+  async function handleExcelImportCompleted(result) {
+    await loadUsersPageData();
+    setErrorMessage("");
+    setMessage(
+      result?.message ?? "Excel sakin yükleme işlemi başarıyla tamamlandı."
+    );
+  }
+
   async function handleDeleteApartmentResident(userRow) {
     if (
       userRow.accountRole === "RESIDENT" &&
@@ -657,15 +687,22 @@ function UsersPage() {
           </p>
         </div>
 
-        <button
-          type="button"
-          className="dashboard-action-button"
-          onClick={openCreateForm}
-          disabled={isSaving}
-        >
-          <Plus size={18} />
-          Yeni Sakin
-        </button>
+        <div className="resident-page-header-actions">
+          <ResidentExcelActions
+            onOpenImport={() => setIsExcelImportOpen(true)}
+            disabled={isSaving}
+          />
+
+          <button
+            type="button"
+            className="dashboard-action-button"
+            onClick={openCreateForm}
+            disabled={isSaving}
+          >
+            <Plus size={18} />
+            Yeni Sakin
+          </button>
+        </div>
       </div>
 
       {errorMessage && (
@@ -719,6 +756,12 @@ function UsersPage() {
       <UserDetailsModal
         user={selectedUser}
         onClose={() => setSelectedUser(null)}
+      />
+
+      <ResidentExcelImportModal
+        open={isExcelImportOpen}
+        onClose={() => setIsExcelImportOpen(false)}
+        onImported={handleExcelImportCompleted}
       />
     </DashboardLayout>
   );

@@ -8,6 +8,8 @@ import ResidentToolbar from "../../components/residents/ResidentToolbar";
 import ResidentForm from "../../components/residents/ResidentForm";
 import ResidentTable from "../../components/residents/ResidentTable";
 import ResidentDetailsModal from "../../components/residents/ResidentDetailsModal";
+import ResidentExcelActions from "../../components/residents/ResidentExcelActions";
+import ResidentExcelImportModal from "../../components/residents/ResidentExcelImportModal";
 
 import {
   createResidentAndAssignApartment,
@@ -20,6 +22,7 @@ import { getApartments } from "../../api/apartmentsApi";
 import { updateLinkedResidentStatus } from "../../api/usersApi";
 
 import { buildPaymentSummary } from "../../utils/paymentSummary";
+import { groupResidentRows } from "../../utils/groupResidentRows";
 
 const typeToLabel = {
   OWNER: "Ev Sahibi",
@@ -135,6 +138,7 @@ function mapApartmentResidentToViewModel(item) {
 
   return {
     id: item.id,
+    userId: user.id,
     accountRole: user.role,
     name: user.fullName ?? "-",
     role: typeToLabel[item.type] ?? item.type ?? "-",
@@ -167,6 +171,7 @@ function ResidentsPage() {
   const [selectedResident, setSelectedResident] = useState(null);
   const [editingResident, setEditingResident] = useState(null);
   const [showForm, setShowForm] = useState(false);
+  const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
   const [formData, setFormData] = useState(emptyFormData);
 
   const [searchTerm, setSearchTerm] = useState("");
@@ -179,7 +184,7 @@ function ResidentsPage() {
   const [errorMessage, setErrorMessage] = useState("");
 
   const loadResidents = useCallback(async () => {
-    const residentList = await getAllPaginatedData(getApartmentResidents);
+    const residentList = await getAllPaginatedData(getApartmentResidents, { includeAllLinks: true });
     setResidents(residentList.map(mapApartmentResidentToViewModel));
   }, []);
 
@@ -218,9 +223,25 @@ function ResidentsPage() {
     };
   }, [loadPageData]);
 
+  const groupedResidents = useMemo(() => {
+    return groupResidentRows(residents);
+  }, [residents]);
+
   const filteredResidents = useMemo(() => {
-    return residents.filter((resident) => {
+    return groupedResidents.filter((resident) => {
       const searchValue = searchTerm.trim().toLowerCase();
+      const apartmentRows = Array.isArray(resident.apartmentRows)
+        ? resident.apartmentRows
+        : [];
+
+      const apartmentSearchText = apartmentRows
+        .flatMap((apartmentRow) => [
+          apartmentRow.site,
+          apartmentRow.block,
+          apartmentRow.apartment,
+          apartmentRow.paymentStatus,
+        ])
+        .join(" ");
 
       const searchableText = [
         resident.name,
@@ -231,6 +252,7 @@ function ResidentsPage() {
         resident.phone,
         resident.email,
         resident.paymentStatus,
+        apartmentSearchText,
       ]
         .join(" ")
         .toLowerCase();
@@ -243,7 +265,7 @@ function ResidentsPage() {
 
       return matchesSearch && matchesRole && matchesStatus;
     });
-  }, [residents, searchTerm, roleFilter, statusFilter]);
+  }, [groupedResidents, searchTerm, roleFilter, statusFilter]);
 
   function openCreateForm() {
     setEditingResident(null);
@@ -510,7 +532,7 @@ function ResidentsPage() {
       setErrorMessage("");
 
       const result = await updateLinkedResidentStatus(
-        resident.id,
+        resident.statusReferenceId ?? resident.id,
         nextStatus
       );
 
@@ -529,6 +551,14 @@ function ResidentsPage() {
     } finally {
       setIsSaving(false);
     }
+  }
+
+  async function handleExcelImportCompleted(result) {
+    await loadPageData();
+    setErrorMessage("");
+    setMessage(
+      result?.message ?? "Excel sakin yükleme işlemi başarıyla tamamlandı."
+    );
   }
 
   async function handleDelete(resident) {
@@ -591,15 +621,22 @@ function ResidentsPage() {
           </p>
         </div>
 
-        <button
-          type="button"
-          className="dashboard-action-button"
-          onClick={openCreateForm}
-          disabled={isSaving}
-        >
-          <Plus size={18} />
-          Yeni Sakin
-        </button>
+        <div className="resident-page-header-actions">
+          <ResidentExcelActions
+            onOpenImport={() => setIsExcelImportOpen(true)}
+            disabled={isSaving}
+          />
+
+          <button
+            type="button"
+            className="dashboard-action-button"
+            onClick={openCreateForm}
+            disabled={isSaving}
+          >
+            <Plus size={18} />
+            Yeni Sakin
+          </button>
+        </div>
       </div>
 
       {errorMessage && (
@@ -653,6 +690,12 @@ function ResidentsPage() {
       <ResidentDetailsModal
         resident={selectedResident}
         onClose={() => setSelectedResident(null)}
+      />
+
+      <ResidentExcelImportModal
+        open={isExcelImportOpen}
+        onClose={() => setIsExcelImportOpen(false)}
+        onImported={handleExcelImportCompleted}
       />
     </DashboardLayout>
   );
