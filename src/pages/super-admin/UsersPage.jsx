@@ -178,10 +178,19 @@ function mapApartmentResidentToUser(record) {
   const site = block.site ?? {};
   const paymentSummary = buildPaymentSummary(record);
   const owner = getOwnerDetails(apartment);
+  const apartmentResidentLinks = Array.isArray(apartment.residents)
+    ? apartment.residents
+    : [];
+  const hasTenant = apartmentResidentLinks.some(
+    (residentLink) => residentLink.type === "TENANT"
+  );
 
   return {
     id: record.id,
     userId: residentUser.id,
+    apartmentId: record.apartmentId ?? apartment.id,
+    residentType: record.type,
+    hasTenant,
     accountRole: residentUser.role,
     name: residentUser.fullName,
     role: getResidentTypeLabel(record.type),
