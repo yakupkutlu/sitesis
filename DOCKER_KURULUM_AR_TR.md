@@ -12,7 +12,7 @@ These files run the project within three containers:
 
 The database and upload files are saved in Docker Volumes so they are not lost upon restart.
 
-### Steps 
+### Steps 2
 
 Copy the files to the root of the `sitesis` project.
 
