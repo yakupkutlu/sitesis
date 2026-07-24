@@ -59,10 +59,33 @@ const requestInclude = {
   },
 } as const;
 
+const requestCategorySchema = z.enum([
+  "Arıza",
+  "Bakım",
+  "Temizlik",
+  "Güvenlik",
+  "Otopark",
+  "Diğer",
+]);
+
+const requestPrioritySchema = z.enum(["Normal", "Önemli", "Acil"]);
+
+const requestContactPreferenceSchema = z.enum([
+  "Uygulama üzerinden",
+  "SMS ile bilgilendir",
+  "E-posta ile bilgilendir",
+  "SMS ve E-posta",
+]);
+
 const createRequestSchema = z.object({
   title: z.string().trim().min(2),
   description: z.string().trim().min(2),
   type: z.enum(["MAINTENANCE", "COMPLAINT", "SUGGESTION", "GENERAL"]),
+  category: requestCategorySchema.optional().default("Diğer"),
+  priority: requestPrioritySchema.optional().default("Normal"),
+  contactPreference: requestContactPreferenceSchema
+    .optional()
+    .default("Uygulama üzerinden"),
   apartmentId: z.string().uuid().optional(),
   sendSms: z
   .preprocess((value) => value === "true" || value === true, z.boolean())
@@ -78,6 +101,9 @@ const updateRequestSchema = z
   .object({
     title: z.string().trim().min(2).optional(),
     description: z.string().trim().min(2).optional(),
+    category: requestCategorySchema.optional(),
+    priority: requestPrioritySchema.optional(),
+    contactPreference: requestContactPreferenceSchema.optional(),
     status: z.enum(["OPEN", "IN_PROGRESS", "DONE", "REJECTED"]).optional(),
     assignedToUserId: z.string().uuid().nullable().optional(),
   })
@@ -107,7 +133,7 @@ function normalizeUploadedFileName(fileName: string | undefined | null) {
     return null;
   }
 
-  const looksBroken = /[ÃÂ]/.test(trimmedFileName);
+  const looksBroken = /[ÃÂÄÅ]/.test(trimmedFileName);
 
   if (!looksBroken) {
     return trimmedFileName;
@@ -268,6 +294,9 @@ async function ensureRequestIsAccessible(params: {
       title: true,
       description: true,
       type: true,
+      category: true,
+      priority: true,
+      contactPreference: true,
       status: true,
       apartmentId: true,
       createdByUserId: true,
@@ -798,8 +827,17 @@ router.post(
         );
       }
 
-      const { title, description, type, apartmentId, sendSms, sendEmail } =
-        validationResult.data;
+      const {
+        title,
+        description,
+        type,
+        category,
+        priority,
+        contactPreference,
+        apartmentId,
+        sendSms,
+        sendEmail,
+      } = validationResult.data;
 
       let resolvedApartmentId = apartmentId;
 
@@ -856,6 +894,9 @@ const residentRequest = await prisma.residentRequest.create({
     title,
     description,
     type,
+    category,
+    priority,
+    contactPreference,
     apartmentId: resolvedApartmentId,
     createdByUserId: authenticatedRequest.user.id,
     attachmentOriginalFileName: originalAttachmentFileName,
@@ -876,6 +917,9 @@ const residentRequest = await prisma.residentRequest.create({
         metadata: {
           title: residentRequest.title,
           type: residentRequest.type,
+          category: residentRequest.category,
+          priority: residentRequest.priority,
+          contactPreference: residentRequest.contactPreference,
           apartmentId: residentRequest.apartmentId,
           attachmentOriginalFileName: residentRequest.attachmentOriginalFileName,
           attachmentMimeType: residentRequest.attachmentMimeType,
@@ -997,7 +1041,15 @@ router.patch(
       requestId,
     });
 
-    const { title, description, status, assignedToUserId } = validationResult.data;
+    const {
+      title,
+      description,
+      category,
+      priority,
+      contactPreference,
+      status,
+      assignedToUserId,
+    } = validationResult.data;
 
     if (authenticatedRequest.user.role === "RESIDENT") {
       if (status !== undefined || assignedToUserId !== undefined) {
@@ -1018,6 +1070,11 @@ router.patch(
       data: {
         ...(title !== undefined ? { title } : {}),
         ...(description !== undefined ? { description } : {}),
+        ...(category !== undefined ? { category } : {}),
+        ...(priority !== undefined ? { priority } : {}),
+        ...(contactPreference !== undefined
+          ? { contactPreference }
+          : {}),
         ...(status !== undefined ? { status } : {}),
         ...(assignedToUserId !== undefined ? { assignedToUserId } : {}),
       },
@@ -1034,12 +1091,18 @@ router.patch(
         previous: {
           title: targetRequest.title,
           description: targetRequest.description,
+          category: targetRequest.category,
+          priority: targetRequest.priority,
+          contactPreference: targetRequest.contactPreference,
           status: targetRequest.status,
           assignedToUserId: targetRequest.assignedToUserId,
         },
         current: {
           title: updatedRequest.title,
           description: updatedRequest.description,
+          category: updatedRequest.category,
+          priority: updatedRequest.priority,
+          contactPreference: updatedRequest.contactPreference,
           status: updatedRequest.status,
           assignedToUserId: updatedRequest.assignedToUserId,
         },

@@ -639,61 +639,74 @@ router.post(
     });
 
     const notificationRequested = sendSms || sendEmail;
-    let notificationDispatchQueued = false;
-    let notificationDispatchError: string | null = null;
+    const createdByUserId = authenticatedRequest.user.id;
 
-    if (notificationRequested) {
-      try {
-        await addNotificationDispatchJob({
-          kind: "PAYMENT_BATCH",
-          paymentBatchId: paymentBatch.id,
-          sendSms,
-          sendEmail,
-          createdByUserId: authenticatedRequest.user.id,
-        });
-        notificationDispatchQueued = true;
-      } catch (error) {
-        notificationDispatchError = getQueueErrorMessage(error);
-        console.error(
-          "Ödeme bildirimleri arka plan kuyruğuna eklenemedi:",
-          error
-        );
-      }
-    }
-
-    await createAuditLog({
-      request,
-      userId: authenticatedRequest.user.id,
-      action: "CREATE_PAYMENT_BATCH",
-      entityType: "PaymentBatch",
-      entityId: paymentBatch.id,
-      metadata: {
-        title: paymentBatch.title,
-        scopeType: paymentBatch.scopeType,
-        totalAmountKurus: paymentBatch.totalAmountKurus,
-        allocationCount: paymentBatch.allocations.length,
-        exemptionCount: paymentBatch.exemptions.length,
-        sendSms,
-        sendEmail,
-        notificationDispatch: {
-          requested: notificationRequested,
-          queued: notificationDispatchQueued,
-          ...(notificationDispatchError
-            ? { error: notificationDispatchError }
-            : {}),
-        },
-      },
-    });
-
+    // Ödeme ve dağıtımlar veritabanına kaydedildiği anda arayüze cevap dön.
+    // Bildirim kuyruğu ve audit kaydı response sonrasında arka planda hazırlanır.
     response.status(201).json({
       success: true,
-      message: notificationDispatchError
-        ? "Ödeme oluşturuldu ancak bildirimler kuyruğa eklenemedi."
-        : notificationRequested
-          ? "Ödeme başarıyla oluşturuldu. Bildirimler arka planda gönderiliyor."
-          : "Ödeme başarıyla oluşturuldu.",
+      message: notificationRequested
+        ? "Ödeme başarıyla oluşturuldu. Bildirimler arka planda hazırlanıyor."
+        : "Ödeme başarıyla oluşturuldu.",
       data: paymentBatch,
-      notificationQueued: notificationDispatchQueued,
+      notificationQueued: notificationRequested,
+      notificationDispatchScheduled: notificationRequested,
+    });
+
+    setImmediate(() => {
+      void (async () => {
+        let notificationDispatchQueued = false;
+        let notificationDispatchError: string | null = null;
+
+        if (notificationRequested) {
+          try {
+            await addNotificationDispatchJob({
+              kind: "PAYMENT_BATCH",
+              paymentBatchId: paymentBatch.id,
+              sendSms,
+              sendEmail,
+              createdByUserId,
+            });
+
+            notificationDispatchQueued = true;
+          } catch (error) {
+            notificationDispatchError = getQueueErrorMessage(error);
+            console.error(
+              "Ödeme bildirimleri arka plan kuyruğuna eklenemedi:",
+              error
+            );
+          }
+        }
+
+        await createAuditLog({
+          request,
+          userId: createdByUserId,
+          action: "CREATE_PAYMENT_BATCH",
+          entityType: "PaymentBatch",
+          entityId: paymentBatch.id,
+          metadata: {
+            title: paymentBatch.title,
+            scopeType: paymentBatch.scopeType,
+            totalAmountKurus: paymentBatch.totalAmountKurus,
+            allocationCount: paymentBatch.allocations.length,
+            exemptionCount: paymentBatch.exemptions.length,
+            sendSms,
+            sendEmail,
+            notificationDispatch: {
+              requested: notificationRequested,
+              queued: notificationDispatchQueued,
+              ...(notificationDispatchError
+                ? { error: notificationDispatchError }
+                : {}),
+            },
+          },
+        });
+      })().catch((error) => {
+        console.error(
+          "Ödeme oluşturma sonrası arka plan işlemleri tamamlanamadı:",
+          error
+        );
+      });
     });
   })
 );

@@ -1,4 +1,15 @@
-﻿import { RefreshCw, X } from "lucide-react";
+﻿import { useEffect, useState } from "react";
+import {
+  Download,
+  ExternalLink,
+  FileSearch,
+  LoaderCircle,
+  RefreshCw,
+  X,
+} from "lucide-react";
+
+import { downloadPaymentReceiptFile } from "../../api/paymentReceiptsApi";
+
 
 function formatAiAmount(amountKurus) {
   if (amountKurus === null || amountKurus === undefined) {
@@ -73,6 +84,61 @@ function ReceiptDetailsModal({
   onRetryAi,
   isRetryingAi = false,
 }) {
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [previewMimeType, setPreviewMimeType] = useState("");
+  const [previewError, setPreviewError] = useState("");
+  const [isPreviewLoading, setIsPreviewLoading] = useState(true);
+
+  useEffect(() => {
+    if (!receipt?.id) {
+      return undefined;
+    }
+
+    let isCancelled = false;
+    let createdObjectUrl = "";
+
+    async function loadReceiptPreview() {
+      try {
+        const fileBlob = await downloadPaymentReceiptFile(receipt.id);
+
+        if (isCancelled) {
+          return;
+        }
+
+        createdObjectUrl = URL.createObjectURL(fileBlob);
+
+        setPreviewUrl(createdObjectUrl);
+        setPreviewMimeType(
+          fileBlob.type || receipt.fileType || "application/octet-stream",
+        );
+        setPreviewError("");
+      } catch (error) {
+        if (isCancelled) {
+          return;
+        }
+
+        setPreviewError(
+          error?.message ||
+            "Dekont önizlemesi yüklenemedi. Dosyayı indirerek kontrol edebilirsiniz.",
+        );
+      } finally {
+        if (!isCancelled) {
+          setIsPreviewLoading(false);
+        }
+      }
+    }
+
+    void loadReceiptPreview();
+
+    return () => {
+      isCancelled = true;
+
+      if (createdObjectUrl) {
+        URL.revokeObjectURL(createdObjectUrl);
+      }
+    };
+  }, [receipt?.id, receipt?.fileType]);
+
   if (!receipt) {
     return null;
   }
@@ -121,6 +187,89 @@ function ReceiptDetailsModal({
           >
             <X size={20} />
           </button>
+        </div>
+
+        <div className="receipt-preview-card">
+          <div className="receipt-preview-header">
+            <div>
+              <span className="section-kicker">Dekont Önizleme</span>
+              <h4>Dosyayı indirmeden görüntüleyin</h4>
+            </div>
+
+            {previewUrl && (
+              <div className="receipt-preview-actions">
+                <button
+                  type="button"
+                  onClick={() =>
+                    window.open(previewUrl, "_blank", "noopener,noreferrer")
+                  }
+                >
+                  <ExternalLink size={17} />
+                  Yeni Sekmede Aç
+                </button>
+
+                <a
+                  href={previewUrl}
+                  download={receipt.fileName || "dekont"}
+                >
+                  <Download size={17} />
+                  İndir
+                </a>
+              </div>
+            )}
+          </div>
+
+          {isPreviewLoading && (
+            <div className="receipt-preview-state">
+              <LoaderCircle className="receipt-preview-spinner" size={28} />
+              <strong>Dekont önizlemesi yükleniyor...</strong>
+            </div>
+          )}
+
+          {!isPreviewLoading && previewError && (
+            <div className="receipt-preview-error" role="alert">
+              <FileSearch size={24} />
+              <div>
+                <strong>Önizleme açılamadı</strong>
+                <p>{previewError}</p>
+              </div>
+            </div>
+          )}
+
+          {!isPreviewLoading &&
+            !previewError &&
+            previewUrl &&
+            previewMimeType === "application/pdf" && (
+              <iframe
+                className="receipt-preview-frame"
+                src={previewUrl}
+                title={`${receipt.fileName || "Dekont"} önizlemesi`}
+              />
+            )}
+
+          {!isPreviewLoading &&
+            !previewError &&
+            previewUrl &&
+            previewMimeType.startsWith("image/") && (
+              <div className="receipt-preview-image-wrapper">
+                <img
+                  src={previewUrl}
+                  alt={`${receipt.fileName || "Dekont"} önizlemesi`}
+                />
+              </div>
+            )}
+
+          {!isPreviewLoading &&
+            !previewError &&
+            previewUrl &&
+            previewMimeType !== "application/pdf" &&
+            !previewMimeType.startsWith("image/") && (
+              <div className="receipt-preview-state">
+                <FileSearch size={28} />
+                <strong>Bu dosya türü tarayıcı içinde önizlenemiyor.</strong>
+                <span>Yeni sekmede açabilir veya indirebilirsiniz.</span>
+              </div>
+            )}
         </div>
 
         <div className="details-list receipt-details-list">

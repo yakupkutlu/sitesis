@@ -574,8 +574,11 @@ model AnnouncementRead {
 model ResidentRequest {
   id String @id @default(uuid())
 
-  title       String
-  description String
+  title             String
+  description       String
+  category          String        @default("Genel")
+  priority          String        @default("Normal")
+  contactPreference String        @default("Uygulama üzerinden")
 
   type   RequestType
   status RequestStatus @default(OPEN)

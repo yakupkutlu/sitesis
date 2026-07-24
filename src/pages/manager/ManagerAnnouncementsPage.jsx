@@ -1,5 +1,6 @@
 import { managerNavItems } from "../../config/managerNavigation";
 import { useAuth } from "../../hooks/useAuth";
+import { useManagerScope } from "../../hooks/useManagerScope";
 import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
@@ -18,16 +19,18 @@ import {
 import { getApartments } from "../../api/apartmentsApi";
 
 
-const emptyFormData = {
-  title: "",
-  content: "",
-  targetType: "BLOCK",
-  blockId: "",
-  apartmentId: "",
-  sendSms: false,
-  sendEmail: true,
-  status: "ACTIVE",
-};
+function createEmptyFormData(scopeType = "BLOCK") {
+  return {
+    title: "",
+    content: "",
+    targetType: scopeType === "SITE" ? "SITE" : "BLOCK",
+    blockId: "",
+    apartmentId: "",
+    sendSms: false,
+    sendEmail: true,
+    status: "ACTIVE",
+  };
+}
 
 const statusLabels = {
   ACTIVE: "Yayında",
@@ -36,7 +39,7 @@ const statusLabels = {
 
 const targetLabels = {
   ALL: "Tüm Sistem",
-  SITE: "Site",
+  SITE: "Tüm Site",
   BLOCK: "Blok",
   APARTMENT: "Daire",
 };
@@ -126,11 +129,18 @@ function canManageAnnouncement(announcement) {
 
 function ManagerAnnouncementsPage() {
   const { user } = useAuth();
+  const { activeAssignment } = useManagerScope();
+
+  const isSiteScope = activeAssignment?.scopeType === "SITE";
+  const activeSiteId =
+    activeAssignment?.site?.id ?? activeAssignment?.siteId ?? "";
+  const activeBlockId =
+    activeAssignment?.block?.id ?? activeAssignment?.blockId ?? "";
 
   const [announcements, setAnnouncements] = useState([]);
   const [apartments, setApartments] = useState([]);
 
-  const [formData, setFormData] = useState(emptyFormData);
+  const [formData, setFormData] = useState(() => createEmptyFormData());
   const [showForm, setShowForm] = useState(false);
   const [editingAnnouncement, setEditingAnnouncement] = useState(null);
   const [selectedAnnouncement, setSelectedAnnouncement] = useState(null);
@@ -233,7 +243,7 @@ function ManagerAnnouncementsPage() {
 
   function resetForm() {
     setEditingAnnouncement(null);
-    setFormData(emptyFormData);
+    setFormData(createEmptyFormData(activeAssignment?.scopeType));
   }
 
   function openCreateForm() {
@@ -308,9 +318,24 @@ function ManagerAnnouncementsPage() {
     }
 
     if (!editingAnnouncement) {
-      if (formData.targetType === "BLOCK" && !formData.blockId) {
-        setErrorMessage("Blok seçimi zorunludur.");
-        return;
+      if (formData.targetType === "SITE") {
+        if (!isSiteScope || !activeSiteId) {
+          setErrorMessage(
+            "Tüm site duyurusu yalnızca site yetkisi bulunan yönetici tarafından oluşturulabilir."
+          );
+          return;
+        }
+      }
+
+      if (formData.targetType === "BLOCK") {
+        const selectedBlockId = isSiteScope
+          ? formData.blockId
+          : activeBlockId;
+
+        if (!selectedBlockId) {
+          setErrorMessage("Blok bilgisi bulunamadı.");
+          return;
+        }
       }
 
       if (formData.targetType === "APARTMENT" && !formData.apartmentId) {
@@ -333,11 +358,20 @@ function ManagerAnnouncementsPage() {
 
         setMessage("Duyuru başarıyla güncellendi.");
       } else {
+        const selectedBlockId = isSiteScope
+          ? formData.blockId
+          : activeBlockId;
+
         await createAnnouncement({
           title: formData.title.trim(),
           content: formData.content.trim(),
           targetType: formData.targetType,
-          ...(formData.targetType === "BLOCK" ? { blockId: formData.blockId } : {}),
+          ...(formData.targetType === "SITE"
+            ? { siteId: activeSiteId }
+            : {}),
+          ...(formData.targetType === "BLOCK"
+            ? { blockId: selectedBlockId }
+            : {}),
           ...(formData.targetType === "APARTMENT"
             ? { apartmentId: formData.apartmentId }
             : {}),
@@ -401,8 +435,8 @@ function ManagerAnnouncementsPage() {
           <h2>Duyurular</h2>
 
           <p>
-            Yetkili olduğunuz blok veya daire kapsamındaki sakinlere duyuru
-            oluşturabilir ve mevcut duyuruları takip edebilirsiniz.
+            Aktif çalışma alanınızdaki site, blok veya daire sakinlerine
+            yetkiniz kapsamında duyuru oluşturabilirsiniz.
           </p>
         </div>
 
@@ -461,8 +495,9 @@ function ManagerAnnouncementsPage() {
               </h3>
 
               <p>
-                Duyuru hedefi yalnızca yetki alanınızdaki blok veya dairelerden
-                seçilebilir.
+                {isSiteScope
+                  ? "Site yetkiniz kapsamında tüm siteye, bir bloğa veya bir daireye duyuru gönderebilirsiniz."
+                  : "Blok yetkiniz kapsamında tüm bloğa veya bu bloktaki bir daireye duyuru gönderebilirsiniz."}
               </p>
             </div>
           </div>
@@ -505,12 +540,19 @@ function ManagerAnnouncementsPage() {
                       onChange={handleInputChange}
                       disabled={isSaving}
                     >
-                      <option value="BLOCK">Blok</option>
+                      {isSiteScope && (
+                        <option value="SITE">Tüm Site</option>
+                      )}
+
+                      <option value="BLOCK">
+                        {isSiteScope ? "Blok" : "Tüm Blok"}
+                      </option>
+
                       <option value="APARTMENT">Daire</option>
                     </select>
                   </label>
 
-                  {formData.targetType === "BLOCK" && (
+                  {isSiteScope && formData.targetType === "BLOCK" && (
                     <label>
                       Blok Seç
                       <select
@@ -647,7 +689,7 @@ function ManagerAnnouncementsPage() {
             <option>Tümü</option>
             <option>Blok</option>
             <option>Daire</option>
-            <option>Site</option>
+            <option>Tüm Site</option>
             <option>Tüm Sistem</option>
           </select>
         </div>

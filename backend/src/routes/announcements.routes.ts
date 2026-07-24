@@ -435,55 +435,75 @@ router.post("/", requireRole("SUPER_ADMIN", "MANAGER"), asyncHandler(async (requ
         include: announcementInclude,
     });
     const notificationRequested = sendSms || sendEmail;
-    let notificationDispatchQueued = false;
-    let notificationDispatchError: string | null = null;
+    const createdByUserId = authenticatedRequest.user.id;
 
-    try {
-        await addNotificationDispatchJob({
-            kind: "ANNOUNCEMENT",
-            announcementId: announcement.id,
-            sendSms,
-            sendEmail,
-            createdByUserId: authenticatedRequest.user.id,
-        });
-        notificationDispatchQueued = true;
-    }
-    catch (error) {
-        notificationDispatchError = getQueueErrorMessage(error);
-        console.error("Duyuru bildirimleri arka plan kuyruğuna eklenemedi:", error);
-    }
-    await createAuditLog({
-        request,
-        userId: authenticatedRequest.user.id,
-        action: "CREATE_ANNOUNCEMENT",
-        entityType: "Announcement",
-        entityId: announcement.id,
-        metadata: {
-            title: announcement.title,
-            targetType: announcement.targetType,
-            siteId: announcement.siteId,
-            blockId: announcement.blockId,
-            apartmentId: announcement.apartmentId,
-            sendSms,
-            sendEmail,
-            notificationDispatch: {
-                requested: notificationRequested,
-                queued: notificationDispatchQueued,
-                ...(notificationDispatchError
-                    ? { error: notificationDispatchError }
-                    : {}),
-            },
-        },
-    });
+    // Duyuru veritabanına kaydedildiği anda arayüze cevap dön.
+    // Bildirim kuyruğu ve audit kaydı response sonrasında arka planda hazırlanır.
     response.status(201).json({
         success: true,
-        message: notificationDispatchError
-            ? "Duyuru oluşturuldu ancak bildirimler kuyruğa eklenemedi."
-            : notificationRequested
-                ? "Duyuru başarıyla oluşturuldu. Bildirimler arka planda gönderiliyor."
-                : "Duyuru başarıyla oluşturuldu.",
+        message: notificationRequested
+            ? "Duyuru başarıyla oluşturuldu. Bildirimler arka planda hazırlanıyor."
+            : "Duyuru başarıyla oluşturuldu.",
         data: announcement,
-        notificationQueued: notificationDispatchQueued,
+        notificationQueued: notificationRequested,
+        notificationDispatchScheduled: notificationRequested,
+    });
+
+    setImmediate(() => {
+        void (async () => {
+            let notificationDispatchQueued = false;
+            let notificationDispatchError: string | null = null;
+
+            if (notificationRequested) {
+                try {
+                    await addNotificationDispatchJob({
+                        kind: "ANNOUNCEMENT",
+                        announcementId: announcement.id,
+                        sendSms,
+                        sendEmail,
+                        createdByUserId,
+                    });
+
+                    notificationDispatchQueued = true;
+                }
+                catch (error) {
+                    notificationDispatchError = getQueueErrorMessage(error);
+                    console.error(
+                        "Duyuru bildirimleri arka plan kuyruğuna eklenemedi:",
+                        error
+                    );
+                }
+            }
+
+            await createAuditLog({
+                request,
+                userId: createdByUserId,
+                action: "CREATE_ANNOUNCEMENT",
+                entityType: "Announcement",
+                entityId: announcement.id,
+                metadata: {
+                    title: announcement.title,
+                    targetType: announcement.targetType,
+                    siteId: announcement.siteId,
+                    blockId: announcement.blockId,
+                    apartmentId: announcement.apartmentId,
+                    sendSms,
+                    sendEmail,
+                    notificationDispatch: {
+                        requested: notificationRequested,
+                        queued: notificationDispatchQueued,
+                        ...(notificationDispatchError
+                            ? { error: notificationDispatchError }
+                            : {}),
+                    },
+                },
+            });
+        })().catch((error) => {
+            console.error(
+                "Duyuru oluşturma sonrası arka plan işlemleri tamamlanamadı:",
+                error
+            );
+        });
     });
 }));
 router.patch("/:announcementId/read", requireRole("RESIDENT"), asyncHandler(async (request: Request, response: Response) => {

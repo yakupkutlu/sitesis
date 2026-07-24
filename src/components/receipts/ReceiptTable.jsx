@@ -1,4 +1,4 @@
-﻿import { CheckCircle2, Download, Eye, XCircle } from "lucide-react";
+﻿import { CheckCircle2, Eye, XCircle } from "lucide-react";
 
 function getReceiptStatusClass(status) {
   if (status === "Onaylandı") {
@@ -29,7 +29,6 @@ function ReceiptTable({
   onView,
   onApprove,
   onReject,
-  onDownload,
   isSaving = false,
 }) {
   const safeReceipts = receipts || [];
@@ -99,15 +98,6 @@ function ReceiptTable({
                           disabled={isSaving}
                         >
                           <Eye size={16} />
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => onDownload(receipt.id)}
-                          aria-label={`${receipt.fileName || "Dekont"} indir`}
-                          disabled={isSaving}
-                        >
-                          <Download size={16} />
                         </button>
 
                         {isWaitingApproval && (

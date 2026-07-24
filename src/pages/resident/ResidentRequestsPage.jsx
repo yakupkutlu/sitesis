@@ -119,15 +119,32 @@ function mapCategoryToRequestType(category) {
   return "GENERAL";
 }
 
-function buildDescriptionWithFormInfo(formData) {
-  const description = formData.description.trim();
+function getNotificationPreference(contactPreference) {
+  if (contactPreference === "SMS ile bilgilendir") {
+    return {
+      sendSms: true,
+      sendEmail: false,
+    };
+  }
 
-  return [
-    description,
-    "",
-    `Öncelik: ${formData.priority}`,
-    `İletişim tercihi: ${formData.contactPreference}`,
-  ].join("\n");
+  if (contactPreference === "E-posta ile bilgilendir") {
+    return {
+      sendSms: false,
+      sendEmail: true,
+    };
+  }
+
+  if (contactPreference === "SMS ve E-posta") {
+    return {
+      sendSms: true,
+      sendEmail: true,
+    };
+  }
+
+  return {
+    sendSms: false,
+    sendEmail: false,
+  };
 }
 
 function getApartmentText(request) {
@@ -165,15 +182,16 @@ function mapRequestToViewModel(request) {
     id: request.id,
     requestNo: `TLP-${String(request.id).slice(0, 6).toUpperCase()}`,
     title: request.title ?? "-",
-    category: typeMap[request.type] ?? "Genel",
-    priority: "Normal",
+    category: request.category ?? typeMap[request.type] ?? "Genel",
+    priority: request.priority ?? "Normal",
     status: statusMap[request.status] ?? request.status ?? "-",
     apartment: getApartmentText(request),
     createdAt: formatDate(request.createdAt),
     fileName: request.attachmentOriginalFileName || "",
     fileSizeText: formatFileSize(request.attachmentSizeBytes),
     fileType: request.attachmentMimeType || "",
-    contactPreference: "Uygulama üzerinden",
+    contactPreference:
+      request.contactPreference ?? "Uygulama üzerinden",
     description: request.description ?? "",
     managerResponse: getManagerResponse(request),
     raw: request,
@@ -346,14 +364,21 @@ function ResidentRequestsPage() {
     try {
       setIsSubmitting(true);
 
+      const notificationPreference = getNotificationPreference(
+        formData.contactPreference
+      );
+
       await createRequest({
         title: formData.title.trim(),
-        description: buildDescriptionWithFormInfo(formData),
+        description: formData.description.trim(),
         type: mapCategoryToRequestType(formData.category),
+        category: formData.category,
+        priority: formData.priority,
+        contactPreference: formData.contactPreference,
         apartmentId: selectedApartmentId,
         attachment: selectedFile?.file,
-        sendEmail: true,
-        sendSms: false,
+        sendEmail: notificationPreference.sendEmail,
+        sendSms: notificationPreference.sendSms,
       });
 
       const nextRequests = await fetchResidentRequests();

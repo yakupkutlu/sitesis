@@ -1,5 +1,6 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import {
+  CheckCircle2,
   Clock3,
   Mail,
   MapPin,
@@ -28,7 +29,6 @@ const defaultContactSettings = {
 function Contact() {
   const [formData, setFormData] = useState(initialFormData);
   const [contactSettings, setContactSettings] = useState(defaultContactSettings);
-
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -41,9 +41,7 @@ function Contact() {
         const result = await getSystemSettings();
         const settings = result?.data ?? result;
 
-        if (!isMounted) {
-          return;
-        }
+        if (!isMounted) return;
 
         setContactSettings({
           contactPhone:
@@ -59,11 +57,7 @@ function Contact() {
             settings?.workingHours || defaultContactSettings.workingHours,
         });
       } catch {
-        if (!isMounted) {
-          return;
-        }
-
-        setContactSettings(defaultContactSettings);
+        if (isMounted) setContactSettings(defaultContactSettings);
       }
     }
 
@@ -76,21 +70,9 @@ function Contact() {
 
   const contactItems = useMemo(
     () => [
-      {
-        icon: Phone,
-        title: "Telefon",
-        text: contactSettings.contactPhone,
-      },
-      {
-        icon: Mail,
-        title: "E-posta",
-        text: contactSettings.contactEmail,
-      },
-      {
-        icon: MapPin,
-        title: "Adres",
-        text: contactSettings.address,
-      },
+      { icon: Phone, title: "Telefon", text: contactSettings.contactPhone },
+      { icon: Mail, title: "E-posta", text: contactSettings.contactEmail },
+      { icon: MapPin, title: "Adres", text: contactSettings.address },
       {
         icon: Clock3,
         title: "Çalışma Saatleri",
@@ -102,11 +84,7 @@ function Contact() {
 
   function handleInputChange(event) {
     const { name, value } = event.target;
-
-    setFormData((current) => ({
-      ...current,
-      [name]: value,
-    }));
+    setFormData((current) => ({ ...current, [name]: value }));
   }
 
   async function handleSubmit(event) {
@@ -161,9 +139,7 @@ function Contact() {
     <section className="contact-page">
       <div className="container page-hero contact-hero">
         <span className="badge">İletişim</span>
-
         <h1>Bizimle iletişime geçin.</h1>
-
         <p>
           Sorularınız, destek talepleriniz ve sistemle ilgili iletişim
           ihtiyaçlarınız için aşağıdaki formu kullanabilirsiniz.
@@ -174,9 +150,7 @@ function Contact() {
         <div className="contact-info">
           <div className="contact-intro-card">
             <MessageSquareText size={34} />
-
             <h2>Size nasıl yardımcı olabiliriz?</h2>
-
             <p>
               Apartman, site veya rezidans yönetiminiz için dijital çözüm
               arıyorsanız bizimle iletişime geçebilirsiniz.
@@ -206,9 +180,7 @@ function Contact() {
         <form className="contact-form" onSubmit={handleSubmit}>
           <div className="form-header">
             <span className="section-kicker">Mesaj Gönder</span>
-
             <h2>Talebinizi bize iletin</h2>
-
             <p>
               Formu doldurduktan sonra ekibimiz sizinle en kısa sürede iletişime
               geçecektir.
@@ -216,14 +188,20 @@ function Contact() {
           </div>
 
           {errorMessage && (
-            <div className="login-error-message">
+            <div className="login-error-message" role="alert">
               <p>{errorMessage}</p>
             </div>
           )}
 
           {successMessage && (
-            <div className="login-success-message">
-              <p>{successMessage}</p>
+            <div className="contact-success-message" role="status">
+              <span className="contact-success-icon" aria-hidden="true">
+                <CheckCircle2 size={20} />
+              </span>
+              <div>
+                <strong>Mesajınız gönderildi</strong>
+                <p>{successMessage}</p>
+              </div>
             </div>
           )}
 

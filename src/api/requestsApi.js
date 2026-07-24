@@ -25,6 +25,18 @@ export async function createRequest(payload) {
   formData.append("description", payload.description);
   formData.append("type", payload.type);
 
+  if (payload.category) {
+    formData.append("category", payload.category);
+  }
+
+  if (payload.priority) {
+    formData.append("priority", payload.priority);
+  }
+
+  if (payload.contactPreference) {
+    formData.append("contactPreference", payload.contactPreference);
+  }
+
   if (payload.apartmentId) {
     formData.append("apartmentId", payload.apartmentId);
   }
