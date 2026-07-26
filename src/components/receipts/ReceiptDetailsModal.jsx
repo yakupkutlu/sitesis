@@ -34,8 +34,12 @@ const aiStatusLabels = {
   NOT_CHECKED: "Kontrol edilmedi",
   PROCESSING: "AI kontrol ediyor",
   MATCHED: "AI kontrolü uyumlu",
+  OVERPAYMENT: "Fazla ödeme tespit edildi",
+  PARTIAL_PAYMENT: "Kısmi ödeme tespit edildi",
+  AUTO_REJECTED: "AI tarafından otomatik reddedildi",
   REVIEW_REQUIRED: "Manuel kontrol gerekli",
   FAILED: "AI kontrolü tamamlanamadı",
+  
 };
 
 function formatMatchResult(value) {
@@ -78,28 +82,65 @@ function formatDateTime(value) {
   }
 }
 
+function formatAutoRejectReason(value) {
+  if (value === "IBAN_MISMATCH") {
+    return "Alıcı IBAN eşleşmedi";
+  }
+
+  if (value === "DUPLICATE_FILE") {
+    return "Aynı dekont dosyası daha önce yüklendi";
+  }
+
+  if (value === "DUPLICATE_TRANSACTION") {
+    return "Aynı ödeme işlemi daha önce kullanıldı";
+  }
+
+  return value || "-";
+}
+
 function ReceiptDetailsModal({
   receipt,
   onClose,
   onRetryAi,
   isRetryingAi = false,
 }) {
-  const [previewUrl, setPreviewUrl] = useState("");
-  const [previewMimeType, setPreviewMimeType] = useState("");
-  const [previewError, setPreviewError] = useState("");
-  const [isPreviewLoading, setIsPreviewLoading] = useState(true);
+  const previewKey = receipt?.id
+    ? `${receipt.id}:${receipt.fileType || ""}`
+    : "";
+
+  const [previewState, setPreviewState] = useState({
+    key: "",
+    url: "",
+    mimeType: "",
+    error: "",
+  });
+
+  const isCurrentPreview = previewState.key === previewKey;
+  const previewUrl = isCurrentPreview ? previewState.url : "";
+  const previewMimeType = isCurrentPreview ? previewState.mimeType : "";
+  const previewError = isCurrentPreview ? previewState.error : "";
+  const isPreviewLoading = Boolean(
+    receipt?.id &&
+      !receipt?.isAutomaticPayment &&
+      !isCurrentPreview,
+  );
 
   useEffect(() => {
-    if (!receipt?.id) {
+    const receiptId = receipt?.id;
+    const receiptFileType = receipt?.fileType;
+    const isAutomaticPayment = receipt?.isAutomaticPayment;
+
+    if (!receiptId || isAutomaticPayment) {
       return undefined;
     }
 
+    const currentPreviewKey = `${receiptId}:${receiptFileType || ""}`;
     let isCancelled = false;
     let createdObjectUrl = "";
 
     async function loadReceiptPreview() {
       try {
-        const fileBlob = await downloadPaymentReceiptFile(receipt.id);
+        const fileBlob = await downloadPaymentReceiptFile(receiptId);
 
         if (isCancelled) {
           return;
@@ -107,24 +148,28 @@ function ReceiptDetailsModal({
 
         createdObjectUrl = URL.createObjectURL(fileBlob);
 
-        setPreviewUrl(createdObjectUrl);
-        setPreviewMimeType(
-          fileBlob.type || receipt.fileType || "application/octet-stream",
-        );
-        setPreviewError("");
+        setPreviewState({
+          key: currentPreviewKey,
+          url: createdObjectUrl,
+          mimeType:
+            fileBlob.type ||
+            receiptFileType ||
+            "application/octet-stream",
+          error: "",
+        });
       } catch (error) {
         if (isCancelled) {
           return;
         }
 
-        setPreviewError(
-          error?.message ||
+        setPreviewState({
+          key: currentPreviewKey,
+          url: "",
+          mimeType: "",
+          error:
+            error?.message ||
             "Dekont önizlemesi yüklenemedi. Dosyayı indirerek kontrol edebilirsiniz.",
-        );
-      } finally {
-        if (!isCancelled) {
-          setIsPreviewLoading(false);
-        }
+        });
       }
     }
 
@@ -137,10 +182,98 @@ function ReceiptDetailsModal({
         URL.revokeObjectURL(createdObjectUrl);
       }
     };
-  }, [receipt?.id, receipt?.fileType]);
+  }, [receipt?.id, receipt?.fileType, receipt?.isAutomaticPayment]);
 
   if (!receipt) {
     return null;
+  }
+
+  if (receipt.isAutomaticPayment) {
+    return (
+      <div className="modal-overlay">
+        <section className="details-modal">
+          <div className="modal-header">
+            <div>
+              <span className="section-kicker">Otomatik Ödeme Detayı</span>
+              <h3>{receipt.paymentTitle || "Otomatik Ödeme"}</h3>
+            </div>
+
+            <button
+              type="button"
+              className="modal-close-button"
+              onClick={onClose}
+              aria-label="Otomatik ödeme detay penceresini kapat"
+            >
+              <X size={20} />
+            </button>
+          </div>
+
+          <div className="receipt-ai-result-card">
+            <div>
+              <span className="section-kicker">Sistem İşlemi</span>
+              <h4>Fazla bakiye bu borca otomatik olarak kullanıldı.</h4>
+            </div>
+          </div>
+
+          <div className="details-list receipt-details-list">
+            <div>
+              <span>İşlem Türü</span>
+              <strong>Otomatik Ödeme</strong>
+            </div>
+
+            <div>
+              <span>İşlemi Yapan</span>
+              <strong>Sistem</strong>
+            </div>
+
+            <div>
+              <span>Daire</span>
+              <strong>{receipt.apartmentLabel || "-"}</strong>
+            </div>
+
+            <div>
+              <span>Ödeme Başlığı</span>
+              <strong>{receipt.paymentTitle || "-"}</strong>
+            </div>
+
+            <div>
+              <span>Kullanılan Bakiye</span>
+              <strong>{receipt.amountText || "-"}</strong>
+            </div>
+
+            <div>
+              <span>Durum</span>
+              <strong>{receipt.status || "-"}</strong>
+            </div>
+
+            <div>
+              <span>Ödeme Sonrası Kalan Borç</span>
+              <strong>{receipt.remainingDebtAfterText || "-"}</strong>
+            </div>
+
+            <div>
+              <span>Hesapta Kalan Fazla Bakiye</span>
+              <strong>{receipt.balanceAfterText || "-"}</strong>
+            </div>
+
+            <div>
+              <span>Dosya</span>
+              <strong>Dosya Yok</strong>
+            </div>
+
+            <div>
+              <span>İşlem Tarihi</span>
+              <strong>{receipt.createdAt || "-"}</strong>
+            </div>
+          </div>
+
+          <div className="details-description">
+            <span>Açıklama</span>
+            <p>{receipt.description || "Otomatik ödeme açıklaması bulunmuyor."}</p>
+          </div>
+        </section>
+      </div>
+    );
   }
 
   const rawReceipt = receipt.raw || {};
@@ -274,7 +407,7 @@ function ReceiptDetailsModal({
 
         <div className="details-list receipt-details-list">
           <div>
-            <span>Yükleyen Yönetici</span>
+            <span>Yükleyen Kişi</span>
             <strong>{receipt.payerName || "-"}</strong>
           </div>
 
@@ -412,8 +545,40 @@ function ReceiptDetailsModal({
               </div>
 
               <div>
-                <span>Ödeme Tarihi</span>
-                <strong>{rawReceipt.aiPaymentDate || "-"}</strong>
+                <span>İşlem Tarihi ve Saati</span>
+                <strong>
+                  {rawReceipt.transactionAt
+                    ? formatDateTime(rawReceipt.transactionAt)
+                    : rawReceipt.aiPaymentDate || "-"}
+                </strong>
+              </div>
+
+              <div>
+                <span>İşlem Referansı</span>
+                <strong>
+                  {rawReceipt.transactionReference ||
+                    rawReceipt.aiTransactionReference ||
+                    "-"}
+                </strong>
+              </div>
+
+              <div>
+                <span>Fazla Ödeme</span>
+                <strong>
+                  {formatAiAmount(rawReceipt.aiOverpaymentAmountKurus)}
+                </strong>
+              </div>
+
+              <div>
+                <span>Eksik Ödeme</span>
+                <strong>
+                  {formatAiAmount(rawReceipt.aiShortfallAmountKurus)}
+                </strong>
+              </div>
+
+              <div>
+                <span>Otomatik Red Nedeni</span>
+                <strong>{formatAutoRejectReason(rawReceipt.autoRejectReason)}</strong>
               </div>
 
               <div>
@@ -434,7 +599,7 @@ function ReceiptDetailsModal({
 
             {aiReasons.length > 0 && (
               <div className="details-description">
-                <span>Manuel Kontrol Nedenleri</span>
+                <span>AI İnceleme Notları</span>
                 <ul>
                   {aiReasons.map((reason, index) => (
                     <li key={`${reason}-${index}`}>{reason}</li>

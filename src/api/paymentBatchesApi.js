@@ -41,3 +41,7 @@ export async function cancelPaymentBatch(paymentBatchId) {
 export async function getMyPaymentAllocations() {
   return apiRequest("/payment-batches/my-allocations");
 }
+
+export async function getResidentAlerts(params = {}) {
+  return apiRequest(`/resident/alerts${buildQueryString(params)}`);
+}

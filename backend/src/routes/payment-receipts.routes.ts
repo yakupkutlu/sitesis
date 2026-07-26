@@ -14,10 +14,23 @@ import {
 } from "../middlewares/auth.middleware.js";
 import { createAuditLog } from "../services/audit-log.service.js";
 import {
+  creditAndDistributeOverpayment,
+  type BalanceDistributionResult,
+} from "../services/apartment-balance.service.js";
+import {
   analyzeReceiptWithAiFallback,
   type ReceiptAiAnalyzeResult,
 } from "../services/receipt-ai.service.js";
 import { verifyPaymentReceiptWithAi } from "../services/receipt-ai-verification.service.js";
+import {
+  buildReceiptTransactionFingerprint,
+  calculateReceiptFileHash,
+  parseReceiptTransactionAt,
+} from "../services/receipt-fingerprint.service.js";
+import {
+  notifyReceiptAutoRejected,
+  notifyReceiptPaymentApproved,
+} from "../services/receipt-notification.service.js";
 import {
   getManagerScope,
   hasManagerScope,
@@ -88,7 +101,7 @@ const managerConfirmReceiptSchema = z
 
     if (!data.manualResidentUserId) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["manualResidentUserId"],
         message: "Manuel eşleştirme için kayıtlı sakin seçilmelidir.",
       });
@@ -96,7 +109,7 @@ const managerConfirmReceiptSchema = z
 
     if (data.manualVerified !== true) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["manualVerified"],
         message: "Manuel doğrulama onayı zorunludur.",
       });
@@ -104,7 +117,7 @@ const managerConfirmReceiptSchema = z
 
     if (data.amount === undefined) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["amount"],
         message: "Manuel eşleştirme için tutar zorunludur.",
       });
@@ -112,7 +125,7 @@ const managerConfirmReceiptSchema = z
 
     if (!data.paymentOwnerType) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code:"custom",
         path: ["paymentOwnerType"],
         message: "Manuel eşleştirme için ödeme tipi zorunludur.",
       });
@@ -151,7 +164,7 @@ const analyzeReceiptSchema = z
 
     if (!data.manualResidentUserId) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code:"custom",
         path: ["manualResidentUserId"],
         message: "Manuel eşleştirme için kayıtlı sakin seçilmelidir.",
       });
@@ -159,7 +172,7 @@ const analyzeReceiptSchema = z
 
     if (data.manualVerified !== true) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code:"custom",
         path: ["manualVerified"],
         message: "Manuel doğrulama onayı zorunludur.",
       });
@@ -167,7 +180,7 @@ const analyzeReceiptSchema = z
 
     if (data.amount === undefined) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code:"custom",
         path: ["amount"],
         message: "Manuel eşleştirme için tutar zorunludur.",
       });
@@ -175,7 +188,7 @@ const analyzeReceiptSchema = z
 
     if (!data.paymentOwnerType) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code:"custom",
         path: ["paymentOwnerType"],
         message: "Manuel eşleştirme için ödeme tipi zorunludur.",
       });
@@ -187,6 +200,7 @@ const receiptParamsSchema = z.object({
 
 const reviewReceiptSchema = z.object({
   reviewNote: z.string().trim().optional(),
+  amount: z.coerce.number().positive().optional(),
 });
 
 function buildAiAnalyzeMessage(aiResult: ReceiptAiAnalyzeResult) {
@@ -265,6 +279,16 @@ function parseSavedAiResult(value: string | undefined) {
         parsed.paymentDate.trim().length > 0
           ? parsed.paymentDate.trim()
           : null,
+      aiTransactionReference:
+        typeof parsed.transactionReference === "string" &&
+        parsed.transactionReference.trim().length > 0
+          ? parsed.transactionReference.trim()
+          : null,
+      transactionAt: parseReceiptTransactionAt(
+        typeof parsed.paymentDate === "string"
+          ? parsed.paymentDate
+          : null,
+      ),
       aiConfidence: confidence,
       aiAnalyzedAt: provider ? new Date() : null,
     };
@@ -277,6 +301,173 @@ function formatKurusAsTry(amountKurus: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+}
+
+function getAllocationPaymentState(
+  totalAmountKurus: number,
+  paidAmountKurus: number,
+) {
+  const safeTotalAmountKurus = Math.max(0, totalAmountKurus);
+  const safePaidAmountKurus = Math.max(0, paidAmountKurus);
+  const remainingAmountKurus = Math.max(
+    safeTotalAmountKurus - safePaidAmountKurus,
+    0,
+  );
+  const overpaymentAmountKurus = Math.max(
+    safePaidAmountKurus - safeTotalAmountKurus,
+    0,
+  );
+
+  const status =
+    safePaidAmountKurus <= 0
+      ? ("PENDING" as const)
+      : safePaidAmountKurus < safeTotalAmountKurus
+        ? ("PARTIAL" as const)
+        : ("PAID" as const);
+
+  return {
+    status,
+    remainingAmountKurus,
+    overpaymentAmountKurus,
+  };
+}
+
+async function addPaymentToAllocation(
+  transaction: Prisma.TransactionClient,
+  params: {
+    paymentAllocationId: string;
+    paymentAmountKurus: number;
+  },
+) {
+  await transaction.$queryRaw<Array<{ id: string }>>`
+    SELECT "id"
+    FROM "PaymentAllocation"
+    WHERE "id" = ${params.paymentAllocationId}
+    FOR UPDATE
+  `;
+
+  const currentAllocation =
+    await transaction.paymentAllocation.findUniqueOrThrow({
+      where: {
+        id: params.paymentAllocationId,
+      },
+    });
+
+  if (currentAllocation.status === "CANCELLED") {
+    throw new HttpError(409, "İptal edilmiş borca ödeme işlenemez.");
+  }
+
+  if (currentAllocation.status === "PAID") {
+    throw new HttpError(409, "Bu borç zaten tamamen ödenmiş.");
+  }
+
+  const safePaymentAmountKurus = Math.max(
+    0,
+    Math.round(params.paymentAmountKurus),
+  );
+  const remainingBeforeKurus = Math.max(
+    currentAllocation.amountKurus - currentAllocation.paidAmountKurus,
+    0,
+  );
+  const amountToApplyKurus = Math.min(
+    safePaymentAmountKurus,
+    remainingBeforeKurus,
+  );
+
+  if (amountToApplyKurus <= 0) {
+    throw new HttpError(409, "Bu borca işlenecek açık tutar bulunmuyor.");
+  }
+
+  const nextPaidAmountKurus =
+    currentAllocation.paidAmountKurus + amountToApplyKurus;
+  const paymentState = getAllocationPaymentState(
+    currentAllocation.amountKurus,
+    nextPaidAmountKurus,
+  );
+
+  const updatedAllocation = await transaction.paymentAllocation.update({
+    where: {
+      id: currentAllocation.id,
+    },
+    data: {
+      paidAmountKurus: nextPaidAmountKurus,
+      status: paymentState.status,
+      paidAt: paymentState.status === "PAID" ? new Date() : null,
+    },
+  });
+
+  return {
+    allocation: updatedAllocation,
+    appliedAmountKurus: amountToApplyKurus,
+    ...paymentState,
+  };
+}
+
+function buildPaymentResultMessage(params: {
+  status: string;
+  overpaymentAmountKurus: number;
+  automaticDistributedAmountKurus?: number;
+  remainingBalanceKurus?: number;
+}) {
+  if (params.overpaymentAmountKurus > 0) {
+    return `Dekont onaylandı. ${formatKurusAsTry(
+      params.overpaymentAmountKurus,
+    )} TL fazla ödemenin ${formatKurusAsTry(
+      params.automaticDistributedAmountKurus ?? 0,
+    )} TL tutarı diğer borçlara otomatik kullanıldı. Kalan bakiye: ${formatKurusAsTry(
+      params.remainingBalanceKurus ?? 0,
+    )} TL.`;
+  }
+
+  if (params.status === "PARTIAL") {
+    return "Dekont onaylandı ve ödeme kısmi ödendi olarak güncellendi.";
+  }
+
+  return "Dekont onaylandı ve borç tamamen ödendi.";
+}
+
+function emptyBalanceDistribution(): BalanceDistributionResult {
+  return {
+    creditedAmountKurus: 0,
+    distributedAmountKurus: 0,
+    remainingBalanceKurus: 0,
+    automaticPayments: [],
+  };
+}
+
+function buildApprovalReviewNote(params: {
+  expectedAmountBeforeApproval: number;
+  paymentAmountKurus: number;
+  shortfallAmountKurus: number;
+  overpaymentAmountKurus: number;
+  balanceDistribution: BalanceDistributionResult;
+  managerReviewNote?: string;
+  manualMode?: boolean;
+}) {
+  let automaticNote: string;
+
+  if (params.overpaymentAmountKurus > 0) {
+    automaticNote =
+      `Fazla ödeme yönetici tarafından onaylandı. ` +
+      `${formatKurusAsTry(params.expectedAmountBeforeApproval)} TL ilk borca işlendi, ` +
+      `${formatKurusAsTry(params.balanceDistribution.distributedAmountKurus)} TL diğer borçlara otomatik kullanıldı, ` +
+      `${formatKurusAsTry(params.balanceDistribution.remainingBalanceKurus)} TL daire bakiyesinde kaldı.`;
+  } else if (params.shortfallAmountKurus > 0) {
+    automaticNote =
+      `Kısmi ödeme yönetici tarafından onaylandı. ` +
+      `${formatKurusAsTry(params.paymentAmountKurus)} TL borca işlendi, ` +
+      `${formatKurusAsTry(params.shortfallAmountKurus)} TL borç kaldı.`;
+  } else if (params.manualMode) {
+    automaticNote =
+      "Yönetici dosyayı görüntüleyip daire, sakin, ödeme tipi ve tutarı manuel olarak doğruladı.";
+  } else {
+    automaticNote =
+      "Dekont yönetici tarafından onaylandı ve ödeme borca işlendi.";
+  }
+
+  return params.managerReviewNote?.trim()
+    ? `${automaticNote} Yönetici notu: ${params.managerReviewNote.trim()}`
+    : automaticNote;
 }
 
 function getExpectedResidentType(paymentOwnerType?: string) {
@@ -562,6 +753,7 @@ router.post(
             apartmentNumber: null,
             description: null,
             paymentDate: null,
+            transactionReference: null,
             confidence: 0,
             provider: null,
             modelName: null,
@@ -671,10 +863,11 @@ router.post(
         });
       }
 
-      const allocations = await prisma.paymentAllocation.findMany({
+      const openAllocations = await prisma.paymentAllocation.findMany({
         where: {
-          status: "PENDING",
-          amountKurus,
+          status: {
+            in: ["PENDING", "PARTIAL"],
+          },
           receipts: {
             none: {
               status: "PENDING",
@@ -726,8 +919,30 @@ router.post(
         orderBy: {
           createdAt: "desc",
         },
-        take: 5,
+        take: 25,
       });
+
+      const allocations = [...openAllocations]
+        .sort((left, right) => {
+          const leftRemainingAmountKurus = Math.max(
+            left.amountKurus - left.paidAmountKurus,
+            0,
+          );
+          const rightRemainingAmountKurus = Math.max(
+            right.amountKurus - right.paidAmountKurus,
+            0,
+          );
+
+          const leftDifference = Math.abs(
+            leftRemainingAmountKurus - amountKurus,
+          );
+          const rightDifference = Math.abs(
+            rightRemainingAmountKurus - amountKurus,
+          );
+
+          return leftDifference - rightDifference;
+        })
+        .slice(0, 5);
 
       if (allocations.length === 0) {
         response.status(200).json({
@@ -737,7 +952,7 @@ router.post(
             ai: serializedAiResult,
             status: "Eşleşme bulunamadı",
             message:
-              "Bu tutar ve seçimlere uygun bekleyen ödeme bulunamadı. Daire, tutar veya açıklamayı kontrol edin.",
+              "Seçimlere uygun bekleyen veya kısmi ödenmiş borç bulunamadı. Daire ve açıklamayı kontrol edin.",
             apartment: null,
             suggestions: [],
             extracted: {
@@ -773,6 +988,10 @@ router.post(
             residentName: resident?.user.fullName ?? "-",
             residentRole: resident?.type === "OWNER" ? "Ev Sahibi" : "Kiracı",
             expectedAmountText: `${formatKurusAsTry(bestMatch.amountKurus)} TL`,
+            paidAmountText: `${formatKurusAsTry(bestMatch.paidAmountKurus)} TL`,
+            remainingAmountText: `${formatKurusAsTry(
+              Math.max(bestMatch.amountKurus - bestMatch.paidAmountKurus, 0),
+            )} TL`,
             paymentTitle: bestMatch.paymentBatch.title,
             paymentAllocationId: bestMatch.id,
           },
@@ -782,6 +1001,11 @@ router.post(
               paymentTitle: allocation.paymentBatch.title,
               apartmentLabel: `${allocation.apartment.block.site.name} / ${allocation.apartment.block.name} / Daire ${allocation.apartment.number}`,
               amountKurus: allocation.amountKurus,
+              paidAmountKurus: allocation.paidAmountKurus,
+              remainingAmountKurus: Math.max(
+                allocation.amountKurus - allocation.paidAmountKurus,
+                0,
+              ),
             };
           }),
           extracted: {
@@ -876,7 +1100,99 @@ router.get(
       };
     }
 
-    const [receipts, totalCount] = await Promise.all([
+    let automaticPaymentWhere: Prisma.ApartmentBalanceTransactionWhereInput = {
+      type: "DEBIT_TO_PAYMENT",
+      paymentAllocationId: {
+        not: null,
+      },
+    };
+
+    if (paginationParams.search) {
+      automaticPaymentWhere = {
+        AND: [
+          automaticPaymentWhere,
+          {
+            OR: [
+              {
+                description: {
+                  contains: paginationParams.search,
+                  mode: "insensitive",
+                },
+              },
+              {
+                paymentAllocation: {
+                  is: {
+                    paymentBatch: {
+                      title: {
+                        contains: paginationParams.search,
+                        mode: "insensitive",
+                      },
+                    },
+                  },
+                },
+              },
+              {
+                paymentAllocation: {
+                  is: {
+                    apartment: {
+                      number: {
+                        contains: paginationParams.search,
+                        mode: "insensitive",
+                      },
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      };
+    }
+
+    if (authenticatedRequest.user.role === "MANAGER") {
+      const managerScope = await getManagerScope(
+        authenticatedRequest.user.id,
+      );
+
+      if (!hasManagerScope(managerScope)) {
+        throw new HttpError(
+          403,
+          "Bu yöneticiye atanmış bir site veya blok bulunamadı.",
+        );
+      }
+
+      automaticPaymentWhere = {
+        AND: [
+          automaticPaymentWhere,
+          {
+            paymentAllocation: {
+              is: {
+                OR: [
+                  {
+                    apartment: {
+                      blockId: {
+                        in: managerScope.blockIds,
+                      },
+                    },
+                  },
+                  {
+                    apartment: {
+                      block: {
+                        siteId: {
+                          in: managerScope.siteIds,
+                        },
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        ],
+      };
+    }
+
+    const [receipts, totalCount, automaticPayments] = await Promise.all([
       prisma.paymentReceipt.findMany({
         where: whereCondition,
         include: {
@@ -935,11 +1251,63 @@ router.get(
       prisma.paymentReceipt.count({
         where: whereCondition,
       }),
+      prisma.apartmentBalanceTransaction.findMany({
+        where: automaticPaymentWhere,
+        select: {
+          id: true,
+          amountKurus: true,
+          balanceAfterKurus: true,
+          remainingDebtAfterKurus: true,
+          paymentStatusAfter: true,
+          description: true,
+          createdAt: true,
+          paymentAllocation: {
+            select: {
+              id: true,
+              amountKurus: true,
+              paidAmountKurus: true,
+              apartment: {
+                select: {
+                  id: true,
+                  number: true,
+                  block: {
+                    select: {
+                      id: true,
+                      name: true,
+                      site: {
+                        select: {
+                          id: true,
+                          name: true,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              paymentBatch: {
+                select: {
+                  id: true,
+                  title: true,
+                  dueDate: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+        take: 100,
+      }),
     ]);
 
     response.status(200).json({
       success: true,
       data: receipts,
+      automaticPayments: automaticPayments.map((payment) => ({
+        ...payment,
+        itemType: "AUTOMATIC_PAYMENT",
+      })),
       pagination: buildPaginationMeta({
         page: paginationParams.page,
         limit: paginationParams.limit,
@@ -1079,6 +1447,79 @@ router.post(
       );
     }
 
+    const fileHash = await calculateReceiptFileHash(request.file.path);
+
+    const duplicateFileReceipt = await prisma.paymentReceipt.findFirst({
+      where: {
+        fileHash,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (duplicateFileReceipt) {
+      const now = new Date();
+      const duplicateReviewNote =
+        "Aynı dekont dosyası daha önce sisteme yüklendiği için dekont otomatik olarak reddedildi.";
+
+      const rejectedReceipt = await prisma.paymentReceipt.create({
+        data: {
+          paymentAllocationId,
+          uploadedByUserId: authenticatedRequest.user.id,
+          originalFileName: request.file.originalname,
+          storedFileName: request.file.filename,
+          mimeType: request.file.mimetype,
+          sizeBytes: request.file.size,
+          note,
+          fileHash,
+          status: "REJECTED",
+          aiStatus: "AUTO_REJECTED",
+          aiReasons: [duplicateReviewNote],
+          aiVerifiedAt: now,
+          reviewNote: duplicateReviewNote,
+          reviewedAt: now,
+          autoRejectReason: "DUPLICATE_FILE",
+          autoRejectedAt: now,
+        },
+      });
+
+      await createAuditLog({
+        request,
+        userId: authenticatedRequest.user.id,
+        action: "AUTO_REJECT_DUPLICATE_PAYMENT_RECEIPT",
+        entityType: "PaymentReceipt",
+        entityId: rejectedReceipt.id,
+        metadata: {
+          paymentAllocationId,
+          duplicateOfReceiptId: duplicateFileReceipt.id,
+          autoRejectReason: "DUPLICATE_FILE",
+          fileHash,
+        },
+      });
+
+      response.status(409).json({
+        success: false,
+        message:
+          "Aynı dekont daha önce sisteme yüklendiği için yeni dekont otomatik olarak reddedildi.",
+        data: rejectedReceipt,
+      });
+
+      setImmediate(() => {
+        void notifyReceiptAutoRejected({
+          receiptId: rejectedReceipt.id,
+          reason: "DUPLICATE_FILE",
+        }).catch((error) => {
+          console.error("Tekrarlanan dekont bildirimi gönderilemedi:", {
+            receiptId: rejectedReceipt.id,
+            error,
+          });
+        });
+      });
+
+      return;
+    }
+
     const receipt = await prisma.paymentReceipt.create({
       data: {
         paymentAllocationId,
@@ -1087,6 +1528,7 @@ router.post(
         storedFileName: request.file.filename,
         mimeType: request.file.mimetype,
         sizeBytes: request.file.size,
+        fileHash,
         note,
       },
     });
@@ -1102,6 +1544,7 @@ router.post(
         originalFileName: receipt.originalFileName,
         mimeType: receipt.mimeType,
         sizeBytes: receipt.sizeBytes,
+        fileHash: receipt.fileHash,
         status: receipt.status,
       },
     });
@@ -1386,7 +1829,7 @@ router.patch(
     }
 
     const { receiptId } = paramsResult.data;
-    const { reviewNote } = bodyResult.data;
+    const { reviewNote, amount } = bodyResult.data;
 
     if (authenticatedRequest.user.role === "MANAGER") {
       await ensureManagerCanAccessReceipt({
@@ -1402,7 +1845,16 @@ router.patch(
       select: {
         id: true,
         status: true,
+        aiAmountKurus: true,
         paymentAllocationId: true,
+        paymentAllocation: {
+          select: {
+            apartmentId: true,
+            amountKurus: true,
+            paidAmountKurus: true,
+            status: true,
+          },
+        },
       },
     });
 
@@ -1418,32 +1870,138 @@ router.patch(
       throw new HttpError(409, "Reddedilmiş dekont onaylanamaz.");
     }
 
+    if (receipt.paymentAllocation.status === "CANCELLED") {
+      throw new HttpError(409, "İptal edilmiş borç için dekont onaylanamaz.");
+    }
+
+    if (receipt.paymentAllocation.status === "PAID") {
+      throw new HttpError(409, "Bu borç zaten tamamen ödenmiş.");
+    }
+
+    const paymentAmountKurus =
+      amount !== undefined
+        ? Math.round(amount * 100)
+        : receipt.aiAmountKurus;
+
+    if (!paymentAmountKurus || paymentAmountKurus <= 0) {
+      throw new HttpError(
+        400,
+        "Onaylanacak gerçek ödeme tutarını giriniz.",
+      );
+    }
+
     const result = await prisma.$transaction(async (transaction) => {
-      const approvedReceipt = await transaction.paymentReceipt.update({
+      await transaction.$queryRaw<Array<{ id: string }>>`
+        SELECT "id"
+        FROM "PaymentAllocation"
+        WHERE "id" = ${receipt.paymentAllocationId}
+        FOR UPDATE
+      `;
+
+      const lockedAllocation =
+        await transaction.paymentAllocation.findUniqueOrThrow({
+          where: {
+            id: receipt.paymentAllocationId,
+          },
+          select: {
+            id: true,
+            apartmentId: true,
+            amountKurus: true,
+            paidAmountKurus: true,
+            status: true,
+          },
+        });
+
+      if (lockedAllocation.status === "CANCELLED") {
+        throw new HttpError(409, "İptal edilmiş borç için dekont onaylanamaz.");
+      }
+
+      if (lockedAllocation.status === "PAID") {
+        throw new HttpError(409, "Bu borç zaten tamamen ödenmiş.");
+      }
+
+      const expectedAmountBeforeApproval = Math.max(
+        lockedAllocation.amountKurus - lockedAllocation.paidAmountKurus,
+        0,
+      );
+      const approvalOverpaymentAmountKurus = Math.max(
+        paymentAmountKurus - expectedAmountBeforeApproval,
+        0,
+      );
+      const approvalShortfallAmountKurus = Math.max(
+        expectedAmountBeforeApproval - paymentAmountKurus,
+        0,
+      );
+      const amountAppliedToCurrentDebtKurus = Math.min(
+        paymentAmountKurus,
+        expectedAmountBeforeApproval,
+      );
+
+      const claimedReceipt = await transaction.paymentReceipt.updateMany({
         where: {
           id: receiptId,
+          status: "PENDING",
         },
         data: {
           status: "APPROVED",
-          reviewNote,
+          paymentAmountKurus,
+          aiOverpaymentAmountKurus: approvalOverpaymentAmountKurus,
+          aiShortfallAmountKurus: approvalShortfallAmountKurus,
           reviewedAt: new Date(),
           reviewedByUserId: authenticatedRequest.user!.id,
         },
       });
 
-      const updatedAllocation = await transaction.paymentAllocation.update({
+      if (claimedReceipt.count !== 1) {
+        throw new HttpError(
+          409,
+          "Bu dekont başka bir işlem tarafından daha önce sonuçlandırılmış.",
+        );
+      }
+
+      const paymentResult = await addPaymentToAllocation(transaction, {
+        paymentAllocationId: lockedAllocation.id,
+        paymentAmountKurus: amountAppliedToCurrentDebtKurus,
+      });
+
+      const balanceDistribution =
+        approvalOverpaymentAmountKurus > 0
+          ? await creditAndDistributeOverpayment(transaction, {
+              apartmentId: lockedAllocation.apartmentId,
+              sourcePaymentAllocationId: lockedAllocation.id,
+              sourceReceiptId: receiptId,
+              overpaymentAmountKurus: approvalOverpaymentAmountKurus,
+              createdByUserId: authenticatedRequest.user!.id,
+            })
+          : emptyBalanceDistribution();
+
+      const effectiveReviewNote = buildApprovalReviewNote({
+        expectedAmountBeforeApproval,
+        paymentAmountKurus,
+        shortfallAmountKurus: approvalShortfallAmountKurus,
+        overpaymentAmountKurus: approvalOverpaymentAmountKurus,
+        balanceDistribution,
+        managerReviewNote: reviewNote,
+      });
+
+      const approvedReceipt = await transaction.paymentReceipt.update({
         where: {
-          id: receipt.paymentAllocationId,
+          id: receiptId,
         },
         data: {
-          status: "PAID",
-          paidAt: new Date(),
+          reviewNote: effectiveReviewNote,
         },
       });
 
       return {
         receipt: approvedReceipt,
-        paymentAllocation: updatedAllocation,
+        paymentAllocation: paymentResult.allocation,
+        expectedAmountBeforeApproval,
+        amountAppliedToCurrentDebtKurus,
+        remainingAmountKurus: paymentResult.remainingAmountKurus,
+        overpaymentAmountKurus: approvalOverpaymentAmountKurus,
+        balanceDistribution,
+        effectiveReviewNote,
       };
     });
 
@@ -1455,15 +2013,58 @@ router.patch(
       entityId: receiptId,
       metadata: {
         paymentAllocationId: receipt.paymentAllocationId,
-        reviewNote,
+        reviewNote: result.effectiveReviewNote,
+        paymentAmountKurus,
+        amountAppliedToCurrentDebtKurus:
+          result.amountAppliedToCurrentDebtKurus,
+        previousPaidAmountKurus: receipt.paymentAllocation.paidAmountKurus,
+        currentPaidAmountKurus: result.paymentAllocation.paidAmountKurus,
+        remainingAmountKurus: result.remainingAmountKurus,
+        overpaymentAmountKurus: result.overpaymentAmountKurus,
+        automaticDistributedAmountKurus:
+          result.balanceDistribution.distributedAmountKurus,
+        remainingBalanceKurus:
+          result.balanceDistribution.remainingBalanceKurus,
+        automaticPayments: result.balanceDistribution.automaticPayments,
         paymentAllocationStatus: result.paymentAllocation.status,
       },
     });
 
     response.status(200).json({
       success: true,
-      message: "Dekont onaylandı ve ödeme ödenmiş olarak işaretlendi.",
+      message: buildPaymentResultMessage({
+        status: result.paymentAllocation.status,
+        overpaymentAmountKurus: result.overpaymentAmountKurus,
+        automaticDistributedAmountKurus:
+          result.balanceDistribution.distributedAmountKurus,
+        remainingBalanceKurus:
+          result.balanceDistribution.remainingBalanceKurus,
+      }),
       data: result,
+    });
+
+    const approvedByUserId = authenticatedRequest.user.id;
+
+    setImmediate(() => {
+      void notifyReceiptPaymentApproved({
+        receiptId,
+        expectedAmountKurus: result.expectedAmountBeforeApproval,
+        paymentAmountKurus,
+        remainingAmountKurus: result.remainingAmountKurus,
+        overpaymentAmountKurus: result.overpaymentAmountKurus,
+        automaticDistributedAmountKurus:
+          result.balanceDistribution.distributedAmountKurus,
+        remainingBalanceKurus:
+          result.balanceDistribution.remainingBalanceKurus,
+        automaticPaymentCount:
+          result.balanceDistribution.automaticPayments.length,
+        approvedByUserId,
+      }).catch((error) => {
+        console.error("Ödeme onay bildirimi gönderilemedi:", {
+          receiptId,
+          error,
+        });
+      });
     });
   }),
 );
@@ -1591,6 +2192,8 @@ router.post(
         );
       }
 
+      const fileHash = await calculateReceiptFileHash(uploadedFile.path);
+
       const {
         paymentAllocationId,
         amount,
@@ -1650,6 +2253,7 @@ router.post(
         select: {
           id: true,
           amountKurus: true,
+          paidAmountKurus: true,
           status: true,
           apartmentId: true,
         },
@@ -1693,16 +2297,6 @@ router.post(
         throw new HttpError(400, "İptal edilmiş ödeme onaylanamaz.");
       }
 
-      if (amount !== undefined) {
-        const amountKurus = Math.round(amount * 100);
-
-        if (amountKurus !== allocation.amountKurus) {
-          throw new HttpError(
-            400,
-            "Dekont tutarı ile ödeme tutarı eşleşmiyor.",
-          );
-        }
-      }
       const existingPendingReceipt = await prisma.paymentReceipt.findFirst({
         where: {
           paymentAllocationId,
@@ -1721,6 +2315,29 @@ router.post(
       }
 
       const savedAiResult = parseSavedAiResult(aiResult);
+      const transactionAt = savedAiResult?.transactionAt ?? null;
+      const transactionReference =
+        savedAiResult?.aiTransactionReference ?? null;
+      const transactionFingerprint =
+        buildReceiptTransactionFingerprint({
+          paymentDate: savedAiResult?.aiPaymentDate,
+          transactionAt,
+          amountKurus: savedAiResult?.aiAmountKurus,
+          recipientIban: savedAiResult?.aiRecipientIban,
+          transactionReference,
+        });
+
+      const paymentAmountKurus =
+        amount !== undefined
+          ? Math.round(amount * 100)
+          : savedAiResult?.aiAmountKurus;
+
+      if (!paymentAmountKurus || paymentAmountKurus <= 0) {
+        throw new HttpError(
+          400,
+          "Onaylanacak gerçek ödeme tutarını giriniz.",
+        );
+      }
 
       const fallbackNote = [
         payerName ? `Dekontta yazılı ödeyen: ${payerName}` : null,
@@ -1734,12 +2351,70 @@ router.post(
         .filter(Boolean)
         .join(" | ");
 
-      const reviewNote = isManualMode
-        ? "Yönetici dosyayı görüntüleyip daire, sakin, ödeme tipi ve tutarı manuel olarak doğruladı."
-        : "Yönetici tarafından AI eşleştirmesi kontrol edilerek onaylandı.";
-
       const result = await prisma.$transaction(async (transaction) => {
-        const approvedReceipt = await transaction.paymentReceipt.create({
+        await transaction.$queryRaw<Array<{ id: string }>>`
+          SELECT "id"
+          FROM "PaymentAllocation"
+          WHERE "id" = ${paymentAllocationId}
+          FOR UPDATE
+        `;
+
+        const lockedAllocation =
+          await transaction.paymentAllocation.findUniqueOrThrow({
+            where: {
+              id: paymentAllocationId,
+            },
+            select: {
+              id: true,
+              apartmentId: true,
+              amountKurus: true,
+              paidAmountKurus: true,
+              status: true,
+              receipts: {
+                where: {
+                  status: "PENDING",
+                },
+                select: {
+                  id: true,
+                },
+                take: 1,
+              },
+            },
+          });
+
+        if (lockedAllocation.status === "PAID") {
+          throw new HttpError(409, "Bu ödeme zaten tamamen ödenmiş.");
+        }
+
+        if (lockedAllocation.status === "CANCELLED") {
+          throw new HttpError(409, "İptal edilmiş ödeme onaylanamaz.");
+        }
+
+        if (lockedAllocation.receipts.length > 0) {
+          throw new HttpError(
+            409,
+            "Bu ödeme için zaten onay bekleyen bir dekont var.",
+          );
+        }
+
+        const lockedExpectedAmountKurus = Math.max(
+          lockedAllocation.amountKurus - lockedAllocation.paidAmountKurus,
+          0,
+        );
+        const lockedOverpaymentAmountKurus = Math.max(
+          paymentAmountKurus - lockedExpectedAmountKurus,
+          0,
+        );
+        const lockedShortfallAmountKurus = Math.max(
+          lockedExpectedAmountKurus - paymentAmountKurus,
+          0,
+        );
+        const lockedAmountAppliedToCurrentDebtKurus = Math.min(
+          paymentAmountKurus,
+          lockedExpectedAmountKurus,
+        );
+
+        const createdReceipt = await transaction.paymentReceipt.create({
           data: {
             paymentAllocationId,
             uploadedByUserId: authenticatedRequest.user!.id,
@@ -1747,9 +2422,23 @@ router.post(
             storedFileName: uploadedFile.filename,
             mimeType: uploadedFile.mimetype,
             sizeBytes: uploadedFile.size,
+            fileHash,
+            transactionAt,
+            transactionReference,
+            transactionFingerprint,
             note: combinedNote || null,
             status: "APPROVED",
-            reviewNote,
+            paymentAmountKurus,
+            aiStatus:
+              lockedOverpaymentAmountKurus > 0
+                ? "OVERPAYMENT"
+                : lockedShortfallAmountKurus > 0
+                  ? "PARTIAL_PAYMENT"
+                  : savedAiResult
+                    ? "MATCHED"
+                    : "NOT_CHECKED",
+            aiOverpaymentAmountKurus: lockedOverpaymentAmountKurus,
+            aiShortfallAmountKurus: lockedShortfallAmountKurus,
             reviewedAt: new Date(),
             reviewedByUserId: authenticatedRequest.user!.id,
             ...(savedAiResult
@@ -1762,6 +2451,8 @@ router.post(
                   aiApartmentNumber: savedAiResult.aiApartmentNumber,
                   aiDescription: savedAiResult.aiDescription,
                   aiPaymentDate: savedAiResult.aiPaymentDate,
+                  aiTransactionReference:
+                    savedAiResult.aiTransactionReference,
                   aiConfidence: savedAiResult.aiConfidence,
                   aiAnalyzedAt: savedAiResult.aiAnalyzedAt,
                 }
@@ -1769,19 +2460,51 @@ router.post(
           },
         });
 
-        const updatedAllocation = await transaction.paymentAllocation.update({
+        const paymentResult = await addPaymentToAllocation(transaction, {
+          paymentAllocationId,
+          paymentAmountKurus: lockedAmountAppliedToCurrentDebtKurus,
+        });
+
+        const balanceDistribution =
+          lockedOverpaymentAmountKurus > 0
+            ? await creditAndDistributeOverpayment(transaction, {
+                apartmentId: lockedAllocation.apartmentId,
+                sourcePaymentAllocationId: paymentAllocationId,
+                sourceReceiptId: createdReceipt.id,
+                overpaymentAmountKurus: lockedOverpaymentAmountKurus,
+                createdByUserId: authenticatedRequest.user!.id,
+              })
+            : emptyBalanceDistribution();
+
+        const effectiveReviewNote = buildApprovalReviewNote({
+          expectedAmountBeforeApproval: lockedExpectedAmountKurus,
+          paymentAmountKurus,
+          shortfallAmountKurus: lockedShortfallAmountKurus,
+          overpaymentAmountKurus: lockedOverpaymentAmountKurus,
+          balanceDistribution,
+          managerReviewNote: note,
+          manualMode: isManualMode,
+        });
+
+        const approvedReceipt = await transaction.paymentReceipt.update({
           where: {
-            id: paymentAllocationId,
+            id: createdReceipt.id,
           },
           data: {
-            status: "PAID",
-            paidAt: new Date(),
+            reviewNote: effectiveReviewNote,
           },
         });
 
         return {
           receipt: approvedReceipt,
-          paymentAllocation: updatedAllocation,
+          paymentAllocation: paymentResult.allocation,
+          remainingAmountKurus: paymentResult.remainingAmountKurus,
+          overpaymentAmountKurus: lockedOverpaymentAmountKurus,
+          balanceDistribution,
+          expectedAmountBeforeApproval: lockedExpectedAmountKurus,
+          amountAppliedToCurrentDebtKurus:
+            lockedAmountAppliedToCurrentDebtKurus,
+          effectiveReviewNote,
         };
       });
 
@@ -1795,7 +2518,20 @@ router.post(
         entityId: result.receipt.id,
         metadata: {
           paymentAllocationId,
-          amountKurus: allocation.amountKurus,
+          totalAmountKurus: allocation.amountKurus,
+          paymentAmountKurus,
+          amountAppliedToCurrentDebtKurus:
+            result.amountAppliedToCurrentDebtKurus,
+          previousPaidAmountKurus: allocation.paidAmountKurus,
+          currentPaidAmountKurus: result.paymentAllocation.paidAmountKurus,
+          remainingAmountKurus: result.remainingAmountKurus,
+          overpaymentAmountKurus: result.overpaymentAmountKurus,
+          automaticDistributedAmountKurus:
+            result.balanceDistribution.distributedAmountKurus,
+          remainingBalanceKurus:
+            result.balanceDistribution.remainingBalanceKurus,
+          automaticPayments: result.balanceDistribution.automaticPayments,
+          paymentAllocationStatus: result.paymentAllocation.status,
           payerName,
           bankAccount,
           paymentOwnerType,
@@ -1803,14 +2539,49 @@ router.post(
           manualApartmentId: manualApartmentId ?? null,
           manualResidentUserId: manualResidentUserId ?? null,
           manualVerified: manualVerified === true,
+          fileHash,
+          transactionAt: transactionAt?.toISOString() ?? null,
+          transactionReference,
+          transactionFingerprint,
         },
       });
 
       response.status(201).json({
         success: true,
-        message:
-          "Dekont eşleştirildi, onaylandı ve ödeme ödendi olarak işaretlendi.",
+        message: buildPaymentResultMessage({
+          status: result.paymentAllocation.status,
+          overpaymentAmountKurus: result.overpaymentAmountKurus,
+          automaticDistributedAmountKurus:
+            result.balanceDistribution.distributedAmountKurus,
+          remainingBalanceKurus:
+            result.balanceDistribution.remainingBalanceKurus,
+        }),
         data: result,
+      });
+
+      const approvedByUserId = authenticatedRequest.user.id;
+      const approvedReceiptId = result.receipt.id;
+
+      setImmediate(() => {
+        void notifyReceiptPaymentApproved({
+          receiptId: approvedReceiptId,
+          expectedAmountKurus: result.expectedAmountBeforeApproval,
+          paymentAmountKurus,
+          remainingAmountKurus: result.remainingAmountKurus,
+          overpaymentAmountKurus: result.overpaymentAmountKurus,
+          automaticDistributedAmountKurus:
+            result.balanceDistribution.distributedAmountKurus,
+          remainingBalanceKurus:
+            result.balanceDistribution.remainingBalanceKurus,
+          automaticPaymentCount:
+            result.balanceDistribution.automaticPayments.length,
+          approvedByUserId,
+        }).catch((error) => {
+          console.error("Yönetici ödeme onay bildirimi gönderilemedi:", {
+            receiptId: approvedReceiptId,
+            error,
+          });
+        });
       });
     } finally {
       if (shouldDeleteUploadedFile) {

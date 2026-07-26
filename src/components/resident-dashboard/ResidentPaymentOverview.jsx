@@ -3,7 +3,7 @@ function ResidentPaymentOverview({ payment }) {
     <section className="resident-dashboard-card">
       <div className="resident-card-header">
         <div>
-          <span className="section-kicker">Aidat Özeti</span>
+          <span className="section-kicker">Borç Özeti</span>
           <h3>Ödeme Durumu</h3>
         </div>
 
@@ -14,7 +14,7 @@ function ResidentPaymentOverview({ payment }) {
 
       <div className="resident-payment-overview-grid">
         <div>
-          <span>Bu Ayki Aidat</span>
+          <span>Bu Ayki Borcunuz</span>
           <strong>{payment.currentDue}</strong>
         </div>
 
@@ -26,6 +26,11 @@ function ResidentPaymentOverview({ payment }) {
         <div>
           <span>Kalan</span>
           <strong>{payment.remainingAmount}</strong>
+        </div>
+
+        <div>
+          <span>Fazla Ödeme</span>
+          <strong>{payment.overpaymentAmount}</strong>
         </div>
 
         <div>

@@ -22,6 +22,7 @@ function ResidentPaymentTable({ payments, onView }) {
               <th>Tutar</th>
               <th>Ödenen</th>
               <th>Kalan</th>
+              <th>Fazla Ödeme</th>
               <th>Son Ödeme</th>
               <th>Durum</th>
               <th>İşlem</th>
@@ -58,6 +59,7 @@ function ResidentPaymentTable({ payments, onView }) {
                   <td>{payment.amount}</td>
                   <td>{payment.paidAmount}</td>
                   <td>{payment.remainingAmount}</td>
+                  <td>{payment.overpaymentAmount}</td>
                   <td>{payment.dueDate}</td>
 
                   <td>

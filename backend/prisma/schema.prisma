@@ -31,6 +31,7 @@ enum PaymentScopeType {
 
 enum PaymentAllocationStatus {
   PENDING
+  PARTIAL
   PAID
   CANCELLED
 }
@@ -45,8 +46,19 @@ enum ReceiptAiStatus {
   NOT_CHECKED
   PROCESSING
   MATCHED
+  OVERPAYMENT
+  PARTIAL_PAYMENT
+  AUTO_REJECTED
   REVIEW_REQUIRED
   FAILED
+}
+
+
+enum ApartmentBalanceTransactionType {
+  CREDIT_FROM_OVERPAYMENT
+  DEBIT_TO_PAYMENT
+  REVERSAL
+  ADMIN_ADJUSTMENT
 }
 
 
@@ -185,6 +197,7 @@ model User {
   createdAccountingExpenses      AccountingExpense[]      @relation("CreatedAccountingExpenses")
   cancelledAccountingExpenses    AccountingExpense[]      @relation("CancelledAccountingExpenses")
   uploadedAccountingDocuments    AccountingExpenseDocument[] @relation("UploadedAccountingExpenseDocuments")
+  createdBalanceTransactions     ApartmentBalanceTransaction[] @relation("CreatedBalanceTransactions")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -271,6 +284,7 @@ model Apartment {
   paymentExemptions  PaymentExemption[]
   announcements      Announcement[]      @relation("ApartmentAnnouncements")
   requests           ResidentRequest[]   @relation("ApartmentRequests")
+  balanceAccount     ApartmentBalanceAccount?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -326,8 +340,9 @@ model PaymentBatch {
 
 model PaymentAllocation {
   id          String                  @id @default(uuid())
-  amountKurus Int
-  status      PaymentAllocationStatus @default(PENDING)
+  amountKurus     Int
+  paidAmountKurus Int                     @default(0)
+  status          PaymentAllocationStatus @default(PENDING)
   paidAt      DateTime?
 
   paymentBatchId String
@@ -336,6 +351,7 @@ model PaymentAllocation {
   apartmentId String
   apartment   Apartment        @relation(fields: [apartmentId], references: [id], onDelete: Cascade)
   receipts    PaymentReceipt[]
+  balanceTransactions ApartmentBalanceTransaction[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -368,7 +384,8 @@ model PaymentReceipt {
   storedFileName   String
   mimeType         String
   sizeBytes        Int
-  status           ReceiptStatus @default(PENDING)
+  status             ReceiptStatus @default(PENDING)
+  paymentAmountKurus Int?
 
   note       String?
   reviewNote String?
@@ -395,14 +412,26 @@ model PaymentReceipt {
   aiExpectedIban    String?
   aiAmountMatches   Boolean?
   aiIbanMatches     Boolean?
-  aiApartmentNumber String?
-  aiDescription     String?
-  aiPaymentDate     String?
-  aiConfidence      Float?
-  aiReasons         String[] @default([])
-  aiErrorMessage    String?
-  aiAnalyzedAt      DateTime?
-  aiVerifiedAt      DateTime?
+  aiApartmentNumber        String?
+  aiDescription            String?
+  aiPaymentDate            String?
+  aiTransactionReference   String?
+  aiOverpaymentAmountKurus Int?
+  aiShortfallAmountKurus   Int?
+  aiConfidence             Float?
+  aiReasons                String[] @default([])
+  aiErrorMessage           String?
+  aiAnalyzedAt             DateTime?
+  aiVerifiedAt             DateTime?
+
+  fileHash              String?
+  transactionAt         DateTime?
+  transactionReference  String?
+  transactionFingerprint String?
+  autoRejectReason      String?
+  autoRejectedAt        DateTime?
+
+  balanceCreditTransaction ApartmentBalanceTransaction? @relation("SourceReceiptBalanceTransaction")
 
   @@index([paymentAllocationId])
   @@index([uploadedByUserId])
@@ -412,6 +441,56 @@ model PaymentReceipt {
   @@index([aiProvider])
   @@index([aiAnalyzedAt])
   @@index([aiVerifiedAt])
+  @@index([fileHash])
+  @@index([transactionFingerprint])
+  @@index([transactionAt])
+  @@index([autoRejectReason])
+}
+
+model ApartmentBalanceAccount {
+  id                   String @id @default(uuid())
+  availableAmountKurus Int    @default(0)
+
+  apartmentId String    @unique
+  apartment   Apartment @relation(fields: [apartmentId], references: [id], onDelete: Cascade)
+
+  transactions ApartmentBalanceTransaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([availableAmountKurus])
+}
+
+model ApartmentBalanceTransaction {
+  id                       String                            @id @default(uuid())
+  type                     ApartmentBalanceTransactionType
+  amountKurus              Int
+  balanceAfterKurus        Int
+  remainingDebtAfterKurus  Int?
+  paymentStatusAfter       PaymentAllocationStatus?
+  description              String?
+  idempotencyKey           String                            @unique
+
+  balanceAccountId String
+  balanceAccount   ApartmentBalanceAccount @relation(fields: [balanceAccountId], references: [id], onDelete: Cascade)
+
+  sourceReceiptId String?         @unique
+  sourceReceipt   PaymentReceipt? @relation("SourceReceiptBalanceTransaction", fields: [sourceReceiptId], references: [id], onDelete: SetNull)
+
+  paymentAllocationId String?
+  paymentAllocation   PaymentAllocation? @relation(fields: [paymentAllocationId], references: [id], onDelete: SetNull)
+
+  createdByUserId String?
+  createdByUser   User? @relation("CreatedBalanceTransactions", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([balanceAccountId])
+  @@index([type])
+  @@index([paymentAllocationId])
+  @@index([createdByUserId])
+  @@index([createdAt])
 }
 
 model AccountingExpense {

@@ -1,7 +1,7 @@
 ﻿import { CheckCircle2, Eye, XCircle } from "lucide-react";
 
 function getReceiptStatusClass(status) {
-  if (status === "Onaylandı") {
+  if (status === "Onaylandı" || status === "Tam Ödendi") {
     return "approved";
   }
 
@@ -17,8 +17,12 @@ function getAiStatusClass(aiStatus) {
     return "approved";
   }
 
-  if (aiStatus === "FAILED") {
+  if (aiStatus === "FAILED" || aiStatus === "AUTO_REJECTED") {
     return "rejected";
+  }
+
+  if (aiStatus === "AUTOMATIC_PAYMENT") {
+    return "automatic";
   }
 
   return "waiting";
@@ -39,7 +43,7 @@ function ReceiptTable({
         <table className="receipts-table">
           <thead>
             <tr>
-              <th>Yükleyen Yönetici</th>
+              <th>Yükleyen Kişi</th>
               <th>Daire</th>
               <th>Ödeme</th>
               <th>Tutar</th>
@@ -59,7 +63,14 @@ function ReceiptTable({
                 const isWaitingApproval = receipt.status === "Onay Bekliyor";
 
                 return (
-                  <tr key={receipt.id}>
+                  <tr
+                    key={receipt.id}
+                    style={
+                      receipt.isAutomaticPayment
+                        ? { backgroundColor: "#f8fbff" }
+                        : undefined
+                    }
+                  >
                     <td>
                       <div className="receipt-main-cell">
                         <strong>{receipt.payerName || "Yükleyen yok"}</strong>
@@ -76,6 +87,15 @@ function ReceiptTable({
                       <span
                         className={`receipt-status-badge ${aiStatusClass}`}
                         title={receipt.aiStatusLabel || "AI kontrol bilgisi"}
+                        style={
+                          receipt.isAutomaticPayment
+                            ? {
+                                backgroundColor: "#dbeafe",
+                                color: "#1d4ed8",
+                                borderColor: "#93c5fd",
+                              }
+                            : undefined
+                        }
                       >
                         {receipt.aiStatusLabel || "Kontrol edilmedi"}
                       </span>

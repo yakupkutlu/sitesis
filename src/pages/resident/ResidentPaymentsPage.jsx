@@ -73,12 +73,12 @@ function isPastDueDate(value) {
 }
 
 function getAllocationStatus(allocation) {
-  if (allocation.status === "PAID") {
-    return "Ödendi";
-  }
-
   if (allocation.status === "CANCELLED") {
     return "İptal Edildi";
+  }
+
+  if (allocation.status === "PAID") {
+    return "Ödendi";
   }
 
   const hasPendingReceipt = Array.isArray(allocation.receipts)
@@ -86,7 +86,11 @@ function getAllocationStatus(allocation) {
     : false;
 
   if (hasPendingReceipt) {
-    return "Dekont Bekliyor";
+    return "Dekont Onayı Bekliyor";
+  }
+
+  if (allocation.status === "PARTIAL") {
+    return "Kısmi Ödendi";
   }
 
   const dueDate = allocation.paymentBatch?.dueDate;
@@ -95,7 +99,7 @@ function getAllocationStatus(allocation) {
     return "Gecikti";
   }
 
-  return "Bekliyor";
+  return "ödeme Bekliyor";
 }
 
 function getApartmentText(allocation) {
@@ -110,29 +114,39 @@ function getApartmentText(allocation) {
 
 function mapAllocationToPayment(allocation) {
   const batch = allocation.paymentBatch ?? {};
-  const amountText = formatCurrencyFromKurus(allocation.amountKurus);
-  const status = getAllocationStatus(allocation);
-  const isPaid = allocation.status === "PAID";
   const isCancelled = allocation.status === "CANCELLED";
-  const shouldCountAsDebt = !isPaid && !isCancelled;
+  const totalAmountKurus = isCancelled
+    ? 0
+    : Math.max(0, Number(allocation.amountKurus) || 0);
+  const paidAmountKurus = isCancelled
+    ? 0
+    : Math.max(0, Number(allocation.paidAmountKurus) || 0);
+  const remainingAmountKurus = Math.max(
+    totalAmountKurus - paidAmountKurus,
+    0
+  );
+  const overpaymentAmountKurus = Math.max(
+    paidAmountKurus - totalAmountKurus,
+    0
+  );
 
   return {
     id: allocation.id,
     title: batch.title ?? "Ödeme",
     category: "Aidat / Gider",
     period: formatDate(batch.createdAt),
-    amount: amountText,
-    paidAmount: isPaid ? amountText : "0 TL",
-    remainingAmount: shouldCountAsDebt ? amountText : "0 TL",
+    amount: formatCurrencyFromKurus(totalAmountKurus),
+    paidAmount: formatCurrencyFromKurus(paidAmountKurus),
+    remainingAmount: formatCurrencyFromKurus(remainingAmountKurus),
+    overpaymentAmount: formatCurrencyFromKurus(overpaymentAmountKurus),
     dueDate: formatDate(batch.dueDate),
-    status,
+    status: getAllocationStatus(allocation),
     apartment: getApartmentText(allocation),
     description: batch.description ?? "Açıklama yok.",
-    numericAmount: (Number(allocation.amountKurus) || 0) / 100,
-    numericPaidAmount: isPaid ? (Number(allocation.amountKurus) || 0) / 100 : 0,
-    numericRemainingAmount: shouldCountAsDebt
-      ? (Number(allocation.amountKurus) || 0) / 100
-      : 0,
+    numericAmount: totalAmountKurus / 100,
+    numericPaidAmount: paidAmountKurus / 100,
+    numericRemainingAmount: remainingAmountKurus / 100,
+    numericOverpaymentAmount: overpaymentAmountKurus / 100,
     paymentAllocationId: allocation.id,
     receipts: allocation.receipts ?? [],
     raw: allocation,
@@ -192,7 +206,7 @@ function ResidentPaymentsPage() {
 
   const summary = useMemo(() => {
     const totalDebt = payments.reduce(
-      (total, payment) => total + payment.numericRemainingAmount,
+      (total, payment) => total + payment.numericAmount,
       0
     );
 
@@ -201,19 +215,21 @@ function ResidentPaymentsPage() {
       0
     );
 
-    const pendingAmount = payments
-      .filter((payment) => payment.status !== "Ödendi")
-      .reduce((total, payment) => total + payment.numericRemainingAmount, 0);
+    const remainingAmount = payments.reduce(
+      (total, payment) => total + payment.numericRemainingAmount,
+      0
+    );
 
-    const lateCount = payments.filter(
-      (payment) => payment.status === "Gecikti"
-    ).length;
+    const overpaymentAmount = payments.reduce(
+      (total, payment) => total + payment.numericOverpaymentAmount,
+      0
+    );
 
     return {
       totalDebt: formatCurrency(totalDebt),
       paidAmount: formatCurrency(paidAmount),
-      pendingAmount: formatCurrency(pendingAmount),
-      lateCount,
+      remainingAmount: formatCurrency(remainingAmount),
+      overpaymentAmount: formatCurrency(overpaymentAmount),
     };
   }, [payments]);
 

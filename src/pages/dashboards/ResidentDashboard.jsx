@@ -18,6 +18,7 @@ import ResidentOpenRequests from "../../components/resident-dashboard/ResidentOp
 
 import { getResidentDashboardSummary } from "../../api/dashboardSummaryApi";
 import { getAnnouncements } from "../../api/announcementsApi";
+import { getResidentAlerts } from "../../api/paymentBatchesApi";
 import { getRequests } from "../../api/requestsApi";
 
 
@@ -25,7 +26,7 @@ const navItems = [
   { label: "Panel", path: "/resident/dashboard", icon: Home },
   { label: "Aidat ve Ödemeler", path: "/resident/payments", icon: CreditCard },
   { label: "Dekont Yükle", path: "/resident/receipts", icon: UploadCloud },
-  { label: "Duyurular", path: "/resident/announcements", icon: Bell },
+  { label: "Duyurular / Uyarılar", path: "/resident/announcements", icon: Bell },
   { label: "Talepler", path: "/resident/requests", icon: MessageSquareText },
   { label: "Ayarlar", path: "/resident/settings", icon: Settings },
 ];
@@ -51,12 +52,9 @@ function getDataArray(result) {
   if (Array.isArray(data?.items)) return data.items;
   if (Array.isArray(data?.announcements)) return data.announcements;
   if (Array.isArray(data?.requests)) return data.requests;
+  if (Array.isArray(data?.alerts)) return data.alerts;
 
   return [];
-}
-
-function formatNumber(value) {
-  return new Intl.NumberFormat("tr-TR").format(Number(value ?? 0));
 }
 
 function formatMoneyFromKurus(value) {
@@ -122,11 +120,12 @@ function mapRequestToDashboard(request) {
 }
 
 function ResidentDashboard() {
-  const { user, selectedApartmentId } = useAuth();
+  const { user } = useAuth();
 
   const [summary, setSummary] = useState(null);
   const [recentAnnouncements, setRecentAnnouncements] = useState([]);
   const [recentRequests, setRecentRequests] = useState([]);
+  const [recentWarnings, setRecentWarnings] = useState([]);
 
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
@@ -144,8 +143,17 @@ function ResidentDashboard() {
         page: 1,
         limit: 3,
       }),
+      getResidentAlerts({
+        limit: 3,
+      }),
     ])
-      .then(([summaryResult, announcementsResult, requestsResult]) => {
+      .then(
+        ([
+          summaryResult,
+          announcementsResult,
+          requestsResult,
+          warningsResult,
+        ]) => {
         if (!isMounted) return;
 
         setSummary(summaryResult?.data ?? summaryResult ?? {});
@@ -153,8 +161,10 @@ function ResidentDashboard() {
           getDataArray(announcementsResult).map(mapAnnouncementToDashboard)
         );
         setRecentRequests(getDataArray(requestsResult).map(mapRequestToDashboard));
+        setRecentWarnings(getDataArray(warningsResult));
         setErrorMessage("");
-      })
+        },
+      )
       .catch((error) => {
         if (!isMounted) return;
 
@@ -169,7 +179,7 @@ function ResidentDashboard() {
     return () => {
       isMounted = false;
     };
-  }, [selectedApartmentId]);
+  }, []);
 
   const residentInfo = useMemo(
     () => ({
@@ -186,33 +196,42 @@ function ResidentDashboard() {
 
   const stats = useMemo(
     () => ({
-      totalDebt: formatMoneyFromKurus(summary?.remainingDebtKurus),
-      currentDue: formatMoneyFromKurus(summary?.remainingDebtKurus),
-      pendingReceipts: formatNumber(summary?.pendingAllocationsCount),
-      openRequests: formatNumber(summary?.openRequestsCount),
-    }),
-    [summary]
-  );
-
-  const payment = useMemo(
-    () => ({
-      currentDue: formatMoneyFromKurus(summary?.remainingDebtKurus),
+      totalDebt: formatMoneyFromKurus(summary?.totalDebtKurus),
       paidAmount: formatMoneyFromKurus(summary?.paidTotalKurus),
       remainingAmount: formatMoneyFromKurus(summary?.remainingDebtKurus),
-      dueDate: "-",
-      status:
-        Number(summary?.remainingDebtKurus ?? 0) > 0
-          ? "Ödeme Bekliyor"
-          : "Borç Yok",
-      statusClass:
-        Number(summary?.remainingDebtKurus ?? 0) > 0 ? "waiting" : "paid",
-      progress: calculateProgress(
-        summary?.paidTotalKurus,
-        summary?.totalDebtKurus
+      overpaymentAmount: formatMoneyFromKurus(
+        summary?.overpaymentTotalKurus
       ),
     }),
     [summary]
   );
+
+  const payment = useMemo(() => {
+    const totalDebtKurus = Number(summary?.totalDebtKurus ?? 0);
+    const remainingDebtKurus = Number(summary?.remainingDebtKurus ?? 0);
+    const overpaymentTotalKurus = Number(
+      summary?.overpaymentTotalKurus ?? 0
+    );
+
+    return {
+      currentDue: formatMoneyFromKurus(totalDebtKurus),
+      paidAmount: formatMoneyFromKurus(summary?.paidTotalKurus),
+      remainingAmount: formatMoneyFromKurus(remainingDebtKurus),
+      overpaymentAmount: formatMoneyFromKurus(overpaymentTotalKurus),
+      dueDate: "-",
+      status:
+        remainingDebtKurus > 0
+          ? "Ödeme Bekliyor"
+          : overpaymentTotalKurus > 0
+          ? "Fazla Ödeme Var"
+          : "Borç Yok",
+      statusClass: remainingDebtKurus > 0 ? "waiting" : "paid",
+      progress: calculateProgress(
+        summary?.paidTotalKurus,
+        summary?.totalDebtKurus
+      ),
+    };
+  }, [summary]);
 
   const announcements = useMemo(() => {
     if (recentAnnouncements.length > 0) {
@@ -289,7 +308,10 @@ function ResidentDashboard() {
           </div>
 
           <div className="resident-dashboard-grid">
-            <ResidentRecentAnnouncements announcements={announcements} />
+            <ResidentRecentAnnouncements
+              announcements={announcements}
+              warnings={recentWarnings}
+            />
             <ResidentOpenRequests requests={openRequests} />
           </div>
         </>

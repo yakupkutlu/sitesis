@@ -22,7 +22,7 @@ const navItems = [
   { label: "Panel", path: "/resident/dashboard", icon: Home },
   { label: "Aidat ve Ödemeler", path: "/resident/payments", icon: CreditCard },
   { label: "Dekont Yükle", path: "/resident/receipts", icon: UploadCloud },
-  { label: "Duyurular", path: "/resident/announcements", icon: Bell },
+  { label: "Duyurular / Uyarılar", path: "/resident/announcements", icon: Bell },
   { label: "Talepler", path: "/resident/requests", icon: MessageSquareText },
   { label: "Ayarlar", path: "/resident/settings", icon: Settings },
 ];
@@ -53,6 +53,46 @@ function getDataArray(result) {
   return [];
 }
 
+function getAutomaticPaymentsArray(result, allocations = []) {
+  const data = result?.data ?? result;
+
+  const directItems = Array.isArray(data?.automaticPayments)
+    ? data.automaticPayments
+    : Array.isArray(result?.automaticPayments)
+      ? result.automaticPayments
+      : [];
+
+  const nestedItems = allocations.flatMap((allocation) => {
+    const items = Array.isArray(allocation?.automaticPayments)
+      ? allocation.automaticPayments
+      : [];
+
+    return items.map((payment) => ({
+      ...payment,
+      paymentAllocation: payment.paymentAllocation ?? allocation,
+    }));
+  });
+
+  const uniquePayments = new Map();
+
+  [...directItems, ...nestedItems].forEach((payment, index) => {
+    const allocationId =
+      payment?.paymentAllocation?.id ??
+      payment?.paymentAllocationId ??
+      "allocation";
+
+    const uniqueKey =
+      payment?.id ??
+      `${allocationId}-${payment?.createdAt ?? "date"}-${payment?.amountKurus ?? index}`;
+
+    if (!uniquePayments.has(uniqueKey)) {
+      uniquePayments.set(uniqueKey, payment);
+    }
+  });
+
+  return Array.from(uniquePayments.values());
+}
+
 function formatCurrencyFromKurus(value) {
   return `${((Number(value) || 0) / 100).toLocaleString("tr-TR", {
     minimumFractionDigits: 2,
@@ -80,10 +120,60 @@ function formatFileSize(size) {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function decodeMojibakeUtf8(value) {
+  const text = String(value ?? "");
+
+  if (!/[ÃÄÅÂ]/.test(text)) {
+    return text;
+  }
+
+  try {
+    const bytes = Uint8Array.from(
+      text,
+      (character) => character.charCodeAt(0) & 0xff,
+    );
+
+    return new TextDecoder("utf-8", {
+      fatal: true,
+    }).decode(bytes);
+  } catch {
+    return text;
+  }
+}
+
+function fixTurkishFileName(value) {
+  let fixedValue = String(value ?? "");
+
+  /*
+   * Çift kodlanmış adları da düzeltmek için dönüşüm en fazla üç kez
+   * uygulanır. Örnek:
+   * "Ä°ÅŸlem" → "İşlem"
+   * "Ã„Â°Ã…Å¸lem" → "Ä°ÅŸlem" → "İşlem"
+   */
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const decodedValue = decodeMojibakeUtf8(fixedValue);
+
+    if (decodedValue === fixedValue) {
+      break;
+    }
+
+    fixedValue = decodedValue;
+  }
+
+  return fixedValue
+    .replaceAll("Ý", "İ")
+    .replaceAll("ý", "ı")
+    .replaceAll("Þ", "Ş")
+    .replaceAll("þ", "ş")
+    .replaceAll("Ð", "Ğ")
+    .replaceAll("ð", "ğ")
+    .normalize("NFC");
+}
+
 function getReceiptStatusText(status) {
   if (status === "APPROVED") return "Onaylandı";
   if (status === "REJECTED") return "Reddedildi";
-  return "Onay Bekliyor";
+  return "Dekont Onayı Bekliyor";
 }
 
 function getApartmentText(allocation) {
@@ -100,27 +190,105 @@ function getPaymentTitle(allocation) {
   return allocation.paymentBatch?.title ?? "Ödeme";
 }
 
+function getPaidAmountKurus(allocation) {
+  return Math.max(0, Number(allocation?.paidAmountKurus) || 0);
+}
+
+function getRemainingAmountKurus(allocation) {
+  const totalAmountKurus = Math.max(0, Number(allocation?.amountKurus) || 0);
+  const paidAmountKurus = getPaidAmountKurus(allocation);
+
+  return Math.max(totalAmountKurus - paidAmountKurus, 0);
+}
+
+function hasPendingReceipt(allocation) {
+  const receipts = Array.isArray(allocation?.receipts)
+    ? allocation.receipts
+    : [];
+
+  return receipts.some((receipt) => receipt.status === "PENDING");
+}
+
 function mapAllocationToPaymentOption(allocation) {
   return {
     id: allocation.id,
     title: getPaymentTitle(allocation),
-    remainingAmount: formatCurrencyFromKurus(allocation.amountKurus),
+    remainingAmount: formatCurrencyFromKurus(
+      getRemainingAmountKurus(allocation)
+    ),
   };
+}
+
+function getReceiptAmountKurus(receipt, allocation) {
+  const savedReceiptAmount = Number(receipt?.paymentAmountKurus);
+
+  if (Number.isFinite(savedReceiptAmount) && savedReceiptAmount > 0) {
+    return savedReceiptAmount;
+  }
+
+  return getRemainingAmountKurus(allocation) || Number(allocation?.amountKurus) || 0;
+}
+
+function getReceiptReviewText(receipt) {
+  if (receipt.status === "PENDING") {
+    return "Yönetici onayı bekleniyor";
+  }
+
+  if (receipt.reviewNote?.trim()) {
+    return receipt.reviewNote.trim();
+  }
+
+  if (receipt.status === "APPROVED") {
+    return "Yönetici tarafından onaylandı";
+  }
+
+  if (receipt.status === "REJECTED") {
+    return "Yönetici tarafından reddedildi";
+  }
+
+  return "-";
 }
 
 function mapReceiptToViewModel(receipt, allocation) {
   return {
     id: receipt.id,
+    isAutomaticPayment: false,
     paymentTitle: getPaymentTitle(allocation),
-    amount: formatCurrencyFromKurus(allocation.amountKurus),
+    amount: formatCurrencyFromKurus(
+      getReceiptAmountKurus(receipt, allocation)
+    ),
     description: receipt.note || "Sakin tarafından ödeme dekontu yüklendi.",
-    fileName: receipt.originalFileName || "-",
+    fileName: fixTurkishFileName(receipt.originalFileName || "-"),
     fileSize: formatFileSize(receipt.sizeBytes),
     status: getReceiptStatusText(receipt.status),
     apartment: getApartmentText(allocation),
     uploadedAt: formatDate(receipt.createdAt),
-    reviewNote: receipt.reviewNote || "Kontrol bekliyor",
+    reviewNote: getReceiptReviewText(receipt),
     raw: receipt,
+  };
+}
+
+function mapAutomaticPaymentToViewModel(payment) {
+  const allocation = payment?.paymentAllocation ?? {};
+  const automaticPaymentId =
+    payment?.id ??
+    `${allocation?.id ?? "allocation"}-${payment?.createdAt ?? "date"}`;
+
+  return {
+    id: `automatic-${automaticPaymentId}`,
+    isAutomaticPayment: true,
+    paymentTitle: getPaymentTitle(allocation),
+    amount: formatCurrencyFromKurus(payment?.amountKurus ?? 0),
+    description:
+      payment?.description ||
+      "Fazla bakiye bu borca sistem tarafından otomatik olarak kullanıldı.",
+    fileName: "Otomatik Ödeme",
+    fileSize: "-",
+    status: "Otomatik Ödeme",
+    apartment: getApartmentText(allocation),
+    uploadedAt: formatDate(payment?.createdAt),
+    reviewNote: "Sistem tarafından otomatik ödendi",
+    raw: payment,
   };
 }
 
@@ -128,6 +296,7 @@ function ResidentReceiptsPage() {
   const { user, selectedApartmentId } = useAuth();
 
   const [allocations, setAllocations] = useState([]);
+  const [automaticPayments, setAutomaticPayments] = useState([]);
   const [formData, setFormData] = useState(emptyFormData);
   const [selectedFile, setSelectedFile] = useState(null);
   const [fileError, setFileError] = useState("");
@@ -139,7 +308,12 @@ function ResidentReceiptsPage() {
 
   async function loadData() {
     const result = await getMyPaymentAllocations();
-    setAllocations(getDataArray(result));
+    const nextAllocations = getDataArray(result);
+
+    setAllocations(nextAllocations);
+    setAutomaticPayments(
+      getAutomaticPaymentsArray(result, nextAllocations),
+    );
   }
 
   useEffect(() => {
@@ -151,6 +325,7 @@ function ResidentReceiptsPage() {
         setErrorMessage("");
         setMessage("");
         setAllocations([]);
+        setAutomaticPayments([]);
         setFormData(emptyFormData);
         setSelectedFile(null);
         setFileError("");
@@ -158,7 +333,12 @@ function ResidentReceiptsPage() {
         const result = await getMyPaymentAllocations();
 
         if (isMounted) {
-          setAllocations(getDataArray(result));
+          const nextAllocations = getDataArray(result);
+
+          setAllocations(nextAllocations);
+          setAutomaticPayments(
+            getAutomaticPaymentsArray(result, nextAllocations),
+          );
         }
       } catch {
         if (isMounted) {
@@ -182,15 +362,15 @@ function ResidentReceiptsPage() {
     return allocations
       .filter((allocation) => allocation.status !== "PAID")
       .filter((allocation) => allocation.status !== "CANCELLED")
-      .filter((allocation) => {
-        const receipts = Array.isArray(allocation.receipts)
-          ? allocation.receipts
-          : [];
-
-        return !receipts.some((receipt) => receipt.status === "PENDING");
-      })
+      .filter((allocation) => getRemainingAmountKurus(allocation) > 0)
+      .filter((allocation) => !hasPendingReceipt(allocation))
       .map(mapAllocationToPaymentOption);
   }, [allocations]);
+
+  const pendingReceiptCount = useMemo(() => {
+    return allocations.filter(hasPendingReceipt).length;
+  }, [allocations]);
+
 
   const receipts = useMemo(() => {
     return allocations.flatMap((allocation) => {
@@ -204,10 +384,23 @@ function ResidentReceiptsPage() {
     });
   }, [allocations]);
 
+  const receiptHistoryItems = useMemo(() => {
+    const automaticPaymentCards = automaticPayments.map(
+      mapAutomaticPaymentToViewModel,
+    );
+
+    return [...receipts, ...automaticPaymentCards].sort((left, right) => {
+      const leftDate = new Date(left.raw?.createdAt ?? 0).getTime();
+      const rightDate = new Date(right.raw?.createdAt ?? 0).getTime();
+
+      return rightDate - leftDate;
+    });
+  }, [receipts, automaticPayments]);
+
   const summary = useMemo(() => {
     return {
       total: receipts.length,
-      waiting: receipts.filter((receipt) => receipt.status === "Onay Bekliyor")
+      waiting: receipts.filter((receipt) => receipt.status === "Dekont Onayı Bekliyor")
         .length,
       approved: receipts.filter((receipt) => receipt.status === "Onaylandı")
         .length,
@@ -247,7 +440,7 @@ function ResidentReceiptsPage() {
 
     setSelectedFile({
       file,
-      name: file.name,
+      name: fixTurkishFileName(file.name),
       sizeText: formatFileSize(file.size),
     });
   }
@@ -281,8 +474,28 @@ function ResidentReceiptsPage() {
       setFormData(emptyFormData);
       setSelectedFile(null);
       setFileError("");
-      setMessage("Dekont başarıyla gönderildi ve onay bekliyor.");
+      setMessage("Dekont başarıyla gönderildi. Yönetici onayı bekleniyor.");
     } catch (error) {
+      const autoRejectReason =
+        error?.details?.data?.autoRejectReason ??
+        error?.details?.data?.data?.autoRejectReason;
+
+      if (
+        autoRejectReason === "DUPLICATE_FILE" ||
+        autoRejectReason === "DUPLICATE_TRANSACTION"
+      ) {
+        await loadData();
+
+        setFormData(emptyFormData);
+        setSelectedFile(null);
+        setFileError("");
+        setErrorMessage("");
+        setMessage(
+          "Dekont kontrol sonucu Duyurular / Uyarılar bölümüne eklendi.",
+        );
+        return;
+      }
+
       setErrorMessage(error?.message ?? "Dekont gönderilemedi.");
     } finally {
       setIsSaving(false);
@@ -330,23 +543,49 @@ function ResidentReceiptsPage() {
         </div>
       ) : (
         <>
-          <ResidentReceiptUploadForm
-            formData={formData}
-            paymentOptions={paymentOptions}
-            selectedFile={selectedFile}
-            fileError={fileError}
-            onInputChange={handleInputChange}
-            onFileChange={handleFileChange}
-            onSubmit={handleSubmit}
-            isSaving={isSaving}
-          />
+          {paymentOptions.length > 0 ? (
+            <ResidentReceiptUploadForm
+              formData={formData}
+              paymentOptions={paymentOptions}
+              selectedFile={selectedFile}
+              fileError={fileError}
+              onInputChange={handleInputChange}
+              onFileChange={handleFileChange}
+              onSubmit={handleSubmit}
+              isSaving={isSaving}
+            />
+          ) : (
+            <section className="resident-receipt-form-card">
+              <div className="resident-receipt-form-header">
+                <div>
+                  <span className="section-kicker">
+                    {pendingReceiptCount > 0
+                      ? "Dekont Onayı Bekliyor"
+                      : "Dekont Yükleme"}
+                  </span>
+
+                  <h3>
+                    {pendingReceiptCount > 0
+                      ? "Yeni Dekont Yüklenemez"
+                      : "Bekleyen Ödeme Bulunmuyor"}
+                  </h3>
+
+                  <p>
+                    {pendingReceiptCount > 0
+                      ? "Bu ödeme için yüklediğiniz dekont yönetici onayı bekliyor. Yönetici dekontu onaylayana veya reddedene kadar aynı ödeme için tekrar dekont yükleyemezsiniz."
+                      : "Dekont yükleyebileceğiniz kalan borç bulunmuyor."}
+                  </p>
+                </div>
+              </div>
+            </section>
+          )}
 
           <div className="resident-section-heading">
             <span className="section-kicker">Geçmiş</span>
             <h3>Yüklenen Dekontlar</h3>
           </div>
 
-          <ResidentReceiptCards receipts={receipts} />
+          <ResidentReceiptCards receipts={receiptHistoryItems} />
         </>
       )}
 
@@ -355,4 +594,3 @@ function ResidentReceiptsPage() {
 }
 
 export default ResidentReceiptsPage;
-

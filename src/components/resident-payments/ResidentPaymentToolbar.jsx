@@ -1,9 +1,9 @@
-﻿import { Filter, Search } from "lucide-react";
+import { Filter, Search } from "lucide-react";
 
 const statusOptions = [
   "Tümü",
-  "Bekliyor",
-  "Dekont Bekliyor",
+  "ödeme Bekliyor",
+  "Dekont Onayı Bekliyor",
   "Gecikti",
   "Ödendi",
   "İptal Edildi",

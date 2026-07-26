@@ -33,6 +33,9 @@ const aiStatusLabels = {
   MATCHED: "AI kontrolü uyumlu",
   REVIEW_REQUIRED: "Manuel kontrol gerekli",
   FAILED: "AI kontrolü tamamlanamadı",
+  OVERPAYMENT: "Fazla Ödeme Tespit Edildi",
+  PARTIAL_PAYMENT: "Kısmi Ödeme Tespit Edildi",
+  AUTO_REJECTED: "Otomatik Reddedildi",
 };
 
 const emptyUploadFormData = {
@@ -107,26 +110,150 @@ function normalizeText(value) {
     .trim();
 }
 
+function parsePaymentAmount(value) {
+  const normalizedValue = String(value ?? "")
+    .trim()
+    .replace(/\s|TL/gi, "");
+
+  if (!normalizedValue) {
+    return null;
+  }
+
+  const decimalValue = normalizedValue.includes(",")
+    ? normalizedValue.replaceAll(".", "").replace(",", ".")
+    : /^\d{1,3}(\.\d{3})+$/.test(normalizedValue)
+      ? normalizedValue.replaceAll(".", "")
+      : normalizedValue;
+  const amount = Number(decimalValue);
+
+  return Number.isFinite(amount) && amount > 0 ? amount : null;
+}
+
+function decodeMojibakeUtf8(value) {
+  const text = String(value ?? "");
+
+  if (!/[ÃÄÅÂ]/.test(text)) {
+    return text;
+  }
+
+  try {
+    const bytes = Uint8Array.from(
+      text,
+      (character) => character.charCodeAt(0) & 0xff,
+    );
+
+    return new TextDecoder("utf-8", {
+      fatal: true,
+    }).decode(bytes);
+  } catch {
+    return text;
+  }
+}
+
 function fixTurkishFileName(value) {
-  return String(value ?? "")
-    .replaceAll("Ã¶", "ö")
-    .replaceAll("Ã¼", "ü")
-    .replaceAll("Ã§", "ç")
-    .replaceAll("Ä±", "ı")
-    .replaceAll("ÅŸ", "ş")
-    .replaceAll("ÄŸ", "ğ")
-    .replaceAll("Ã–", "Ö")
-    .replaceAll("Ãœ", "Ü")
-    .replaceAll("Ã‡", "Ç")
-    .replaceAll("Ä°", "İ")
-    .replaceAll("Åž", "Ş")
-    .replaceAll("Äž", "Ğ");
+  let fixedValue = String(value ?? "");
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const decodedValue = decodeMojibakeUtf8(fixedValue);
+
+    if (decodedValue === fixedValue) {
+      break;
+    }
+
+    fixedValue = decodedValue;
+  }
+
+  return fixedValue
+    .replaceAll("Ý", "İ")
+    .replaceAll("ý", "ı")
+    .replaceAll("Þ", "Ş")
+    .replaceAll("þ", "ş")
+    .replaceAll("Ð", "Ğ")
+    .replaceAll("ð", "ğ")
+    .normalize("NFC");
 }
 
 function getApartmentLabel(apartment) {
   return `${apartment.block?.site?.name ?? "Site"} / ${
     apartment.block?.name ?? "Blok"
   } / Daire ${apartment.number}`;
+}
+
+function getAutomaticPaymentsArray(result) {
+  const directItems = result?.automaticPayments;
+  const nestedItems = result?.data?.automaticPayments;
+
+  if (Array.isArray(directItems)) return directItems;
+  if (Array.isArray(nestedItems)) return nestedItems;
+
+  return [];
+}
+
+function mapAutomaticPaymentToViewModel(payment) {
+  const allocation = payment.paymentAllocation ?? {};
+  const apartment = allocation.apartment ?? {};
+  const block = apartment.block ?? {};
+  const site = block.site ?? {};
+  const batch = allocation.paymentBatch ?? {};
+  const paymentStatus = payment.paymentStatusAfter;
+
+  return {
+    id: `automatic-${payment.id}`,
+    automaticPaymentId: payment.id,
+    isAutomaticPayment: true,
+    payerName: "Sistem",
+    payerEmail: "Fazla bakiye otomatik işlemi",
+    apartmentLabel: apartment.number
+      ? `${site.name ?? "Site"} / ${block.name ?? "Blok"} / Daire ${apartment.number}`
+      : "-",
+    paymentTitle: batch.title ?? "-",
+    dueDate: formatDate(batch.dueDate),
+    amount: payment.amountKurus ?? 0,
+    amountText: formatCurrencyFromKurus(payment.amountKurus ?? 0),
+    debtAmount: allocation.amountKurus ?? 0,
+    paidAmount: allocation.paidAmountKurus ?? 0,
+    remainingDebtAfterKurus: payment.remainingDebtAfterKurus ?? 0,
+    remainingDebtAfterText: formatCurrencyFromKurus(
+      payment.remainingDebtAfterKurus ?? 0,
+    ),
+    balanceAfterKurus: payment.balanceAfterKurus ?? 0,
+    balanceAfterText: formatCurrencyFromKurus(
+      payment.balanceAfterKurus ?? 0,
+    ),
+    description:
+      payment.description ||
+      "Fazla bakiye bu borca sistem tarafından otomatik olarak kullanıldı.",
+    fileName: "Dosya Yok",
+    fileType: "Otomatik İşlem",
+    fileSizeText: "-",
+    status: paymentStatus === "PAID" ? "Tam Ödendi" : "Kısmi Ödendi",
+    rawStatus: "AUTOMATIC_PAYMENT",
+    createdAt: formatDate(payment.createdAt),
+    reviewedBy: "Sistem",
+    reviewNote:
+      paymentStatus === "PAID"
+        ? "Borç fazla bakiyeden tamamen ödendi."
+        : `Borç fazla bakiyeden kısmi ödendi. Kalan borç: ${formatCurrencyFromKurus(
+            payment.remainingDebtAfterKurus ?? 0,
+          )}.`,
+    aiStatus: "AUTOMATIC_PAYMENT",
+    aiStatusLabel: "Otomatik Ödeme",
+    raw: payment,
+  };
+}
+
+function mergeReceiptRows(result) {
+  const receiptRows = getDataArray(result).map(mapReceiptToViewModel);
+  const automaticRows = getAutomaticPaymentsArray(result).map(
+    mapAutomaticPaymentToViewModel,
+  );
+
+  return [...receiptRows, ...automaticRows].sort((left, right) => {
+    const leftDate = new Date(left.raw?.createdAt ?? 0).getTime();
+    const rightDate = new Date(right.raw?.createdAt ?? 0).getTime();
+
+    return rightDate - leftDate;
+  });
 }
 
 function mapReceiptToViewModel(receipt) {
@@ -145,8 +272,25 @@ function mapReceiptToViewModel(receipt) {
       : "-",
     paymentTitle: batch.title ?? "-",
     dueDate: formatDate(batch.dueDate),
-    amount: allocation.amountKurus ?? 0,
-    amountText: formatCurrencyFromKurus(allocation.amountKurus),
+    amount:
+      receipt.paymentAmountKurus ??
+      receipt.aiAmountKurus ??
+      Math.max(
+        Number(allocation.amountKurus ?? 0) -
+          Number(allocation.paidAmountKurus ?? 0),
+        0,
+      ),
+    amountText: formatCurrencyFromKurus(
+      receipt.paymentAmountKurus ??
+        receipt.aiAmountKurus ??
+        Math.max(
+          Number(allocation.amountKurus ?? 0) -
+            Number(allocation.paidAmountKurus ?? 0),
+          0,
+        ),
+    ),
+    debtAmount: allocation.amountKurus ?? 0,
+    paidAmount: allocation.paidAmountKurus ?? 0,
     description: receipt.note ?? "",
     fileName: fixTurkishFileName(receipt.originalFileName ?? "-"),
     fileType: receipt.mimeType ?? "-",
@@ -213,7 +357,7 @@ function ReceiptsPage() {
       search: searchTerm.trim(),
     });
 
-    const mappedReceipts = getDataArray(result).map(mapReceiptToViewModel);
+    const mappedReceipts = mergeReceiptRows(result);
 
     setReceipts(mappedReceipts);
     setSelectedReceipt((currentReceipt) => {
@@ -245,7 +389,7 @@ function ReceiptsPage() {
         ]);
 
         if (isMounted) {
-          setReceipts(getDataArray(receiptResult).map(mapReceiptToViewModel));
+          setReceipts(mergeReceiptRows(receiptResult));
           setApartments(getDataArray(apartmentResult));
         }
       } catch (error) {
@@ -283,9 +427,7 @@ function ReceiptsPage() {
           limit: 100,
         });
 
-        const mappedReceipts = getDataArray(result).map(
-          mapReceiptToViewModel,
-        );
+        const mappedReceipts = mergeReceiptRows(result);
 
         setReceipts(mappedReceipts);
         setSelectedReceipt((currentReceipt) => {
@@ -310,11 +452,15 @@ function ReceiptsPage() {
   }, [hasProcessingAi]);
 
   const summary = useMemo(() => {
+    const realReceipts = receipts.filter(
+      (item) => !item.isAutomaticPayment,
+    );
+
     return {
-      total: receipts.length,
-      pending: receipts.filter((item) => item.rawStatus === "PENDING").length,
-      approved: receipts.filter((item) => item.rawStatus === "APPROVED").length,
-      rejected: receipts.filter((item) => item.rawStatus === "REJECTED").length,
+      total: realReceipts.length,
+      pending: realReceipts.filter((item) => item.rawStatus === "PENDING").length,
+      approved: realReceipts.filter((item) => item.rawStatus === "APPROVED").length,
+      rejected: realReceipts.filter((item) => item.rawStatus === "REJECTED").length,
     };
   }, [receipts]);
 
@@ -506,7 +652,7 @@ function ReceiptsPage() {
       setMessage("");
       setErrorMessage("");
 
-      await managerConfirmPaymentReceipt({
+      const confirmResult = await managerConfirmPaymentReceipt({
         paymentAllocationId,
         payerName: uploadFormData.payerName.trim() || undefined,
         bankAccount: uploadFormData.bankAccount
@@ -526,7 +672,8 @@ function ReceiptsPage() {
       closeUploadForm();
 
       setMessage(
-        "Dekont eşleştirildi, onaylandı ve ödeme ödendi olarak işaretlendi.",
+        confirmResult?.message ??
+          "Dekont eşleştirildi ve ödeme tutarı kaydedildi.",
       );
     } catch (error) {
       setErrorMessage(error?.message ?? "Dekont eşleştirilip onaylanamadı.");
@@ -574,6 +721,24 @@ function ReceiptsPage() {
   }
 
   async function handleApprove(receiptId) {
+    const targetReceipt = receipts.find((receipt) => receipt.id === receiptId);
+    const defaultAmount = Number(targetReceipt?.amount ?? 0) / 100;
+    const amountInput = window.prompt(
+      "Dekontta gerçekten ödenen tutarı giriniz.",
+      defaultAmount > 0 ? String(defaultAmount).replace(".", ",") : "",
+    );
+
+    if (amountInput === null) {
+      return;
+    }
+
+    const amount = parsePaymentAmount(amountInput);
+
+    if (!amount) {
+      setErrorMessage("Geçerli ve sıfırdan büyük bir ödeme tutarı giriniz.");
+      return;
+    }
+
     const reviewNote = window.prompt(
       "Onay notu yazabilirsiniz. Boş bırakabilirsiniz.",
     );
@@ -583,13 +748,17 @@ function ReceiptsPage() {
       setMessage("");
       setErrorMessage("");
 
-      await approvePaymentReceipt(receiptId, {
+      const approveResult = await approvePaymentReceipt(receiptId, {
         reviewNote: reviewNote || undefined,
+        amount,
       });
 
       await loadReceipts();
 
-      setMessage("Dekont onaylandı ve ödeme ödenmiş olarak işaretlendi.");
+      setMessage(
+        approveResult?.message ??
+          "Dekont onaylandı ve ödeme tutarı kaydedildi.",
+      );
     } catch (error) {
       setErrorMessage(error?.message ?? "Dekont onaylanamadı.");
     } finally {

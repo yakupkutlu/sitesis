@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  CreditCard,
   Eye,
   FileText,
   LoaderCircle,
@@ -8,12 +9,22 @@ import {
 
 import { downloadPaymentReceiptFile } from "../../api/paymentReceiptsApi";
 
-function getReceiptStatusClass(status) {
-  if (status === "Onaylandı") {
+const automaticPaymentBadgeStyle = {
+  backgroundColor: "#dbeafe",
+  borderColor: "#bfdbfe",
+  color: "#1d4ed8",
+};
+
+function getReceiptStatusClass(receipt) {
+  if (receipt?.isAutomaticPayment) {
+    return "automatic";
+  }
+
+  if (receipt?.status === "Onaylandı") {
     return "approved";
   }
 
-  if (status === "Reddedildi") {
+  if (receipt?.status === "Reddedildi") {
     return "rejected";
   }
 
@@ -128,7 +139,7 @@ function ResidentReceiptCards({ receipts }) {
   return (
     <section className="resident-receipt-cards-grid">
       {safeReceipts.map((receipt) => {
-        const statusClass = getReceiptStatusClass(receipt.status);
+        const statusClass = getReceiptStatusClass(receipt);
         const isPreviewOpen = activeReceiptId === receipt.id;
         const previewKind = getPreviewKind(
           receipt,
@@ -139,11 +150,24 @@ function ResidentReceiptCards({ receipts }) {
           <article className="resident-receipt-card" key={receipt.id}>
             <div className="resident-receipt-card-top">
               <div className="resident-receipt-icon">
-                <FileText size={21} />
+                {receipt.isAutomaticPayment ? (
+                  <CreditCard size={21} />
+                ) : (
+                  <FileText size={21} />
+                )}
               </div>
 
-              <span className={`resident-receipt-status-badge ${statusClass}`}>
-                {receipt.status || "Beklemede"}
+              <span
+                className={`resident-receipt-status-badge ${statusClass}`}
+                style={
+                  receipt.isAutomaticPayment
+                    ? automaticPaymentBadgeStyle
+                    : undefined
+                }
+              >
+                {receipt.isAutomaticPayment
+                  ? "Otomatik Ödeme"
+                  : receipt.status || "Beklemede"}
               </span>
             </div>
 
@@ -157,12 +181,22 @@ function ResidentReceiptCards({ receipts }) {
 
             <div className="resident-receipt-meta-grid">
               <div>
-                <span>Dosya</span>
-                <strong>{receipt.fileName || "-"}</strong>
+                <span>
+                  {receipt.isAutomaticPayment ? "İşlem Türü" : "Dosya"}
+                </span>
+                <strong>
+                  {receipt.isAutomaticPayment
+                    ? "Otomatik Ödeme"
+                    : receipt.fileName || "-"}
+                </strong>
               </div>
 
               <div>
-                <span>Yükleme Tarihi</span>
+                <span>
+                  {receipt.isAutomaticPayment
+                    ? "İşlem Tarihi"
+                    : "Yükleme Tarihi"}
+                </span>
                 <strong>{receipt.uploadedAt || "-"}</strong>
               </div>
 
@@ -172,29 +206,33 @@ function ResidentReceiptCards({ receipts }) {
               </div>
 
               <div>
-                <span>Kontrol</span>
+                <span>
+                  {receipt.isAutomaticPayment ? "İşlem" : "Kontrol"}
+                </span>
                 <strong>{receipt.reviewNote || "-"}</strong>
               </div>
             </div>
 
-            <div className="resident-receipt-card-actions">
-              <button
-                type="button"
-                onClick={() => handlePreviewToggle(receipt)}
-                aria-expanded={isPreviewOpen}
-                aria-controls={`receipt-preview-${receipt.id}`}
-                aria-label={
-                  isPreviewOpen
-                    ? `${receipt.paymentTitle || "Dekont"} önizlemesini kapat`
-                    : `${receipt.paymentTitle || "Dekont"} dosyasını görüntüle`
-                }
-              >
-                {isPreviewOpen ? <X size={16} /> : <Eye size={16} />}
-                {isPreviewOpen ? "Kapat" : "Görüntüle"}
-              </button>
-            </div>
+            {!receipt.isAutomaticPayment && (
+              <div className="resident-receipt-card-actions">
+                <button
+                  type="button"
+                  onClick={() => handlePreviewToggle(receipt)}
+                  aria-expanded={isPreviewOpen}
+                  aria-controls={`receipt-preview-${receipt.id}`}
+                  aria-label={
+                    isPreviewOpen
+                      ? `${receipt.paymentTitle || "Dekont"} önizlemesini kapat`
+                      : `${receipt.paymentTitle || "Dekont"} dosyasını görüntüle`
+                  }
+                >
+                  {isPreviewOpen ? <X size={16} /> : <Eye size={16} />}
+                  {isPreviewOpen ? "Kapat" : "Görüntüle"}
+                </button>
+              </div>
+            )}
 
-            {isPreviewOpen && (
+            {!receipt.isAutomaticPayment && isPreviewOpen && (
               <div
                 id={`receipt-preview-${receipt.id}`}
                 className="resident-receipt-inline-preview"

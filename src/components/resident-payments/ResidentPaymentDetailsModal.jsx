@@ -47,6 +47,11 @@ function ResidentPaymentDetailsModal({ payment, onClose }) {
           </div>
 
           <div>
+            <span>Fazla Ödeme</span>
+            <strong>{payment.overpaymentAmount}</strong>
+          </div>
+
+          <div>
             <span>Son Ödeme Tarihi</span>
             <strong>{payment.dueDate}</strong>
           </div>

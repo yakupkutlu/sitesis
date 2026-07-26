@@ -1,4 +1,9 @@
-import { AlertTriangle, CheckCircle2, Clock, CreditCard } from "lucide-react";
+import {
+  CheckCircle2,
+  CircleDollarSign,
+  Clock3,
+  CreditCard,
+} from "lucide-react";
 
 function ResidentPaymentSummaryCards({ summary }) {
   const cards = [
@@ -13,14 +18,14 @@ function ResidentPaymentSummaryCards({ summary }) {
       icon: CheckCircle2,
     },
     {
-      label: "Bekleyen Tutar",
-      value: summary.pendingAmount,
-      icon: Clock,
+      label: "Kalan Tutar",
+      value: summary.remainingAmount,
+      icon: Clock3,
     },
     {
-      label: "Geciken Ödeme",
-      value: summary.lateCount,
-      icon: AlertTriangle,
+      label: "Fazla Ödeme",
+      value: summary.overpaymentAmount,
+      icon: CircleDollarSign,
     },
   ];
 

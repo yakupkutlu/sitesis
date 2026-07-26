@@ -24,6 +24,7 @@ export type ReceiptAiAnalyzeResult = {
   apartmentNumber: string | null;
   description: string | null;
   paymentDate: string | null;
+  transactionReference: string | null;
   confidence: number;
   provider: AiProvider | null;
   modelName: string | null;
@@ -37,6 +38,7 @@ const emptyAiResult: ReceiptAiAnalyzeResult = {
   apartmentNumber: null,
   description: null,
   paymentDate: null,
+  transactionReference: null,
   confidence: 0,
   provider: null,
   modelName: null,
@@ -61,16 +63,26 @@ JSON formatı:
   "apartmentNumber": string | null,
   "description": string | null,
   "paymentDate": string | null,
+  "transactionReference": string | null,
   "confidence": number
 }
 
 Kurallar:
-- amount TL cinsinden sayı olmalı. Örnek: 1250.50
+- amount yalnızca alıcıya gönderilen gerçek havale/EFT tutarı olmalı ve TL cinsinden sayı olarak dönmelidir. Örnek: 1250.50
+- Tutarı seçerken öncelik sırası: "Havale Tutarı", "Gönderilen Tutar", "Transfer Tutarı", "İşlem Tutarı", "Ödeme Tutarı".
+- "Hesabınızdan", "Hesaptan Çekilen", "Toplam Tahsilat", "Bakiye", "Kullanılabilir Bakiye", "Komisyon", "Masraf" veya "Vergi" yanında yazan tutarları amount alanına yazma.
+- Belgede hem "Havale Tutarı: 1.000,00 TRY" hem de "Hesabınızdan 1.004,19 TL" yazıyorsa amount değeri 1000.00 olmalıdır.
+- Havale/EFT tutarı açıkça belirlenemiyorsa amount için null yaz.
 - recipientIban yalnızca paranın gönderildiği alıcı/lehtar IBAN olmalı.
 - Gönderen kişinin IBAN'ını recipientIban alanına yazma.
 - Alıcı IBAN açıkça belirlenemiyorsa recipientIban için null yaz.
 - recipientIban boşluksuz ve büyük harfli olmalı. Örnek: TR001234...
 - apartmentNumber dekont açıklamasında daire no varsa çıkar.
+- paymentDate yalnızca dekont üzerinde yazan İŞLEM TARİHİ ve SAATİ olmalı.
+- Yükleme tarihi, valör tarihi veya son ödeme tarihini paymentDate alanına yazma.
+- İşlem saati görünüyorsa tarih ile birlikte yaz. Örnek: 22/07/2026 18:15:26
+- transactionReference işlem no, referans no, sorgu no veya işlem tarihinin yanında yazan banka referans kodu olmalı.
+- transactionReference açıkça belirlenemiyorsa null yaz.
 - bilgi yoksa null yaz.
 - TCKN, TC kimlik no, gönderen banka hesap numarası, telefon numarası veya özel kimlik numarası döndürme.
 - Açıklama içinde hassas bilgi varsa "[HASSAS BİLGİ GİZLENDİ]" yaz.
@@ -141,7 +153,12 @@ function normalizeAiJson(rawText: string) {
     paymentDate:
       typeof parsed.paymentDate === "string" &&
       parsed.paymentDate.trim().length > 0
-        ? parsed.paymentDate.trim()
+        ? parsed.paymentDate.trim().slice(0, 100)
+        : null,
+    transactionReference:
+      typeof parsed.transactionReference === "string" &&
+      parsed.transactionReference.trim().length > 0
+        ? parsed.transactionReference.trim().slice(0, 100)
         : null,
     confidence:
       typeof parsed.confidence === "number" &&

@@ -137,7 +137,10 @@ const expenseListFiltersSchema = z.object({
 });
 
 const incomeListFiltersSchema = z.object({
-  status: z.enum(["ALL", "PENDING", "PAID"]).optional().default("ALL"),
+  status: z
+    .enum(["ALL", "PENDING", "PARTIAL", "PAID"])
+    .optional()
+    .default("ALL"),
   dateFrom: z.coerce.date().optional(),
   dateTo: z.coerce.date().optional(),
 });
@@ -221,7 +224,8 @@ function mapExpense(expense: {
     id: string;
     allocations: Array<{
       amountKurus: number;
-      status: "PENDING" | "PAID" | "CANCELLED";
+      paidAmountKurus: number;
+      status: "PENDING" | "PARTIAL" | "PAID" | "CANCELLED";
     }>;
     exemptions: Array<{ id: string }>;
   };
@@ -236,12 +240,12 @@ function mapExpense(expense: {
         summary.expectedKurus += allocation.amountKurus;
       }
 
-      if (allocation.status === "PAID") {
-        summary.collectedKurus += allocation.amountKurus;
-      }
-
-      if (allocation.status === "PENDING") {
-        summary.remainingKurus += allocation.amountKurus;
+      if (allocation.status !== "CANCELLED") {
+        summary.collectedKurus += Math.max(0, allocation.paidAmountKurus);
+        summary.remainingKurus += Math.max(
+          allocation.amountKurus - allocation.paidAmountKurus,
+          0,
+        );
       }
 
       return summary;
@@ -293,7 +297,7 @@ router.get(
     const allTimeAllocationWhere: Prisma.PaymentAllocationWhereInput = {
       apartment: apartmentAccessWhere,
       status: {
-        in: ["PENDING", "PAID"],
+        in: ["PENDING", "PARTIAL", "PAID"],
       },
     };
 
@@ -305,20 +309,34 @@ router.get(
     const periodExpectedWhere: Prisma.PaymentAllocationWhereInput = {
       apartment: apartmentAccessWhere,
       status: {
-        in: ["PENDING", "PAID"],
+        in: ["PENDING", "PARTIAL", "PAID"],
       },
       paymentBatch: buildDateWhere("createdAt", dateFrom, dateTo),
     };
 
-    const periodCollectedWhere: Prisma.PaymentAllocationWhereInput = {
-      apartment: apartmentAccessWhere,
-      status: "PAID",
-      ...buildDateWhere("paidAt", dateFrom, dateTo),
+    const periodCollectedReceiptWhere: Prisma.PaymentReceiptWhereInput = {
+      status: "APPROVED",
+      paymentAmountKurus: {
+        not: null,
+      },
+      paymentAllocation: {
+        apartment: apartmentAccessWhere,
+      },
+      ...(dateFrom || dateTo
+        ? {
+            reviewedAt: {
+              ...(dateFrom ? { gte: dateFrom } : {}),
+              ...(dateTo ? { lte: dateTo } : {}),
+            },
+          }
+        : {}),
     };
 
     const periodPendingWhere: Prisma.PaymentAllocationWhereInput = {
       apartment: apartmentAccessWhere,
-      status: "PENDING",
+      status: {
+        in: ["PENDING", "PARTIAL"],
+      },
       paymentBatch: buildDateWhere("createdAt", dateFrom, dateTo),
     };
 
@@ -340,12 +358,9 @@ router.get(
         },
       }),
       prisma.paymentAllocation.aggregate({
-        where: {
-          ...allTimeAllocationWhere,
-          status: "PAID",
-        },
+        where: allTimeAllocationWhere,
         _sum: {
-          amountKurus: true,
+          paidAmountKurus: true,
         },
       }),
       prisma.paymentAllocation.aggregate({
@@ -366,16 +381,17 @@ router.get(
           amountKurus: true,
         },
       }),
-      prisma.paymentAllocation.aggregate({
-        where: periodCollectedWhere,
+      prisma.paymentReceipt.aggregate({
+        where: periodCollectedReceiptWhere,
         _sum: {
-          amountKurus: true,
+          paymentAmountKurus: true,
         },
       }),
-      prisma.paymentAllocation.aggregate({
+      prisma.paymentAllocation.findMany({
         where: periodPendingWhere,
-        _sum: {
+        select: {
           amountKurus: true,
+          paidAmountKurus: true,
         },
       }),
       prisma.accountingExpense.count({
@@ -384,7 +400,9 @@ router.get(
       prisma.paymentAllocation.count({
         where: {
           apartment: apartmentAccessWhere,
-          status: "PENDING",
+          status: {
+            in: ["PENDING", "PARTIAL"],
+          },
         },
       }),
     ]);
@@ -392,7 +410,13 @@ router.get(
     const totalExpenseKurus =
       allTimeExpenseAggregate._sum.amountKurus ?? 0;
     const totalCollectedIncomeKurus =
-      allTimeCollectedAggregate._sum.amountKurus ?? 0;
+      allTimeCollectedAggregate._sum.paidAmountKurus ?? 0;
+    const periodOutstandingIncomeKurus = periodPendingAggregate.reduce(
+      (total, allocation) =>
+        total +
+        Math.max(allocation.amountKurus - allocation.paidAmountKurus, 0),
+      0,
+    );
 
     response.status(200).json({
       success: true,
@@ -410,9 +434,8 @@ router.get(
           expectedIncomeKurus:
             periodExpectedAggregate._sum.amountKurus ?? 0,
           collectedIncomeKurus:
-            periodCollectedAggregate._sum.amountKurus ?? 0,
-          outstandingIncomeKurus:
-            periodPendingAggregate._sum.amountKurus ?? 0,
+            periodCollectedAggregate._sum.paymentAmountKurus ?? 0,
+          outstandingIncomeKurus: periodOutstandingIncomeKurus,
           expenseKurus: periodExpenseAggregate._sum.amountKurus ?? 0,
         },
       },
@@ -440,7 +463,7 @@ router.get(
       status === "ALL"
         ? {
             status: {
-              in: ["PENDING", "PAID"],
+              in: ["PENDING", "PARTIAL", "PAID"],
             },
           }
         : {
@@ -489,6 +512,7 @@ router.get(
         select: {
           id: true,
           amountKurus: true,
+          paidAmountKurus: true,
           status: true,
           paidAt: true,
           createdAt: true,
@@ -656,6 +680,7 @@ router.get(
               allocations: {
                 select: {
                   amountKurus: true,
+                  paidAmountKurus: true,
                   status: true,
                 },
               },
@@ -1162,6 +1187,7 @@ router.patch(
             allocations: {
               select: {
                 id: true,
+                paidAmountKurus: true,
                 status: true,
               },
             },
@@ -1174,14 +1200,14 @@ router.patch(
       throw new HttpError(409, "Bu gider zaten iptal edilmiş.");
     }
 
-    const hasPaidAllocation = expense.paymentBatch?.allocations.some(
-      (allocation) => allocation.status === "PAID"
+    const hasCollectedAllocation = expense.paymentBatch?.allocations.some(
+      (allocation) => allocation.paidAmountKurus > 0,
     );
 
-    if (hasPaidAllocation) {
+    if (hasCollectedAllocation) {
       throw new HttpError(
         409,
-        "Bu gidere bağlı ödenmiş tahsilatlar bulunduğu için gider iptal edilemez."
+        "Bu gidere bağlı tam veya kısmi tahsilat bulunduğu için gider iptal edilemez.",
       );
     }
 

@@ -18,104 +18,19 @@ import {
 } from "../../api/paymentBatchesApi";
 
 
-function formatInputDate(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
-}
-
-function addDaysToInputDate(dayCount) {
-  const targetDate = new Date();
-
-  // Yaz/kış saati geçişlerinde gün kaymasını önlemek için öğlen saatini kullanıyoruz.
-  targetDate.setHours(12, 0, 0, 0);
-  targetDate.setDate(targetDate.getDate() + dayCount);
-
-  return formatInputDate(targetDate);
-}
-
-function createEmptyFormData() {
-  return {
-    templateId: "",
-    title: "",
-    description: "",
-    totalAmount: "",
-    scopeType: "BLOCK",
-    siteId: "",
-    blockId: "",
-    apartmentIds: [],
-    exemptApartmentIds: [],
-    dueDate: addDaysToInputDate(30),
-    sendSms: false,
-    sendEmail: true,
-  };
-}
-
-function getCurrentMonthLabel() {
-  return new Intl.DateTimeFormat("tr-TR", {
-    month: "long",
-    year: "numeric",
-  }).format(new Date());
-}
-
-function getPaymentTemplates() {
-  const currentMonth = getCurrentMonthLabel();
-
-  return [
-    {
-      id: "monthly-dues",
-      label: "Aylık Aidat",
-      title: `${currentMonth} Aidatı`,
-      description: `${currentMonth} dönemine ait ortak gider aidatı.`,
-      scopeType: "BLOCK",
-      dueDate: addDaysToInputDate(30),
-      sendSms: true,
-      sendEmail: true,
-    },
-    {
-      id: "heating",
-      label: "Isınma / Yakıt Gideri",
-      title: `${currentMonth} Isınma ve Yakıt Gideri`,
-      description: `${currentMonth} dönemine ait merkezi ısınma ve yakıt gideri.`,
-      scopeType: "BLOCK",
-      dueDate: addDaysToInputDate(30),
-      sendSms: true,
-      sendEmail: true,
-    },
-    {
-      id: "elevator",
-      label: "Asansör Bakım Gideri",
-      title: "Asansör Bakım Gideri",
-      description: "Asansör periyodik bakım ve servis gideri.",
-      scopeType: "BLOCK",
-      dueDate: addDaysToInputDate(30),
-      sendSms: false,
-      sendEmail: true,
-    },
-    {
-      id: "security",
-      label: "Güvenlik Gideri",
-      title: `${currentMonth} Güvenlik Gideri`,
-      description: `${currentMonth} dönemine ait güvenlik hizmeti gideri.`,
-      scopeType: "SITE",
-      dueDate: addDaysToInputDate(30),
-      sendSms: false,
-      sendEmail: true,
-    },
-    {
-      id: "common-area",
-      label: "Ortak Alan Gideri",
-      title: "Ortak Alan Gideri",
-      description: "Ortak alan bakım, temizlik veya onarım gideri.",
-      scopeType: "SITE",
-      dueDate: addDaysToInputDate(30),
-      sendSms: false,
-      sendEmail: true,
-    },
-  ];
-}
+const emptyFormData = {
+  title: "",
+  description: "",
+  totalAmount: "",
+  scopeType: "BLOCK",
+  siteId: "",
+  blockId: "",
+  apartmentIds: [],
+  exemptApartmentIds: [],
+  dueDate: "",
+  sendSms: false,
+  sendEmail: true,
+};
 
 function getDataArray(result) {
   const data = result?.data ?? result;
@@ -269,6 +184,9 @@ function getBatchStatus(batch) {
   const allocations = Array.isArray(batch.allocations) ? batch.allocations : [];
 
   const paidCount = allocations.filter((item) => item.status === "PAID").length;
+  const partialCount = allocations.filter(
+    (item) => item.status === "PARTIAL",
+  ).length;
   const pendingCount = allocations.filter((item) => item.status === "PENDING").length;
   const cancelledCount = allocations.filter(
     (item) => item.status === "CANCELLED"
@@ -286,7 +204,7 @@ function getBatchStatus(batch) {
     return "İptal Edildi";
   }
 
-  if (paidCount > 0) {
+  if (paidCount > 0 || partialCount > 0) {
     return "Kısmi Ödendi";
   }
 
@@ -327,7 +245,7 @@ function PaymentsPage() {
   const [paymentBatches, setPaymentBatches] = useState([]);
   const [apartments, setApartments] = useState([]);
 
-  const [formData, setFormData] = useState(() => createEmptyFormData());
+  const [formData, setFormData] = useState(emptyFormData);
   const [editingPayment, setEditingPayment] = useState(null);
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [showForm, setShowForm] = useState(false);
@@ -340,9 +258,6 @@ function PaymentsPage() {
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
-  // Şablonlar her render sırasında güncel aya göre hazırlanır.
-  // Böylece yeni ayda açılan form Temmuz yerine Ağustos gibi güncel ayı kullanır.
-  const paymentTemplates = getPaymentTemplates();
   const siteOptions = useMemo(() => getUniqueSites(apartments), [apartments]);
   const blockOptions = useMemo(() => getUniqueBlocks(apartments), [apartments]);
 
@@ -449,7 +364,7 @@ function PaymentsPage() {
 
   function resetForm() {
     setEditingPayment(null);
-    setFormData(createEmptyFormData());
+    setFormData(emptyFormData);
   }
 
   function openCreateForm() {
@@ -468,41 +383,6 @@ function PaymentsPage() {
     const { name, value, type, checked } = event.target;
 
     setFormData((currentData) => {
-      if (name === "templateId") {
-        const selectedTemplate = paymentTemplates.find(
-          (template) => template.id === value
-        );
-
-        if (!selectedTemplate) {
-          return {
-            ...currentData,
-            templateId: "",
-          };
-        }
-
-        const scopeChanged =
-          selectedTemplate.scopeType !== currentData.scopeType;
-
-        return {
-          ...currentData,
-          templateId: selectedTemplate.id,
-          title: selectedTemplate.title,
-          description: selectedTemplate.description,
-          scopeType: selectedTemplate.scopeType,
-          dueDate: selectedTemplate.dueDate,
-          sendSms: selectedTemplate.sendSms,
-          sendEmail: selectedTemplate.sendEmail,
-          ...(scopeChanged
-            ? {
-                siteId: "",
-                blockId: "",
-                apartmentIds: [],
-                exemptApartmentIds: [],
-              }
-            : {}),
-        };
-      }
-
       if (type === "checkbox" && (name === "sendSms" || name === "sendEmail")) {
         return {
           ...currentData,
@@ -570,7 +450,7 @@ function PaymentsPage() {
     setEditingPayment(payment);
 
     setFormData({
-      ...createEmptyFormData(),
+      ...emptyFormData,
       title: payment.title ?? "",
       description: payment.description ?? "",
       dueDate: payment.dueDateInput ?? "",
@@ -788,33 +668,6 @@ function PaymentsPage() {
 
           <form className="manager-form" onSubmit={handleSubmit}>
             <div className="form-grid">
-              {!editingPayment && (
-                <label className="full-width">
-                  Aidat Şablonu
-                  <select
-                    name="templateId"
-                    value={formData.templateId}
-                    onChange={handleInputChange}
-                    disabled={isSaving}
-                  >
-                    <option value="">Şablon seçmeden devam et</option>
-
-                    {paymentTemplates.map((template) => (
-                      <option key={template.id} value={template.id}>
-                        {template.label}
-                      </option>
-                    ))}
-                  </select>
-
-                  <small>
-                    Şablon seçildiğinde başlık, açıklama, kapsam ve bildirim
-                    seçenekleri otomatik doldurulur. Son ödeme tarihi, oluşturma
-                    gününden bir ay sonrası olarak ayarlanır. Tutarı ve ilgili
-                    site, blok veya daireleri siz seçersiniz.
-                  </small>
-                </label>
-              )}
-
               <label>
                 Başlık
                 <input
@@ -1200,7 +1053,9 @@ function PaymentsPage() {
                     <thead>
                       <tr>
                         <th>Daire</th>
-                        <th>Tutar</th>
+                        <th>Toplam</th>
+                        <th>Ödenen</th>
+                        <th>Kalan</th>
                         <th>Durum</th>
                       </tr>
                     </thead>
@@ -1214,6 +1069,20 @@ function PaymentsPage() {
                             {allocation.apartment?.number ?? "-"}
                           </td>
                           <td>{formatCurrencyFromKurus(allocation.amountKurus)}</td>
+                          <td>
+                            {formatCurrencyFromKurus(
+                              allocation.paidAmountKurus,
+                            )}
+                          </td>
+                          <td>
+                            {formatCurrencyFromKurus(
+                              Math.max(
+                                Number(allocation.amountKurus ?? 0) -
+                                  Number(allocation.paidAmountKurus ?? 0),
+                                0,
+                              ),
+                            )}
+                          </td>
                           <td>{allocation.status}</td>
                         </tr>
                       ))}

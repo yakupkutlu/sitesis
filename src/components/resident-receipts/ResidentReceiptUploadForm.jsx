@@ -59,7 +59,7 @@ function ResidentReceiptUploadForm({
 
               {safePaymentOptions.map((payment) => (
                 <option key={payment.id} value={payment.id}>
-                  {payment.title || "Ödeme"} -{" "}
+                  {payment.title || "Ödeme"} - Kalan: {" "}
                   {payment.remainingAmount || "Tutar bilgisi yok"}
                 </option>
               ))}

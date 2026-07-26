@@ -5,6 +5,10 @@ import prisma from "../db/prisma.js";
 import { type Prisma } from "../generated/prisma/client.js";
 import {requireAuth,requireRole,type AuthenticatedRequest,type AuthenticatedUser,} from "../middlewares/auth.middleware.js";
 import { createAuditLog } from "../services/audit-log.service.js";
+import {
+  applyAvailableBalanceToNewAllocation,
+  type AutomaticBalancePayment,
+} from "../services/apartment-balance.service.js";
 import { addNotificationDispatchJob } from "../queues/notification.queues.js";
 import { getManagerScope, hasManagerScope } from "../services/manager-scope.service.js";
 import {distributeAmountToApartments,excludeExemptApartments,findInvalidExemptApartments,} from "../services/payment-distribution.service.js";
@@ -199,6 +203,7 @@ async function getPaymentBatchForManagement(paymentBatchId: string, user: Authen
         select: {
           id: true,
           status: true,
+          paidAmountKurus: true,
           apartment: {
             select: {
               blockId: true,
@@ -306,6 +311,7 @@ router.get(
           select: {
             id: true,
             status: true,
+            paymentAmountKurus: true,
             originalFileName: true,
             createdAt: true,
             reviewNote: true,
@@ -320,9 +326,83 @@ router.get(
       },
     });
 
+    const allocationIds = allocations.map((allocation) => allocation.id);
+
+    const automaticBalanceTransactions =
+      allocationIds.length > 0
+        ? await prisma.apartmentBalanceTransaction.findMany({
+            where: {
+              paymentAllocationId: {
+                in: allocationIds,
+              },
+              type: "DEBIT_TO_PAYMENT",
+            },
+            select: {
+              id: true,
+              paymentAllocationId: true,
+              amountKurus: true,
+              balanceAfterKurus: true,
+              remainingDebtAfterKurus: true,
+              paymentStatusAfter: true,
+              description: true,
+              createdAt: true,
+            },
+            orderBy: {
+              createdAt: "desc",
+            },
+          })
+        : [];
+
+    const allocationById = new Map(
+      allocations.map((allocation) => [allocation.id, allocation]),
+    );
+
+    const automaticPayments = automaticBalanceTransactions.flatMap(
+      (transaction) => {
+        const allocation = transaction.paymentAllocationId
+          ? allocationById.get(transaction.paymentAllocationId)
+          : undefined;
+
+        if (!allocation) {
+          return [];
+        }
+
+        return [
+          {
+            id: transaction.id,
+            transactionId: transaction.id,
+            paymentAllocationId: allocation.id,
+            paymentBatchId: allocation.paymentBatch.id,
+            paymentTitle: allocation.paymentBatch.title,
+            amountKurus: transaction.amountKurus,
+            remainingDebtAfterKurus:
+              transaction.remainingDebtAfterKurus ?? 0,
+            paymentStatusAfter:
+              transaction.paymentStatusAfter === "PAID"
+                ? "PAID"
+                : "PARTIAL",
+            balanceAfterKurus: transaction.balanceAfterKurus,
+            description:
+              transaction.description ??
+              "Fazla bakiye bu borca sistem tarafından otomatik olarak kullanıldı.",
+            createdAt: transaction.createdAt,
+            paymentAllocation: {
+              id: allocation.id,
+              amountKurus: allocation.amountKurus,
+              paidAmountKurus: allocation.paidAmountKurus,
+              status: allocation.status,
+              apartment: allocation.apartment,
+              paymentBatch: allocation.paymentBatch,
+            },
+          },
+        ];
+      },
+    );
+
     response.status(200).json({
       success: true,
       data: allocations,
+      automaticPayments,
     });
   })
 );
@@ -607,36 +687,70 @@ router.post(
       payableApartmentIds
     );
 
-    const paymentBatch = await prisma.paymentBatch.create({
-      data: {
-        title,
-        description,
-        totalAmountKurus,
-        scopeType,
-        dueDate,
-        siteId: paymentBatchSiteId,
-        blockId: paymentBatchBlockId,
-        exemptions: {
-          create: uniqueExemptApartmentIds.map((apartmentId) => {
-            return {
-              apartmentId,
-            };
-          }),
+    const creationResult = await prisma.$transaction(async (transaction) => {
+      const createdPaymentBatch = await transaction.paymentBatch.create({
+        data: {
+          title,
+          description,
+          totalAmountKurus,
+          scopeType,
+          dueDate,
+          siteId: paymentBatchSiteId,
+          blockId: paymentBatchBlockId,
+          exemptions: {
+            create: uniqueExemptApartmentIds.map((apartmentId) => {
+              return {
+                apartmentId,
+              };
+            }),
+          },
+          allocations: {
+            create: distributions.map((distribution) => {
+              return {
+                apartmentId: distribution.apartmentId,
+                amountKurus: distribution.amountKurus,
+              };
+            }),
+          },
         },
-        allocations: {
-          create: distributions.map((distribution) => {
-            return {
-              apartmentId: distribution.apartmentId,
-              amountKurus: distribution.amountKurus,
-            };
-          }),
+        include: {
+          allocations: true,
+          exemptions: true,
         },
-      },
-      include: {
-        allocations: true,
-        exemptions: true,
-      },
+      });
+
+      const automaticBalancePayments: AutomaticBalancePayment[] = [];
+
+      for (const allocation of createdPaymentBatch.allocations) {
+        const automaticPayment = await applyAvailableBalanceToNewAllocation(
+          transaction,
+          {
+            apartmentId: allocation.apartmentId,
+            paymentAllocationId: allocation.id,
+            paymentBatchId: createdPaymentBatch.id,
+            createdByUserId: authenticatedRequest.user!.id,
+          },
+        );
+
+        if (automaticPayment) {
+          automaticBalancePayments.push(automaticPayment);
+        }
+      }
+
+      const paymentBatch = await transaction.paymentBatch.findUniqueOrThrow({
+        where: {
+          id: createdPaymentBatch.id,
+        },
+        include: paymentBatchInclude,
+      });
+
+      return {
+        paymentBatch,
+        automaticBalancePayments,
+      };
     });
+
+    const paymentBatch = creationResult.paymentBatch;
 
     const notificationRequested = sendSms || sendEmail;
     const createdByUserId = authenticatedRequest.user.id;
@@ -651,6 +765,7 @@ router.post(
       data: paymentBatch,
       notificationQueued: notificationRequested,
       notificationDispatchScheduled: notificationRequested,
+      automaticBalancePayments: creationResult.automaticBalancePayments,
     });
 
     setImmediate(() => {
@@ -690,6 +805,13 @@ router.post(
             totalAmountKurus: paymentBatch.totalAmountKurus,
             allocationCount: paymentBatch.allocations.length,
             exemptionCount: paymentBatch.exemptions.length,
+            automaticBalancePaymentCount:
+              creationResult.automaticBalancePayments.length,
+            automaticBalanceAppliedAmountKurus:
+              creationResult.automaticBalancePayments.reduce(
+                (total, payment) => total + payment.amountKurus,
+                0,
+              ),
             sendSms,
             sendEmail,
             notificationDispatch: {
@@ -826,12 +948,15 @@ router.patch(
       );
     }
 
-    const hasPaidAllocation = targetPaymentBatch.allocations.some((allocation) => {
-      return allocation.status === "PAID";
-    });
+    const hasCollectedAllocation = targetPaymentBatch.allocations.some(
+      (allocation) => allocation.paidAmountKurus > 0,
+    );
 
-    if (hasPaidAllocation) {
-      throw new HttpError(400, "İçinde ödenmiş kayıt olan ödeme toplu olarak iptal edilemez.");
+    if (hasCollectedAllocation) {
+      throw new HttpError(
+        400,
+        "İçinde tam veya kısmi tahsilat bulunan ödeme toplu olarak iptal edilemez.",
+      );
     }
 
     const pendingAllocationCount = targetPaymentBatch.allocations.filter((allocation) => {
@@ -905,6 +1030,8 @@ router.patch(
       },
       select: {
         id: true,
+        amountKurus: true,
+        paidAmountKurus: true,
         status: true,
       },
     });
@@ -926,6 +1053,7 @@ router.patch(
         id: allocationId,
       },
       data: {
+        paidAmountKurus: allocation.amountKurus,
         status: "PAID",
         paidAt: new Date(),
       },
@@ -953,7 +1081,9 @@ router.patch(
         paymentBatchId: updatedAllocation.paymentBatchId,
         apartmentId: updatedAllocation.apartmentId,
         previousStatus: allocation.status,
+        previousPaidAmountKurus: allocation.paidAmountKurus,
         currentStatus: updatedAllocation.status,
+        currentPaidAmountKurus: updatedAllocation.paidAmountKurus,
       },
     });
 
@@ -966,7 +1096,3 @@ router.patch(
 );
 
 export default router;
-
-
-
-

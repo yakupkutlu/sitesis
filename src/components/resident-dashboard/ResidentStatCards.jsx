@@ -1,4 +1,9 @@
-import { AlertCircle, CheckCircle2, ClipboardList, CreditCard } from "lucide-react";
+import {
+  CheckCircle2,
+  CircleDollarSign,
+  Clock3,
+  CreditCard,
+} from "lucide-react";
 
 function ResidentStatCards({ stats }) {
   const cards = [
@@ -8,19 +13,19 @@ function ResidentStatCards({ stats }) {
       icon: CreditCard,
     },
     {
-      label: "Bu Ayki Aidat",
-      value: stats.currentDue,
-      icon: ClipboardList,
-    },
-    {
-      label: "Bekleyen Dekont",
-      value: stats.pendingReceipts,
-      icon: AlertCircle,
-    },
-    {
-      label: "Açık Talep",
-      value: stats.openRequests,
+      label: "Ödenen Tutar",
+      value: stats.paidAmount,
       icon: CheckCircle2,
+    },
+    {
+      label: "Kalan Tutar",
+      value: stats.remainingAmount,
+      icon: Clock3,
+    },
+    {
+      label: "Fazla Ödeme",
+      value: stats.overpaymentAmount,
+      icon: CircleDollarSign,
     },
   ];
 

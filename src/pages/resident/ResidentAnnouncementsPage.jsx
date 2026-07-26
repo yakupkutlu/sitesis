@@ -4,6 +4,7 @@ import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   Bell,
   CreditCard,
+  TriangleAlert,
   Home,
   MessageSquareText,
   Settings,
@@ -14,14 +15,17 @@ import ResidentAnnouncementSummaryCards from "../../components/resident-announce
 import ResidentAnnouncementToolbar from "../../components/resident-announcements/ResidentAnnouncementToolbar";
 import ResidentAnnouncementCards from "../../components/resident-announcements/ResidentAnnouncementCards";
 import ResidentAnnouncementDetailsModal from "../../components/resident-announcements/ResidentAnnouncementDetailsModal";
-import {getAnnouncements,markAnnouncementAsRead,} from "../../api/announcementsApi";
+import ResidentWarningCards from "../../components/resident-announcements/ResidentWarningCards";
+import { getAnnouncements, markAnnouncementAsRead } from "../../api/announcementsApi";
+import { getResidentAlerts } from "../../api/paymentBatchesApi";
+
 
 
 const navItems = [
   { label: "Panel", path: "/resident/dashboard", icon: Home },
   { label: "Aidat ve Ödemeler", path: "/resident/payments", icon: CreditCard },
   { label: "Dekont Yükle", path: "/resident/receipts", icon: UploadCloud },
-  { label: "Duyurular", path: "/resident/announcements", icon: Bell },
+  { label: "Duyurular / Uyarılar", path: "/resident/announcements", icon: Bell },
   { label: "Talepler", path: "/resident/requests", icon: MessageSquareText },
   { label: "Ayarlar", path: "/resident/settings", icon: Settings },
 ];
@@ -32,6 +36,7 @@ function getDataArray(result) {
   if (Array.isArray(data)) return data;
   if (Array.isArray(data?.items)) return data.items;
   if (Array.isArray(data?.announcements)) return data.announcements;
+  if (Array.isArray(data?.alerts)) return data.alerts;
 
   return [];
 }
@@ -128,6 +133,8 @@ function ResidentAnnouncementsPage() {
 
   const [announcements, setAnnouncements] = useState([]);
   const [selectedAnnouncement, setSelectedAnnouncement] = useState(null);
+  const [warnings, setWarnings] = useState([]);
+  const [activeTab, setActiveTab] = useState("DUYURULAR");
 
   const [searchTerm, setSearchTerm] = useState("");
   const [typeFilter, setTypeFilter] = useState("Tümü");
@@ -146,13 +153,21 @@ function ResidentAnnouncementsPage() {
         setAnnouncements([]);
         setSelectedAnnouncement(null);
 
-        const result = await getAnnouncements({
-          page: 1,
-          limit: 100,
-        });
+        const [announcementResult, warningResult] = await Promise.all([
+          getAnnouncements({
+            page: 1,
+            limit: 100,
+          }),
+          getResidentAlerts({
+            limit: 100,
+          }),
+        ]);
 
         if (isMounted) {
-          setAnnouncements(getDataArray(result).map(mapAnnouncementToViewModel));
+          setAnnouncements(
+            getDataArray(announcementResult).map(mapAnnouncementToViewModel),
+          );
+          setWarnings(getDataArray(warningResult));
         }
       } catch (error) {
         if (isMounted) {
@@ -181,6 +196,15 @@ function ResidentAnnouncementsPage() {
       read: announcements.filter((announcement) => announcement.isRead).length,
     };
   }, [announcements]);
+
+  const warningSummary = useMemo(() => {
+    return {
+      total: warnings.length,
+      yellow: warnings.filter((warning) => warning.tone === "yellow").length,
+      red: warnings.filter((warning) => warning.tone === "red").length,
+      blue: warnings.filter((warning) => warning.tone === "blue").length,
+    };
+  }, [warnings]);
 
   const filteredAnnouncements = useMemo(() => {
     return announcements.filter((announcement) => {
@@ -238,7 +262,7 @@ function ResidentAnnouncementsPage() {
 
   return (
     <DashboardLayout
-      roleTitle="Duyurular"
+      roleTitle="Duyurular / Uyarılar"
       roleBadge="Sakin"
       userName={user?.fullName ?? "Sakin"}
       navItems={navItems}
@@ -246,11 +270,11 @@ function ResidentAnnouncementsPage() {
     >
       <div className="dashboard-page-header">
         <div>
-          <span className="section-kicker">Duyuru Takibi</span>
-          <h2>Duyurular</h2>
+          <span className="section-kicker">Bilgilendirme Merkezi</span>
+          <h2>Duyurular / Uyarılar</h2>
           <p>
-            Size gönderilen site, blok veya daire duyurularını buradan takip
-            edebilirsiniz.
+            Site duyurularınızı ve ödeme işlemlerinizle ilgili önemli
+            uyarıları tek sayfadan takip edebilirsiniz.
           </p>
         </div>
       </div>
@@ -261,26 +285,88 @@ function ResidentAnnouncementsPage() {
         </div>
       )}
 
-      <ResidentAnnouncementSummaryCards summary={summary} />
+      <div className="resident-notice-tabs" role="tablist">
+        <button
+          type="button"
+          className={activeTab === "DUYURULAR" ? "active" : ""}
+          onClick={() => setActiveTab("DUYURULAR")}
+          role="tab"
+          aria-selected={activeTab === "DUYURULAR"}
+        >
+          <Bell size={27} strokeWidth={2.2} />
+          <span>Duyurular</span>
+          <strong>{announcements.length}</strong>
+        </button>
 
-      <ResidentAnnouncementToolbar
-        searchTerm={searchTerm}
-        setSearchTerm={setSearchTerm}
-        typeFilter={typeFilter}
-        setTypeFilter={setTypeFilter}
-        readFilter={readFilter}
-        setReadFilter={setReadFilter}
-      />
+        <button
+          type="button"
+          className={activeTab === "UYARILAR" ? "active" : ""}
+          onClick={() => setActiveTab("UYARILAR")}
+          role="tab"
+          aria-selected={activeTab === "UYARILAR"}
+        >
+          <TriangleAlert size={30} strokeWidth={2.4} />
+          <span>Uyarılar</span>
+          <strong>{warnings.length}</strong>
+        </button>
+      </div>
 
-      {isLoading ? (
-        <div className="dashboard-panel">
-          <p>Duyurular yükleniyor...</p>
-        </div>
+      {activeTab === "DUYURULAR" ? (
+        <>
+          <ResidentAnnouncementSummaryCards summary={summary} />
+
+          <ResidentAnnouncementToolbar
+            searchTerm={searchTerm}
+            setSearchTerm={setSearchTerm}
+            typeFilter={typeFilter}
+            setTypeFilter={setTypeFilter}
+            readFilter={readFilter}
+            setReadFilter={setReadFilter}
+          />
+
+          {isLoading ? (
+            <div className="dashboard-panel">
+              <p>Duyurular yükleniyor...</p>
+            </div>
+          ) : (
+            <ResidentAnnouncementCards
+              announcements={filteredAnnouncements}
+              onView={handleViewAnnouncement}
+            />
+          )}
+        </>
       ) : (
-        <ResidentAnnouncementCards
-          announcements={filteredAnnouncements}
-          onView={handleViewAnnouncement}
-        />
+        <>
+          <section className="dashboard-summary-grid resident-warning-summary-grid">
+            <div className="summary-card">
+              <span>Toplam Uyarı</span>
+              <strong>{warningSummary.total}</strong>
+            </div>
+
+            <div className="summary-card warning-yellow">
+              <span>Eksik Ödeme</span>
+              <strong>{warningSummary.yellow}</strong>
+            </div>
+
+            <div className="summary-card warning-red">
+              <span>Kritik Uyarı</span>
+              <strong>{warningSummary.red}</strong>
+            </div>
+
+            <div className="summary-card warning-blue">
+              <span>Fazla Ödeme</span>
+              <strong>{warningSummary.blue}</strong>
+            </div>
+          </section>
+
+          {isLoading ? (
+            <div className="dashboard-panel">
+              <p>Uyarılar yükleniyor...</p>
+            </div>
+          ) : (
+            <ResidentWarningCards warnings={warnings} />
+          )}
+        </>
       )}
 
       <ResidentAnnouncementDetailsModal

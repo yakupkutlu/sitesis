@@ -143,7 +143,7 @@ function buildActiveAllocationWhere(
       baseWhere,
       {
         status: {
-          in: ["PENDING", "PAID"],
+          in: ["PENDING", "PARTIAL", "PAID"],
         },
       },
     ],
@@ -157,7 +157,9 @@ function buildPendingAllocationWhere(
     AND: [
       baseWhere,
       {
-        status: "PENDING",
+        status: {
+          in: ["PENDING", "PARTIAL"],
+        },
       },
     ],
   } satisfies Prisma.PaymentAllocationWhereInput;
@@ -192,6 +194,44 @@ function buildOverdueAllocationWhere(
       },
     ],
   } satisfies Prisma.PaymentAllocationWhereInput;
+}
+
+async function getAllocationFinancialTotals(
+  where: Prisma.PaymentAllocationWhereInput
+) {
+  const allocations = await prisma.paymentAllocation.findMany({
+    where: buildActiveAllocationWhere(where),
+    select: {
+      amountKurus: true,
+      paidAmountKurus: true,
+    },
+  });
+
+  return allocations.reduce(
+    (summary, allocation) => {
+      const totalAmountKurus = Math.max(0, allocation.amountKurus);
+      const paidAmountKurus = Math.max(0, allocation.paidAmountKurus);
+
+      summary.totalDebtKurus += totalAmountKurus;
+      summary.paidTotalKurus += paidAmountKurus;
+      summary.remainingDebtKurus += Math.max(
+        totalAmountKurus - paidAmountKurus,
+        0
+      );
+      summary.overpaymentTotalKurus += Math.max(
+        paidAmountKurus - totalAmountKurus,
+        0
+      );
+
+      return summary;
+    },
+    {
+      totalDebtKurus: 0,
+      paidTotalKurus: 0,
+      remainingDebtKurus: 0,
+      overpaymentTotalKurus: 0,
+    }
+  );
 }
 
 router.get(
@@ -422,27 +462,14 @@ router.get(
     }
 
     const residentUserId = authenticatedRequest.user.id;
-    const selectedApartmentId =
-      authenticatedRequest.user.selectedApartmentId;
     const now = new Date();
 
     const residentApartmentWhere = {
-      AND: [
-        {
-          residents: {
-            some: {
-              userId: residentUserId,
-            },
-          },
+      residents: {
+        some: {
+          userId: residentUserId,
         },
-        ...(selectedApartmentId
-          ? [
-              {
-                id: selectedApartmentId,
-              },
-            ]
-          : []),
-      ],
+      },
     } satisfies Prisma.ApartmentWhereInput;
 
     const residentAllocationWhere = {
@@ -468,9 +495,7 @@ router.get(
       pendingAllocationsCount,
       paidAllocationsCount,
       overdueAllocationsCount,
-      totalDebtAggregation,
-      paidTotalAggregation,
-      remainingDebtAggregation,
+      financialTotals,
       residentRequestsCount,
       openRequestsCount,
       notificationLogsCount,
@@ -484,11 +509,6 @@ router.get(
       prisma.apartmentResident.findFirst({
         where: {
           userId: residentUserId,
-          ...(selectedApartmentId
-            ? {
-                apartmentId: selectedApartmentId,
-              }
-            : {}),
         },
         orderBy: {
           createdAt: "asc",
@@ -535,24 +555,7 @@ router.get(
       prisma.paymentAllocation.count({
         where: buildOverdueAllocationWhere(now, residentAllocationWhere),
       }),
-      prisma.paymentAllocation.aggregate({
-        where: buildActiveAllocationWhere(residentAllocationWhere),
-        _sum: {
-          amountKurus: true,
-        },
-      }),
-      prisma.paymentAllocation.aggregate({
-        where: buildPaidAllocationWhere(residentAllocationWhere),
-        _sum: {
-          amountKurus: true,
-        },
-      }),
-      prisma.paymentAllocation.aggregate({
-        where: buildPendingAllocationWhere(residentAllocationWhere),
-        _sum: {
-          amountKurus: true,
-        },
-      }),
+      getAllocationFinancialTotals(residentAllocationWhere),
       prisma.residentRequest.count({
         where: residentRequestWhere,
       }),
@@ -605,9 +608,10 @@ router.get(
         pendingAllocationsCount,
         paidAllocationsCount,
         overdueAllocationsCount,
-        totalDebtKurus: totalDebtAggregation._sum?.amountKurus ?? 0,
-        paidTotalKurus: paidTotalAggregation._sum?.amountKurus ?? 0,
-        remainingDebtKurus: remainingDebtAggregation._sum?.amountKurus ?? 0,
+        totalDebtKurus: financialTotals.totalDebtKurus,
+        paidTotalKurus: financialTotals.paidTotalKurus,
+        remainingDebtKurus: financialTotals.remainingDebtKurus,
+        overpaymentTotalKurus: financialTotals.overpaymentTotalKurus,
         residentRequestsCount,
         openRequestsCount,
         notificationLogsCount,
