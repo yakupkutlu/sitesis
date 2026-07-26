@@ -464,6 +464,21 @@ router.get(
     const residentUserId = authenticatedRequest.user.id;
     const now = new Date();
 
+    const residentApartmentLinks =
+      await prisma.apartmentResident.findMany({
+        where: {
+          userId: residentUserId,
+        },
+        select: {
+          apartmentId: true,
+        },
+      });
+
+    const residentApartmentIds = residentApartmentLinks.map(
+      (residentApartmentLink) =>
+        residentApartmentLink.apartmentId
+    );
+
     const residentApartmentWhere = {
       residents: {
         some: {
@@ -496,6 +511,7 @@ router.get(
       paidAllocationsCount,
       overdueAllocationsCount,
       financialTotals,
+      overpaymentBalanceAccount,
       residentRequestsCount,
       openRequestsCount,
       notificationLogsCount,
@@ -556,6 +572,16 @@ router.get(
         where: buildOverdueAllocationWhere(now, residentAllocationWhere),
       }),
       getAllocationFinancialTotals(residentAllocationWhere),
+      prisma.apartmentBalanceAccount.aggregate({
+        where: {
+          apartmentId: {
+            in: residentApartmentIds,
+          },
+        },
+        _sum: {
+          availableAmountKurus: true,
+        },
+      }),
       prisma.residentRequest.count({
         where: residentRequestWhere,
       }),
@@ -611,7 +637,10 @@ router.get(
         totalDebtKurus: financialTotals.totalDebtKurus,
         paidTotalKurus: financialTotals.paidTotalKurus,
         remainingDebtKurus: financialTotals.remainingDebtKurus,
-        overpaymentTotalKurus: financialTotals.overpaymentTotalKurus,
+        overpaymentTotalKurus: Math.max(
+          overpaymentBalanceAccount._sum.availableAmountKurus ?? 0,
+          0
+        ),
         residentRequestsCount,
         openRequestsCount,
         notificationLogsCount,

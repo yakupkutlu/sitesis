@@ -9,6 +9,7 @@ import ResidentPaymentDetailsModal from "../../components/resident-payments/Resi
 import ResidentBankAccountCard from "../../components/resident-payments/ResidentBankAccountCard";
 
 import { getMyPaymentAllocations } from "../../api/paymentBatchesApi";
+import { getResidentDashboardSummary } from "../../api/dashboardSummaryApi";
 
 
 function getDataArray(result) {
@@ -151,6 +152,8 @@ function ResidentPaymentsPage() {
   const { user, selectedApartment, selectedApartmentId } = useAuth();
 
   const [payments, setPayments] = useState([]);
+  const [overpaymentBalanceKurus, setOverpaymentBalanceKurus] =
+    useState(0);
   const [selectedPayment, setSelectedPayment] = useState(null);
 
   const [searchTerm, setSearchTerm] = useState("");
@@ -168,10 +171,29 @@ function ResidentPaymentsPage() {
         setIsLoading(true);
         setErrorMessage("");
 
-        const result = await getMyPaymentAllocations();
+        const [paymentsResult, dashboardSummaryResult] =
+          await Promise.all([
+            getMyPaymentAllocations(),
+            getResidentDashboardSummary(),
+          ]);
 
         if (isMounted) {
-          setPayments(getDataArray(result).map(mapAllocationToPayment));
+          const dashboardSummary =
+            dashboardSummaryResult?.data ??
+            dashboardSummaryResult ??
+            {};
+
+          setPayments(
+            getDataArray(paymentsResult).map(mapAllocationToPayment)
+          );
+          setOverpaymentBalanceKurus(
+            Math.max(
+              Number(
+                dashboardSummary.overpaymentTotalKurus ?? 0
+              ),
+              0
+            )
+          );
         }
       } catch {
         if (isMounted) {
@@ -212,18 +234,15 @@ function ResidentPaymentsPage() {
       0
     );
 
-    const overpaymentAmount = payments.reduce(
-      (total, payment) => total + payment.numericOverpaymentAmount,
-      0
-    );
-
     return {
       totalDebt: formatCurrency(totalDebt),
       paidAmount: formatCurrency(paidAmount),
       remainingAmount: formatCurrency(remainingAmount),
-      overpaymentAmount: formatCurrency(overpaymentAmount),
+      overpaymentAmount: formatCurrency(
+        overpaymentBalanceKurus / 100
+      ),
     };
-  }, [payments]);
+  }, [overpaymentBalanceKurus, payments]);
 
   const filteredPayments = useMemo(() => {
     return aidatPayments.filter((payment) => {

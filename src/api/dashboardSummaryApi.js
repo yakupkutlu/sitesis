@@ -9,5 +9,7 @@ export async function getManagerDashboardSummary() {
 }
 
 export async function getResidentDashboardSummary() {
-  return apiRequest("/dashboard-summary/resident");
+  return apiRequest(
+    `/dashboard-summary/resident?refresh=${Date.now()}`
+  );
 }
