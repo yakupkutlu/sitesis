@@ -9,6 +9,10 @@ import Home from "./pages/Home";
 import Features from "./pages/Features";
 import About from "./pages/About";
 import Contact from "./pages/Contact";
+import Mevzuat from "./pages/Mevzuat";
+import Kvkk from "./pages/Kvkk";
+import Sss from "./pages/Sss";
+import KullanimKatalogu from "./pages/KullanimKatalogu";
 import Login from "./pages/Login";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
@@ -89,6 +93,13 @@ function App() {
           <Route path="/features" element={<Features />} />
           <Route path="/about" element={<About />} />
           <Route path="/contact" element={<Contact />} />
+          <Route path="/mevzuat" element={<Mevzuat />} />
+          <Route path="/kvkk" element={<Kvkk />} />
+          <Route path="/sss" element={<Sss />} />
+          <Route
+            path="/kullanim-katalogu"
+            element={<KullanimKatalogu />}
+          />
           <Route path="/login" element={<Login />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />

@@ -5,6 +5,7 @@ import { Building2, Menu, X } from "lucide-react";
 const navItems = [
   { label: "Ana Sayfa", path: "/" },
   { label: "Özellikler", path: "/features" },
+  { label: "Mevzuat", path: "/mevzuat" },
   { label: "Hakkımızda", path: "/about" },
   { label: "İletişim", path: "/contact" },
 ];
