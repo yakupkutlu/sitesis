@@ -1,15 +1,7 @@
 import { useAuth } from "../../hooks/useAuth";
 import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
-import {
-  Bell,
-  CreditCard,
-  Home,
-  MessageSquareText,
-  Settings,
-  UploadCloud,
-} from "lucide-react";
-
+import { residentNavItems } from "../../config/residentNavigation";
 import ResidentPaymentSummaryCards from "../../components/resident-payments/ResidentPaymentSummaryCards";
 import ResidentPaymentToolbar from "../../components/resident-payments/ResidentPaymentToolbar";
 import ResidentPaymentTable from "../../components/resident-payments/ResidentPaymentTable";
@@ -18,15 +10,6 @@ import ResidentBankAccountCard from "../../components/resident-payments/Resident
 
 import { getMyPaymentAllocations } from "../../api/paymentBatchesApi";
 
-
-const navItems = [
-  { label: "Panel", path: "/resident/dashboard", icon: Home },
-  { label: "Aidat ve Ödemeler", path: "/resident/payments", icon: CreditCard },
-  { label: "Dekont Yükle", path: "/resident/receipts", icon: UploadCloud },
-  { label: "Duyurular", path: "/resident/announcements", icon: Bell },
-  { label: "Talepler", path: "/resident/requests", icon: MessageSquareText },
-  { label: "Ayarlar", path: "/resident/settings", icon: Settings },
-];
 
 function getDataArray(result) {
   const data = result?.data ?? result;
@@ -114,6 +97,8 @@ function getApartmentText(allocation) {
 
 function mapAllocationToPayment(allocation) {
   const batch = allocation.paymentBatch ?? {};
+  const accountingExpense = batch.accountingExpense ?? null;
+  const isExpense = Boolean(accountingExpense?.id);
   const isCancelled = allocation.status === "CANCELLED";
   const totalAmountKurus = isCancelled
     ? 0
@@ -133,7 +118,9 @@ function mapAllocationToPayment(allocation) {
   return {
     id: allocation.id,
     title: batch.title ?? "Ödeme",
-    category: "Aidat / Gider",
+    category: isExpense ? "Gider" : "Aidat",
+    isExpense,
+    accountingExpenseId: accountingExpense?.id ?? null,
     period: formatDate(batch.createdAt),
     amount: formatCurrencyFromKurus(totalAmountKurus),
     paidAmount: formatCurrencyFromKurus(paidAmountKurus),
@@ -161,7 +148,7 @@ function formatCurrency(value) {
 }
 
 function ResidentPaymentsPage() {
-  const { user, selectedApartment } = useAuth();
+  const { user, selectedApartment, selectedApartmentId } = useAuth();
 
   const [payments, setPayments] = useState([]);
   const [selectedPayment, setSelectedPayment] = useState(null);
@@ -202,7 +189,12 @@ function ResidentPaymentsPage() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [selectedApartmentId]);
+
+  const aidatPayments = useMemo(
+    () => payments.filter((payment) => !payment.isExpense),
+    [payments],
+  );
 
   const summary = useMemo(() => {
     const totalDebt = payments.reduce(
@@ -234,7 +226,7 @@ function ResidentPaymentsPage() {
   }, [payments]);
 
   const filteredPayments = useMemo(() => {
-    return payments.filter((payment) => {
+    return aidatPayments.filter((payment) => {
       const searchValue = normalizeText(searchTerm);
 
       const searchableText = [
@@ -256,14 +248,14 @@ function ResidentPaymentsPage() {
 
       return matchesSearch && matchesStatus && matchesCategory;
     });
-  }, [payments, searchTerm, statusFilter, categoryFilter]);
+  }, [aidatPayments, searchTerm, statusFilter, categoryFilter]);
 
   return (
     <DashboardLayout
       roleTitle="Aidat ve Ödemeler"
       roleBadge="Sakin"
       userName={user?.fullName ?? "Sakin"}
-      navItems={navItems}
+      navItems={residentNavItems}
       theme="resident"
     >
       <div className="dashboard-page-header">
@@ -322,4 +314,3 @@ function ResidentPaymentsPage() {
 }
 
 export default ResidentPaymentsPage;
-

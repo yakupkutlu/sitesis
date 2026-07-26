@@ -1,17 +1,11 @@
 import { useAuth } from "../../hooks/useAuth";
 import { useEffect, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
+import { residentNavItems } from "../../config/residentNavigation";
 import {
-  Bell,
-  CreditCard,
-  Home,
-  MessageSquareText,
   Save,
-  Settings,
   ShieldCheck,
-  UploadCloud,
 } from "lucide-react";
-
 import {
   changeOwnPassword,
   getCurrentUser,
@@ -19,14 +13,6 @@ import {
 } from "../../api/authApi";
 import ResidentApartmentInfo from "../../components/resident-settings/ResidentApartmentInfo";
 
-const navItems = [
-  { label: "Panel", path: "/resident/dashboard", icon: Home },
-  { label: "Aidat ve Ödemeler", path: "/resident/payments", icon: CreditCard },
-  { label: "Dekont Yükle", path: "/resident/receipts", icon: UploadCloud },
-  { label: "Duyurular", path: "/resident/announcements", icon: Bell },
-  { label: "Talepler", path: "/resident/requests", icon: MessageSquareText },
-  { label: "Ayarlar", path: "/resident/settings", icon: Settings },
-];
 
 const emptySecurityData = {
   currentPassword: "",
@@ -243,7 +229,7 @@ function ResidentSettingsPage() {
       roleTitle="Ayarlar"
       roleBadge="Sakin"
       userName={profileData.fullName || user?.fullName || "Sakin"}
-      navItems={navItems}
+      navItems={residentNavItems}
       theme="resident"
       isDarkMode={isDarkMode}
     >

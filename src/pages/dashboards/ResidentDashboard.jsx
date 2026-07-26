@@ -1,15 +1,7 @@
 import { useAuth } from "../../hooks/useAuth";
 import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
-import {
-  Bell,
-  CreditCard,
-  Home,
-  MessageSquareText,
-  Settings,
-  UploadCloud,
-} from "lucide-react";
-
+import { residentNavItems } from "../../config/residentNavigation";
 import ResidentStatCards from "../../components/resident-dashboard/ResidentStatCards";
 import ResidentQuickActions from "../../components/resident-dashboard/ResidentQuickActions";
 import ResidentPaymentOverview from "../../components/resident-dashboard/ResidentPaymentOverview";
@@ -22,14 +14,6 @@ import { getResidentAlerts } from "../../api/paymentBatchesApi";
 import { getRequests } from "../../api/requestsApi";
 
 
-const navItems = [
-  { label: "Panel", path: "/resident/dashboard", icon: Home },
-  { label: "Aidat ve Ödemeler", path: "/resident/payments", icon: CreditCard },
-  { label: "Dekont Yükle", path: "/resident/receipts", icon: UploadCloud },
-  { label: "Duyurular / Uyarılar", path: "/resident/announcements", icon: Bell },
-  { label: "Talepler", path: "/resident/requests", icon: MessageSquareText },
-  { label: "Ayarlar", path: "/resident/settings", icon: Settings },
-];
 
 const requestStatusMap = {
   OPEN: "Yeni",
@@ -269,7 +253,7 @@ function ResidentDashboard() {
       roleTitle="Panel"
       roleBadge="Sakin"
       userName={residentInfo.fullName}
-      navItems={navItems}
+      navItems={residentNavItems}
       theme="resident"
     >
       <div className="dashboard-page-header">
@@ -321,4 +305,3 @@ function ResidentDashboard() {
 }
 
 export default ResidentDashboard;
-

@@ -1,15 +1,8 @@
 import { useAuth } from "../../hooks/useAuth";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import DashboardLayout from "../../layouts/DashboardLayout";
-import {
-  Bell,
-  CreditCard,
-  Home,
-  MessageSquareText,
-  Settings,
-  UploadCloud,
-} from "lucide-react";
-
+import { residentNavItems } from "../../config/residentNavigation";
 import ResidentReceiptSummaryCards from "../../components/resident-receipts/ResidentReceiptSummaryCards";
 import ResidentReceiptUploadForm from "../../components/resident-receipts/ResidentReceiptUploadForm";
 import ResidentReceiptCards from "../../components/resident-receipts/ResidentReceiptCards";
@@ -17,15 +10,6 @@ import ResidentReceiptCards from "../../components/resident-receipts/ResidentRec
 import { getMyPaymentAllocations } from "../../api/paymentBatchesApi";
 import { uploadPaymentReceipt } from "../../api/paymentReceiptsApi";
 
-
-const navItems = [
-  { label: "Panel", path: "/resident/dashboard", icon: Home },
-  { label: "Aidat ve Ödemeler", path: "/resident/payments", icon: CreditCard },
-  { label: "Dekont Yükle", path: "/resident/receipts", icon: UploadCloud },
-  { label: "Duyurular / Uyarılar", path: "/resident/announcements", icon: Bell },
-  { label: "Talepler", path: "/resident/requests", icon: MessageSquareText },
-  { label: "Ayarlar", path: "/resident/settings", icon: Settings },
-];
 
 const allowedReceiptTypes = [
   "application/pdf",
@@ -209,6 +193,16 @@ function hasPendingReceipt(allocation) {
   return receipts.some((receipt) => receipt.status === "PENDING");
 }
 
+
+function canUploadReceiptForAllocation(allocation) {
+  return (
+    allocation?.status !== "PAID" &&
+    allocation?.status !== "CANCELLED" &&
+    getRemainingAmountKurus(allocation) > 0 &&
+    !hasPendingReceipt(allocation)
+  );
+}
+
 function mapAllocationToPaymentOption(allocation) {
   return {
     id: allocation.id,
@@ -294,6 +288,11 @@ function mapAutomaticPaymentToViewModel(payment) {
 
 function ResidentReceiptsPage() {
   const { user, selectedApartmentId } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const requestedPaymentAllocationIdRef = useRef(
+    location.state?.paymentAllocationId ?? "",
+  );
 
   const [allocations, setAllocations] = useState([]);
   const [automaticPayments, setAutomaticPayments] = useState([]);
@@ -326,7 +325,6 @@ function ResidentReceiptsPage() {
         setMessage("");
         setAllocations([]);
         setAutomaticPayments([]);
-        setFormData(emptyFormData);
         setSelectedFile(null);
         setFileError("");
 
@@ -334,11 +332,27 @@ function ResidentReceiptsPage() {
 
         if (isMounted) {
           const nextAllocations = getDataArray(result);
+          const requestedAllocation = nextAllocations.find(
+            (allocation) =>
+              allocation.id === requestedPaymentAllocationIdRef.current &&
+              canUploadReceiptForAllocation(allocation),
+          );
 
           setAllocations(nextAllocations);
           setAutomaticPayments(
             getAutomaticPaymentsArray(result, nextAllocations),
           );
+          setFormData({
+            ...emptyFormData,
+            paymentAllocationId: requestedAllocation?.id ?? "",
+          });
+
+          if (requestedPaymentAllocationIdRef.current) {
+            navigate(location.pathname, {
+              replace: true,
+              state: null,
+            });
+          }
         }
       } catch {
         if (isMounted) {
@@ -356,14 +370,15 @@ function ResidentReceiptsPage() {
     return () => {
       isMounted = false;
     };
-  }, [selectedApartmentId]);
+  }, [
+    location.pathname,
+    navigate,
+    selectedApartmentId,
+  ]);
 
   const paymentOptions = useMemo(() => {
     return allocations
-      .filter((allocation) => allocation.status !== "PAID")
-      .filter((allocation) => allocation.status !== "CANCELLED")
-      .filter((allocation) => getRemainingAmountKurus(allocation) > 0)
-      .filter((allocation) => !hasPendingReceipt(allocation))
+      .filter(canUploadReceiptForAllocation)
       .map(mapAllocationToPaymentOption);
   }, [allocations]);
 
@@ -507,7 +522,7 @@ function ResidentReceiptsPage() {
       roleTitle="Dekont Yükle"
       roleBadge="Sakin"
       userName={user?.fullName ?? "Sakin"}
-      navItems={navItems}
+      navItems={residentNavItems}
       theme="resident"
     >
       <div className="dashboard-page-header">

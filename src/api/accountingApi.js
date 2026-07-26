@@ -13,23 +13,32 @@ function buildQueryString(params = {}) {
   });
 
   const queryString = searchParams.toString();
+
   return queryString ? `?${queryString}` : "";
 }
 
 export function getAccountingSummary(params = {}) {
-  return apiRequest(`/accounting/summary${buildQueryString(params)}`);
+  return apiRequest(
+    `/accounting/summary${buildQueryString(params)}`
+  );
 }
 
 export function getAccountingIncome(params = {}) {
-  return apiRequest(`/accounting/income${buildQueryString(params)}`);
+  return apiRequest(
+    `/accounting/income${buildQueryString(params)}`
+  );
 }
 
 export function getAccountingExpenses(params = {}) {
-  return apiRequest(`/accounting/expenses${buildQueryString(params)}`);
+  return apiRequest(
+    `/accounting/expenses${buildQueryString(params)}`
+  );
 }
 
 export function getAccountingExpense(expenseId) {
-  return apiRequest(`/accounting/expenses/${expenseId}`);
+  return apiRequest(
+    `/accounting/expenses/${expenseId}`
+  );
 }
 
 export function createAccountingExpense(payload) {
@@ -37,28 +46,46 @@ export function createAccountingExpense(payload) {
 
   formData.append("title", payload.title);
   formData.append("category", payload.category);
-  formData.append("amountKurus", String(payload.amountKurus));
+  formData.append(
+    "amountKurus",
+    String(payload.amountKurus)
+  );
   formData.append("expenseDate", payload.expenseDate);
   formData.append("siteId", payload.siteId);
 
   if (payload.description) {
-    formData.append("description", payload.description);
+    formData.append(
+      "description",
+      payload.description
+    );
   }
 
   if (payload.blockId) {
-    formData.append("blockId", payload.blockId);
+    formData.append(
+      "blockId",
+      payload.blockId
+    );
   }
 
   if (payload.vendorName) {
-    formData.append("vendorName", payload.vendorName);
+    formData.append(
+      "vendorName",
+      payload.vendorName
+    );
   }
 
   if (payload.invoiceNumber) {
-    formData.append("invoiceNumber", payload.invoiceNumber);
+    formData.append(
+      "invoiceNumber",
+      payload.invoiceNumber
+    );
   }
 
   for (const documentFile of payload.documents ?? []) {
-    formData.append("documents", documentFile);
+    formData.append(
+      "documents",
+      documentFile
+    );
   }
 
   return apiRequest("/accounting/expenses", {
@@ -67,40 +94,67 @@ export function createAccountingExpense(payload) {
   });
 }
 
-export function addAccountingExpenseDocuments(expenseId, documents) {
+export function addAccountingExpenseDocuments(
+  expenseId,
+  documents
+) {
   const formData = new FormData();
 
   for (const documentFile of documents ?? []) {
-    formData.append("documents", documentFile);
+    formData.append(
+      "documents",
+      documentFile
+    );
   }
 
-  return apiRequest(`/accounting/expenses/${expenseId}/documents`, {
-    method: "POST",
-    body: formData,
-  });
+  return apiRequest(
+    `/accounting/expenses/${expenseId}/documents`,
+    {
+      method: "POST",
+      body: formData,
+    }
+  );
 }
 
-export function updateAccountingExpense(expenseId, payload) {
-  return apiRequest(`/accounting/expenses/${expenseId}`, {
-    method: "PATCH",
-    body: payload,
-  });
+export function updateAccountingExpense(
+  expenseId,
+  payload
+) {
+  return apiRequest(
+    `/accounting/expenses/${expenseId}`,
+    {
+      method: "PATCH",
+      body: payload,
+    }
+  );
 }
 
-export function distributeAccountingExpense(expenseId, payload) {
-  return apiRequest(`/accounting/expenses/${expenseId}/distribute`, {
-    method: "POST",
-    body: payload,
-  });
+export function distributeAccountingExpense(
+  expenseId,
+  payload
+) {
+  return apiRequest(
+    `/accounting/expenses/${expenseId}/distribute`,
+    {
+      method: "POST",
+      body: payload,
+    }
+  );
 }
 
-export function cancelAccountingExpense(expenseId, reason) {
-  return apiRequest(`/accounting/expenses/${expenseId}/cancel`, {
-    method: "PATCH",
-    body: {
-      reason,
-    },
-  });
+export function cancelAccountingExpense(
+  expenseId,
+  reason
+) {
+  return apiRequest(
+    `/accounting/expenses/${expenseId}/cancel`,
+    {
+      method: "PATCH",
+      body: {
+        reason,
+      },
+    }
+  );
 }
 
 export async function downloadAccountingExpenseDocument({
@@ -117,8 +171,14 @@ export async function downloadAccountingExpenseDocument({
   );
 
   if (!response.ok) {
-    const result = await response.json().catch(() => null);
-    throw new Error(result?.message ?? "Gider belgesi indirilemedi.");
+    const result = await response
+      .json()
+      .catch(() => null);
+
+    throw new Error(
+      result?.message ??
+        "Gider belgesi indirilemedi."
+    );
   }
 
   const blob = await response.blob();
@@ -127,9 +187,67 @@ export async function downloadAccountingExpenseDocument({
 
   anchor.href = objectUrl;
   anchor.download = fileName || "gider-belgesi";
+
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
 
   URL.revokeObjectURL(objectUrl);
+}
+
+export function getResidentAccountingExpenses(
+  params = {}
+) {
+  return apiRequest(
+    `/accounting/resident/expenses${buildQueryString(
+      params
+    )}`
+  );
+}
+
+export function getResidentAccountingExpense(
+  expenseId
+) {
+  return apiRequest(
+    `/accounting/resident/expenses/${expenseId}`
+  );
+}
+
+export function getResidentAccountingExpenseDocumentViewUrl({
+  expenseId,
+  documentId,
+}) {
+  return (
+    `${API_BASE_URL}/accounting/resident/expenses/${expenseId}` +
+    `/documents/${documentId}/view`
+  );
+}
+
+export async function getResidentAccountingExpenseDocumentBlob({
+  expenseId,
+  documentId,
+}) {
+  const response = await fetch(
+    getResidentAccountingExpenseDocumentViewUrl({
+      expenseId,
+      documentId,
+    }),
+    {
+      method: "GET",
+      credentials: "include",
+    }
+  );
+
+  if (!response.ok) {
+    const result = await response
+      .json()
+      .catch(() => null);
+
+    throw new Error(
+      result?.message ??
+        "Gider belgesi görüntülenemedi."
+    );
+  }
+
+  return response.blob();
 }

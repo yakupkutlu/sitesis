@@ -35,7 +35,6 @@ import {
 const router = express.Router();
 
 router.use(requireAuth);
-router.use(requireRole("SUPER_ADMIN", "MANAGER"));
 
 const expenseCategorySchema = z.enum([
   "ELEVATOR",
@@ -267,6 +266,419 @@ function mapExpense(expense: {
     },
   };
 }
+
+function getResidentExpenseScope(user: ReturnType<typeof getAuthenticatedUser>) {
+  if (user.role !== "RESIDENT") {
+    throw new HttpError(403, "Bu işlem yalnızca sakinler içindir.");
+  }
+
+  if (!user.selectedApartmentId) {
+    throw new HttpError(
+      409,
+      "Gider listesini görüntülemek için aktif daire seçmelisiniz.",
+    );
+  }
+
+  return {
+    userId: user.id,
+    apartmentId: user.selectedApartmentId,
+  };
+}
+
+function getResidentExpenseWhere(params: {
+  expenseId?: string;
+  userId: string;
+  apartmentId: string;
+}): Prisma.AccountingExpenseWhereInput {
+  return {
+    ...(params.expenseId ? { id: params.expenseId } : {}),
+    status: "ACTIVE",
+    paymentBatch: {
+      is: {
+        allocations: {
+          some: {
+            apartmentId: params.apartmentId,
+            apartment: {
+              residents: {
+                some: {
+                  userId: params.userId,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
+function mapResidentExpense(expense: {
+  paymentBatch: null | {
+    id: string;
+    dueDate: Date;
+    allocations: Array<{
+      id: string;
+      amountKurus: number;
+      paidAmountKurus: number;
+      status: "PENDING" | "PARTIAL" | "PAID" | "CANCELLED";
+      receipts: Array<{ id: string }>;
+    }>;
+  };
+  [key: string]: unknown;
+}) {
+  const allocation = expense.paymentBatch?.allocations?.[0] ?? null;
+
+  return {
+    ...expense,
+    paymentAllocation: allocation
+      ? {
+          id: allocation.id,
+          amountKurus: allocation.amountKurus,
+          paidAmountKurus: allocation.paidAmountKurus,
+          status: allocation.status,
+          hasPendingReceipt: allocation.receipts.length > 0,
+          dueDate: expense.paymentBatch?.dueDate ?? null,
+        }
+      : null,
+  };
+}
+
+router.get(
+  "/resident/expenses",
+  requireRole("RESIDENT"),
+  asyncHandler(async (request: Request, response: Response) => {
+    const user = getAuthenticatedUser(request);
+    const residentScope = getResidentExpenseScope(user);
+    const paginationResult = getPaginationParams(request.query);
+    const filterResult = expenseListFiltersSchema
+      .pick({
+        category: true,
+        dateFrom: true,
+        dateTo: true,
+      })
+      .safeParse(request.query);
+
+    if (!paginationResult.success || !filterResult.success) {
+      throw new HttpError(400, "Gider listesi filtreleri geçersiz.");
+    }
+
+    const { category, dateFrom, dateTo } = filterResult.data;
+    validateDateRange(dateFrom, dateTo);
+
+    const searchWhere: Prisma.AccountingExpenseWhereInput =
+      paginationResult.search
+        ? {
+            OR: [
+              {
+                title: {
+                  contains: paginationResult.search,
+                  mode: "insensitive",
+                },
+              },
+              {
+                description: {
+                  contains: paginationResult.search,
+                  mode: "insensitive",
+                },
+              },
+              {
+                vendorName: {
+                  contains: paginationResult.search,
+                  mode: "insensitive",
+                },
+              },
+              {
+                invoiceNumber: {
+                  contains: paginationResult.search,
+                  mode: "insensitive",
+                },
+              },
+            ],
+          }
+        : {};
+
+    const where: Prisma.AccountingExpenseWhereInput = {
+      AND: [
+        getResidentExpenseWhere(residentScope),
+        searchWhere,
+        ...(category ? [{ category }] : []),
+        buildDateWhere("expenseDate", dateFrom, dateTo),
+      ],
+    };
+
+    const [expenses, totalCount] = await Promise.all([
+      prisma.accountingExpense.findMany({
+        where,
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          category: true,
+          amountKurus: true,
+          expenseDate: true,
+          vendorName: true,
+          invoiceNumber: true,
+          status: true,
+          createdAt: true,
+          site: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          block: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          documents: {
+            select: {
+              id: true,
+              originalFileName: true,
+              mimeType: true,
+              sizeBytes: true,
+              createdAt: true,
+            },
+            orderBy: {
+              createdAt: "desc",
+            },
+          },
+          paymentBatch: {
+            select: {
+              id: true,
+              dueDate: true,
+              allocations: {
+                where: {
+                  apartmentId: residentScope.apartmentId,
+                },
+                select: {
+                  id: true,
+                  amountKurus: true,
+                  paidAmountKurus: true,
+                  status: true,
+                  receipts: {
+                    where: {
+                      status: "PENDING",
+                    },
+                    select: {
+                      id: true,
+                    },
+                    take: 1,
+                  },
+                },
+                take: 1,
+              },
+            },
+          },
+        },
+        orderBy: [
+          {
+            expenseDate: "desc",
+          },
+          {
+            createdAt: "desc",
+          },
+        ],
+        skip: paginationResult.skip,
+        take: paginationResult.limit,
+      }),
+      prisma.accountingExpense.count({ where }),
+    ]);
+
+    response.status(200).json({
+      success: true,
+      data: expenses.map(mapResidentExpense),
+      pagination: buildPaginationMeta({
+        page: paginationResult.page,
+        limit: paginationResult.limit,
+        totalCount,
+      }),
+    });
+  }),
+);
+
+router.get(
+  "/resident/expenses/:expenseId",
+  requireRole("RESIDENT"),
+  asyncHandler(async (request: Request, response: Response) => {
+    const user = getAuthenticatedUser(request);
+    const residentScope = getResidentExpenseScope(user);
+    const paramsResult = expenseParamsSchema.safeParse(request.params);
+
+    if (!paramsResult.success) {
+      throw new HttpError(400, "Gider kimliği geçersiz.");
+    }
+
+    const expense = await prisma.accountingExpense.findFirst({
+      where: getResidentExpenseWhere({
+        ...residentScope,
+        expenseId: paramsResult.data.expenseId,
+      }),
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        category: true,
+        amountKurus: true,
+        expenseDate: true,
+        vendorName: true,
+        invoiceNumber: true,
+        status: true,
+        createdAt: true,
+        site: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        block: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        createdByUser: {
+          select: {
+            id: true,
+            fullName: true,
+          },
+        },
+        documents: {
+          select: {
+            id: true,
+            originalFileName: true,
+            mimeType: true,
+            sizeBytes: true,
+            createdAt: true,
+          },
+          orderBy: {
+            createdAt: "desc",
+          },
+        },
+        paymentBatch: {
+          select: {
+            id: true,
+            dueDate: true,
+            allocations: {
+              where: {
+                apartmentId: residentScope.apartmentId,
+              },
+              select: {
+                id: true,
+                amountKurus: true,
+                paidAmountKurus: true,
+                status: true,
+                receipts: {
+                  where: {
+                    status: "PENDING",
+                  },
+                  select: {
+                    id: true,
+                  },
+                  take: 1,
+                },
+              },
+              take: 1,
+            },
+          },
+        },
+      },
+    });
+
+    if (!expense) {
+      throw new HttpError(404, "Gider kaydı bulunamadı.");
+    }
+
+    response.status(200).json({
+      success: true,
+      data: mapResidentExpense(expense),
+    });
+  }),
+);
+
+router.get(
+  "/resident/expenses/:expenseId/documents/:documentId/view",
+  requireRole("RESIDENT"),
+  asyncHandler(async (request: Request, response: Response) => {
+    const user = getAuthenticatedUser(request);
+    const residentScope = getResidentExpenseScope(user);
+    const paramsResult = expenseDocumentParamsSchema.safeParse(
+      request.params,
+    );
+
+    if (!paramsResult.success) {
+      throw new HttpError(400, "Belge kimliği geçersiz.");
+    }
+
+    const expense = await prisma.accountingExpense.findFirst({
+      where: getResidentExpenseWhere({
+        ...residentScope,
+        expenseId: paramsResult.data.expenseId,
+      }),
+      select: {
+        id: true,
+      },
+    });
+
+    if (!expense) {
+      throw new HttpError(404, "Gider kaydı bulunamadı.");
+    }
+
+    const document = await prisma.accountingExpenseDocument.findFirst({
+      where: {
+        id: paramsResult.data.documentId,
+        expenseId: expense.id,
+      },
+      select: {
+        storedFileName: true,
+        originalFileName: true,
+        mimeType: true,
+      },
+    });
+
+    if (!document) {
+      throw new HttpError(404, "Gider belgesi bulunamadı.");
+    }
+
+    const safeStoredFileName = path.basename(document.storedFileName);
+    const filePath = path.resolve(
+      accountingDocumentFolder,
+      safeStoredFileName,
+    );
+    const safeFolderPath =
+      path.resolve(accountingDocumentFolder) + path.sep;
+
+    if (!filePath.startsWith(safeFolderPath)) {
+      throw new HttpError(400, "Geçersiz belge yolu.");
+    }
+
+    try {
+      await fs.access(filePath);
+    } catch {
+      throw new HttpError(
+        404,
+        "Gider belgesi dosyası bulunamadı.",
+      );
+    }
+
+    const safeOriginalFileName = normalizeOriginalFileName(
+      document.originalFileName,
+    );
+    const encodedFileName = encodeURIComponent(safeOriginalFileName);
+
+    response.setHeader("Content-Type", document.mimeType);
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    response.setHeader("Cache-Control", "private, no-store");
+    response.setHeader(
+      "Content-Disposition",
+      `inline; filename*=UTF-8''${encodedFileName}`,
+    );
+    response.sendFile(filePath);
+  }),
+);
+
+router.use(requireRole("SUPER_ADMIN", "MANAGER"));
 
 router.get(
   "/summary",

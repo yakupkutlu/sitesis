@@ -23447,3 +23447,478 @@ dashboard-layout .topbar-help-button {
   transform: none !important;
   
 }
+
+/* =========================================================
+   RESIDENT PAYMENT ACTIONS + RECEIPT PREVIEW FIX
+   Bu bölüm dosyanın sonunda kalmalıdır.
+========================================================= */
+
+.resident-payments-table td:last-child,
+.accounting-table td:last-child {
+  min-width: 104px;
+  overflow: visible;
+}
+
+.resident-payment-table-actions,
+.accounting-row-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  min-width: max-content;
+  white-space: nowrap;
+}
+
+.resident-payment-table-actions > button,
+.resident-payment-table-actions > a,
+.accounting-row-actions > button,
+.accounting-row-actions > a {
+  width: 38px;
+  min-width: 38px;
+  max-width: 38px;
+  height: 38px;
+  min-height: 38px;
+  max-height: 38px;
+  flex: 0 0 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #ffffff;
+  color: var(--text);
+  line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
+  overflow: hidden;
+  transition:
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    transform 0.18s ease;
+}
+
+.resident-payment-table-actions > button:hover,
+.resident-payment-table-actions > a:hover,
+.accounting-row-actions > button:hover,
+.accounting-row-actions > a:hover {
+  border-color: var(--dashboard-accent);
+  background: var(--dashboard-bg-soft);
+  color: var(--dashboard-secondary);
+  transform: translateY(-1px);
+}
+
+.resident-payment-table-actions svg,
+.accounting-row-actions svg {
+  width: 16px;
+  min-width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  display: block;
+}
+
+.resident-payment-modal {
+  width: min(920px, 100%);
+}
+
+.resident-payment-receipt-section {
+  margin-top: 14px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: #ffffff;
+}
+
+.resident-payment-receipt-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.resident-payment-receipt-header > div {
+  min-width: 0;
+}
+
+.resident-payment-receipt-header span,
+.resident-payment-receipt-header strong,
+.resident-payment-receipt-header small {
+  display: block;
+}
+
+.resident-payment-receipt-header > div > span {
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.resident-payment-receipt-header strong {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.resident-payment-receipt-header small {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.resident-payment-receipt-status {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 7px 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.resident-payment-receipt-status.approved {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.resident-payment-receipt-status.rejected {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.resident-payment-receipt-status.waiting {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.resident-payment-receipt-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 250px;
+  padding: 14px;
+  background: #eef2f7;
+}
+
+.resident-payment-receipt-preview img {
+  display: block;
+  width: 100%;
+  max-height: 520px;
+  object-fit: contain;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.resident-payment-receipt-preview iframe {
+  display: block;
+  width: 100%;
+  height: 520px;
+  border: 0;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.resident-payment-receipt-state {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  min-height: 180px;
+  align-content: center;
+  padding: 28px 18px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.resident-payment-receipt-state p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.resident-payment-receipt-state.error {
+  color: #b91c1c;
+}
+
+.resident-payment-preview-spinner {
+  animation: resident-payment-preview-spin 0.8s linear infinite;
+}
+
+@keyframes resident-payment-preview-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.resident-payment-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.resident-payment-modal-actions .dashboard-action-button {
+  align-items: center;
+  justify-content: center;
+}
+
+.dashboard-layout.dark-mode
+  .resident-payment-table-actions > button,
+.dashboard-layout.dark-mode
+  .resident-payment-table-actions > a,
+.dashboard-layout.dark-mode
+  .accounting-row-actions > button,
+.dashboard-layout.dark-mode
+  .accounting-row-actions > a {
+  border-color: #334155;
+  background: #1e293b;
+  color: #f8fafc;
+}
+
+.dashboard-layout.dark-mode
+  .resident-payment-table-actions > button:hover,
+.dashboard-layout.dark-mode
+  .resident-payment-table-actions > a:hover,
+.dashboard-layout.dark-mode
+  .accounting-row-actions > button:hover,
+.dashboard-layout.dark-mode
+  .accounting-row-actions > a:hover {
+  border-color: var(--dashboard-accent);
+  background: #334155;
+  color: var(--dashboard-accent);
+}
+
+.dashboard-layout.dark-mode
+  .resident-payment-receipt-section {
+  border-color: #334155;
+  background: #0f172a;
+}
+
+.dashboard-layout.dark-mode
+  .resident-payment-receipt-header {
+  border-color: #334155;
+}
+
+.dashboard-layout.dark-mode
+  .resident-payment-receipt-header strong {
+  color: #f8fafc;
+}
+
+.dashboard-layout.dark-mode
+  .resident-payment-receipt-header > div > span,
+.dashboard-layout.dark-mode
+  .resident-payment-receipt-header small {
+  color: #94a3b8;
+}
+
+.dashboard-layout.dark-mode
+  .resident-payment-receipt-preview {
+  background: #111827;
+}
+
+@media (max-width: 680px) {
+  .resident-payment-receipt-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .resident-payment-receipt-status {
+    align-self: flex-start;
+  }
+
+  .resident-payment-receipt-preview iframe {
+    height: 390px;
+  }
+
+  .resident-payment-modal-actions,
+  .resident-payment-modal-actions .dashboard-action-button {
+    width: 100%;
+  }
+}
+
+/* =========================================================
+   RESIDENT EXPENSE INLINE DOCUMENT PREVIEW
+   Bu bölüm dosyanın sonunda kalmalıdır.
+========================================================= */
+
+.resident-expense-document-list {
+  display: grid;
+  gap: 16px;
+  margin-top: 10px;
+}
+
+.resident-expense-document-card {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: #ffffff;
+}
+
+.resident-expense-document-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.resident-expense-document-header > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.resident-expense-document-header > div > svg {
+  flex-shrink: 0;
+  color: var(--dashboard-secondary);
+}
+
+.resident-expense-document-header strong,
+.resident-expense-document-header small {
+  display: block;
+}
+
+.resident-expense-document-header strong {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.resident-expense-document-header small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.resident-expense-document-header > a {
+  flex-shrink: 0;
+  padding: 8px 11px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: #ffffff;
+  color: var(--dashboard-secondary);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.resident-expense-document-header > a:hover {
+  border-color: var(--dashboard-accent);
+  background: var(--dashboard-bg-soft);
+}
+
+.resident-expense-document-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 260px;
+  padding: 14px;
+  background: #eef2f7;
+}
+
+.resident-expense-document-preview img {
+  display: block;
+  width: 100%;
+  max-height: 560px;
+  object-fit: contain;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.resident-expense-document-preview iframe {
+  display: block;
+  width: 100%;
+  height: 560px;
+  border: 0;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.resident-expense-document-empty {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  min-height: 180px;
+  align-content: center;
+  padding: 24px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.resident-expense-document-empty p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.dashboard-layout.dark-mode
+  .resident-expense-document-card {
+  border-color: #334155;
+  background: #0f172a;
+}
+
+.dashboard-layout.dark-mode
+  .resident-expense-document-header {
+  border-color: #334155;
+}
+
+.dashboard-layout.dark-mode
+  .resident-expense-document-header strong {
+  color: #f8fafc;
+}
+
+.dashboard-layout.dark-mode
+  .resident-expense-document-header small {
+  color: #94a3b8;
+}
+
+.dashboard-layout.dark-mode
+  .resident-expense-document-header > a {
+  border-color: #334155;
+  background: #1e293b;
+  color: var(--dashboard-accent);
+}
+
+.dashboard-layout.dark-mode
+  .resident-expense-document-preview {
+  background: #111827;
+}
+
+@media (max-width: 680px) {
+  .resident-expense-document-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .resident-expense-document-header > a {
+    width: 100%;
+    text-align: center;
+  }
+
+  .resident-expense-document-preview iframe {
+    height: 390px;
+  }
+}
+
+/* =========================================================
+   RESIDENT EXPENSE TABLE PAYMENT COLUMNS
+   Bu bölüm dosyanın sonunda kalmalıdır.
+========================================================= */
+
+.resident-expense-table {
+  min-width: 1180px;
+}
+
+.resident-expense-table th,
+.resident-expense-table td {
+  white-space: nowrap;
+}
+
+.resident-expense-table th:first-child,
+.resident-expense-table td:first-child {
+  min-width: 245px;
+  white-space: normal;
+}

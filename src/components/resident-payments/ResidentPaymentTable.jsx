@@ -74,8 +74,19 @@ function ResidentPaymentTable({ payments, onView }) {
                         <Eye size={16} />
                       </button>
 
-                      {payment.status !== "Ödendi" && (
-                        <Link to="/resident/receipts" title="Dekont Yükle">
+                      {![
+                        "Ödendi",
+                        "İptal Edildi",
+                        "Dekont Onayı Bekliyor",
+                      ].includes(payment.status) && (
+                        <Link
+                          to="/resident/receipts"
+                          state={{
+                            paymentAllocationId:
+                              payment.paymentAllocationId,
+                          }}
+                          title="Dekont Yükle"
+                        >
                           <UploadCloud size={16} />
                         </Link>
                       )}

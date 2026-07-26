@@ -305,6 +305,14 @@ router.get(
             totalAmountKurus: true,
             dueDate: true,
             createdAt: true,
+            accountingExpense: {
+              select: {
+                id: true,
+                title: true,
+                category: true,
+                status: true,
+              },
+            },
           },
         },
         receipts: {

@@ -1,15 +1,7 @@
 import { useAuth } from "../../hooks/useAuth";
 import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
-import {
-  Bell,
-  CreditCard,
-  Home,
-  MessageSquareText,
-  Settings,
-  UploadCloud,
-} from "lucide-react";
-
+import { residentNavItems } from "../../config/residentNavigation";
 import ResidentRequestSummaryCards from "../../components/resident-requests/ResidentRequestSummaryCards";
 import ResidentRequestForm from "../../components/resident-requests/ResidentRequestForm";
 import ResidentRequestCards from "../../components/resident-requests/ResidentRequestCards";
@@ -18,14 +10,6 @@ import ResidentRequestToolbar from "../../components/resident-requests/ResidentR
 import { createRequest, getRequests } from "../../api/requestsApi";
 
 
-const navItems = [
-  { label: "Panel", path: "/resident/dashboard", icon: Home },
-  { label: "Aidat ve Ödemeler", path: "/resident/payments", icon: CreditCard },
-  { label: "Dekont Yükle", path: "/resident/receipts", icon: UploadCloud },
-  { label: "Duyurular", path: "/resident/announcements", icon: Bell },
-  { label: "Talepler", path: "/resident/requests", icon: MessageSquareText },
-  { label: "Ayarlar", path: "/resident/settings", icon: Settings },
-];
 
 const allowedRequestFileTypes = [
   "application/pdf",
@@ -400,7 +384,7 @@ function ResidentRequestsPage() {
       roleTitle="Talepler"
       roleBadge="Sakin"
       userName={user?.fullName ?? "Sakin"}
-      navItems={navItems}
+      navItems={residentNavItems}
       theme="resident"
     >
       <div className="dashboard-page-header">

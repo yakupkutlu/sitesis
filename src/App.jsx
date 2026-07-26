@@ -48,6 +48,7 @@ import AccountingExpensesPage from "./pages/manager/AccountingExpensesPage";
 import ManagerBankAccountPage from "./pages/manager/ManagerBankAccountPage";
 
 import ResidentPaymentsPage from "./pages/resident/ResidentPaymentsPage";
+import ResidentExpenseListPage from "./pages/resident/ResidentExpenseListPage";
 import ResidentReceiptsPage from "./pages/resident/ResidentReceiptsPage";
 import ResidentAnnouncementsPage from "./pages/resident/ResidentAnnouncementsPage";
 import ResidentRequestsPage from "./pages/resident/ResidentRequestsPage";
@@ -249,6 +250,11 @@ function App() {
           <Route
             path="/resident/payments"
             element={protect(["RESIDENT"], <ResidentPaymentsPage />)}
+          />
+
+          <Route
+            path="/resident/expenses"
+            element={protect(["RESIDENT"], <ResidentExpenseListPage />)}
           />
 
           <Route

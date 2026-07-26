@@ -1,16 +1,11 @@
 import { useAuth } from "../../hooks/useAuth";
 import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../layouts/DashboardLayout";
+import { residentNavItems } from "../../config/residentNavigation";
 import {
   Bell,
-  CreditCard,
   TriangleAlert,
-  Home,
-  MessageSquareText,
-  Settings,
-  UploadCloud,
 } from "lucide-react";
-
 import ResidentAnnouncementSummaryCards from "../../components/resident-announcements/ResidentAnnouncementSummaryCards";
 import ResidentAnnouncementToolbar from "../../components/resident-announcements/ResidentAnnouncementToolbar";
 import ResidentAnnouncementCards from "../../components/resident-announcements/ResidentAnnouncementCards";
@@ -21,14 +16,6 @@ import { getResidentAlerts } from "../../api/paymentBatchesApi";
 
 
 
-const navItems = [
-  { label: "Panel", path: "/resident/dashboard", icon: Home },
-  { label: "Aidat ve Ödemeler", path: "/resident/payments", icon: CreditCard },
-  { label: "Dekont Yükle", path: "/resident/receipts", icon: UploadCloud },
-  { label: "Duyurular / Uyarılar", path: "/resident/announcements", icon: Bell },
-  { label: "Talepler", path: "/resident/requests", icon: MessageSquareText },
-  { label: "Ayarlar", path: "/resident/settings", icon: Settings },
-];
 
 function getDataArray(result) {
   const data = result?.data ?? result;
@@ -265,7 +252,7 @@ function ResidentAnnouncementsPage() {
       roleTitle="Duyurular / Uyarılar"
       roleBadge="Sakin"
       userName={user?.fullName ?? "Sakin"}
-      navItems={navItems}
+      navItems={residentNavItems}
       theme="resident"
     >
       <div className="dashboard-page-header">
