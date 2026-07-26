@@ -1,6 +1,7 @@
 import { managerNavItems } from "../../config/managerNavigation";
 import { useAuth } from "../../hooks/useAuth";
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import {
   Edit,
@@ -18,19 +19,79 @@ import {
 } from "../../api/paymentBatchesApi";
 
 
-const emptyFormData = {
-  title: "",
-  description: "",
-  totalAmount: "",
-  scopeType: "BLOCK",
-  siteId: "",
-  blockId: "",
-  apartmentIds: [],
-  exemptApartmentIds: [],
-  dueDate: "",
-  sendSms: false,
-  sendEmail: true,
-};
+function getDefaultDueDate() {
+  const dueDate = new Date();
+  dueDate.setDate(dueDate.getDate() + 30);
+
+  const year = dueDate.getFullYear();
+  const month = String(dueDate.getMonth() + 1).padStart(2, "0");
+  const day = String(dueDate.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function createEmptyFormData() {
+  return {
+    templateKey: "",
+    title: "",
+    description: "",
+    totalAmount: "",
+    scopeType: "BLOCK",
+    siteId: "",
+    blockId: "",
+    apartmentIds: [],
+    exemptApartmentIds: [],
+    dueDate: getDefaultDueDate(),
+    sendSms: false,
+    sendEmail: true,
+  };
+}
+
+
+const paymentTemplates = [
+  {
+    key: "MONTHLY_DUES",
+    label: "Aylık Aidat",
+    kind: "PAYMENT",
+  },
+  {
+    key: "HEATING_FUEL",
+    label: "Isınma / Yakıt Gideri",
+    kind: "EXPENSE",
+    category: "UTILITIES",
+    description: "Döneme ait ısınma ve yakıt gideri.",
+  },
+  {
+    key: "ELEVATOR_MAINTENANCE",
+    label: "Asansör Bakım Gideri",
+    kind: "EXPENSE",
+    category: "ELEVATOR",
+    description: "Döneme ait asansör bakım ve servis gideri.",
+  },
+  {
+    key: "SECURITY_EXPENSE",
+    label: "Güvenlik Gideri",
+    kind: "EXPENSE",
+    category: "SECURITY",
+    description: "Döneme ait güvenlik hizmeti gideri.",
+  },
+  {
+    key: "COMMON_AREA_EXPENSE",
+    label: "Ortak Alan Gideri",
+    kind: "EXPENSE",
+    category: "MAINTENANCE",
+    description: "Döneme ait ortak alan kullanım ve bakım gideri.",
+  },
+];
+
+function getCurrentPeriodLabel() {
+  const value = new Intl.DateTimeFormat("tr-TR", {
+    month: "long",
+    year: "numeric",
+  }).format(new Date());
+
+  return value.charAt(0).toLocaleUpperCase("tr-TR") + value.slice(1);
+}
 
 function getDataArray(result) {
   const data = result?.data ?? result;
@@ -241,11 +302,12 @@ function mapBatchToViewModel(batch) {
 
 function PaymentsPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   const [paymentBatches, setPaymentBatches] = useState([]);
   const [apartments, setApartments] = useState([]);
 
-  const [formData, setFormData] = useState(emptyFormData);
+  const [formData, setFormData] = useState(() => createEmptyFormData());
   const [editingPayment, setEditingPayment] = useState(null);
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [showForm, setShowForm] = useState(false);
@@ -364,11 +426,12 @@ function PaymentsPage() {
 
   function resetForm() {
     setEditingPayment(null);
-    setFormData(emptyFormData);
+    setFormData(createEmptyFormData());
   }
 
   function openCreateForm() {
-    resetForm();
+    setEditingPayment(null);
+    setFormData(createEmptyFormData());
     setShowForm(true);
     setMessage("");
     setErrorMessage("");
@@ -377,6 +440,45 @@ function PaymentsPage() {
   function closeForm() {
     resetForm();
     setShowForm(false);
+  }
+
+
+  function handleTemplateChange(event) {
+    const templateKey = event.target.value;
+    const selectedTemplate = paymentTemplates.find(
+      (template) => template.key === templateKey,
+    );
+
+    if (!selectedTemplate) {
+      setFormData((currentData) => ({
+        ...currentData,
+        templateKey: "",
+      }));
+      return;
+    }
+
+    const periodLabel = getCurrentPeriodLabel();
+
+    if (selectedTemplate.kind === "EXPENSE") {
+      navigate("/manager/accounting/expenses", {
+        state: {
+          expenseTemplate: {
+            templateKey: selectedTemplate.key,
+            title: `${periodLabel} ${selectedTemplate.label}`,
+            category: selectedTemplate.category,
+            description: selectedTemplate.description,
+          },
+        },
+      });
+      return;
+    }
+
+    setFormData((currentData) => ({
+      ...currentData,
+      templateKey: selectedTemplate.key,
+      title: `${periodLabel} Aidatı`,
+      description: `${periodLabel} dönemi aylık aidat ödemesi.`,
+    }));
   }
 
   function handleInputChange(event) {
@@ -450,7 +552,7 @@ function PaymentsPage() {
     setEditingPayment(payment);
 
     setFormData({
-      ...emptyFormData,
+      ...createEmptyFormData(),
       title: payment.title ?? "",
       description: payment.description ?? "",
       dueDate: payment.dueDateInput ?? "",
@@ -464,6 +566,7 @@ function PaymentsPage() {
 
   async function handleSubmit(event) {
     event.preventDefault();
+
 
     if (!formData.title.trim()) {
       setErrorMessage("Başlık zorunludur.");
@@ -668,6 +771,25 @@ function PaymentsPage() {
 
           <form className="manager-form" onSubmit={handleSubmit}>
             <div className="form-grid">
+              {!editingPayment && (
+                <label className="full-width">
+                  Hazır Şablon
+                  <select
+                    name="templateKey"
+                    value={formData.templateKey}
+                    onChange={handleTemplateChange}
+                    disabled={isSaving}
+                  >
+                    <option value="">Şablon seçiniz</option>
+                    {paymentTemplates.map((template) => (
+                      <option key={template.key} value={template.key}>
+                        {template.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+
               <label>
                 Başlık
                 <input

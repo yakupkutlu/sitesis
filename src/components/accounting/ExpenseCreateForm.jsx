@@ -9,26 +9,39 @@ import {
   parseTryToKurus,
 } from "../../utils/accounting";
 
-const initialFormData = {
-  title: "",
-  description: "",
-  category: "MAINTENANCE",
-  amount: "",
-  expenseDate: new Date().toISOString().slice(0, 10),
-  vendorName: "",
-  invoiceNumber: "",
-  siteId: "",
-  blockId: "",
-};
+function createInitialFormData(initialValues = null) {
+  const requestedCategory = initialValues?.category;
+  const category = Object.prototype.hasOwnProperty.call(
+    accountingExpenseCategoryLabels,
+    requestedCategory,
+  )
+    ? requestedCategory
+    : "MAINTENANCE";
+
+  return {
+    title: initialValues?.title ?? "",
+    description: initialValues?.description ?? "",
+    category,
+    amount: "",
+    expenseDate: new Date().toISOString().slice(0, 10),
+    vendorName: "",
+    invoiceNumber: "",
+    siteId: "",
+    blockId: "",
+  };
+}
 
 function ExpenseCreateForm({
   apartments,
+  initialValues = null,
   onCreated,
   onCancel,
   isSaving,
   setIsSaving,
 }) {
-  const [formData, setFormData] = useState(initialFormData);
+  const [formData, setFormData] = useState(() =>
+    createInitialFormData(initialValues),
+  );
   const [documents, setDocuments] = useState([]);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -98,7 +111,7 @@ function ExpenseCreateForm({
 
       const createdExpense = result?.data ?? null;
 
-      setFormData(initialFormData);
+      setFormData(createInitialFormData());
       setDocuments([]);
 
       await onCreated(createdExpense, result?.message);

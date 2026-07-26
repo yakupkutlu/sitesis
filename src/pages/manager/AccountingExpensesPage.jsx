@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   Ban,
   Eye,
@@ -29,12 +30,20 @@ import {
 
 function AccountingExpensesPage() {
   const { user } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const [expenseTemplate, setExpenseTemplate] = useState(
+    () => location.state?.expenseTemplate ?? null,
+  );
 
   const [expenses, setExpenses] = useState([]);
   const [apartments, setApartments] = useState([]);
   const [selectedExpense, setSelectedExpense] = useState(null);
   const [distributionExpense, setDistributionExpense] = useState(null);
-  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState(
+    () => Boolean(location.state?.expenseTemplate),
+  );
 
   const [filters, setFilters] = useState({
     search: "",
@@ -68,6 +77,18 @@ function AccountingExpensesPage() {
       totalCount: Number(result?.pagination?.totalCount ?? 0),
     });
   }
+
+
+  useEffect(() => {
+    if (!location.state?.expenseTemplate) {
+      return;
+    }
+
+    navigate(location.pathname, {
+      replace: true,
+      state: null,
+    });
+  }, [location.pathname, location.state, navigate]);
 
   useEffect(() => {
     let isMounted = true;
@@ -211,6 +232,7 @@ function AccountingExpensesPage() {
         "Gider kaydı oluşturuldu. Şimdi dairelere dağıtabilirsiniz."
     );
     setShowCreateForm(false);
+    setExpenseTemplate(null);
 
     if (createdExpense?.id) {
       const detailResult = await getAccountingExpense(createdExpense.id);
@@ -251,7 +273,10 @@ function AccountingExpensesPage() {
           type="button"
           className="dashboard-action-button"
           onClick={() => {
-            setShowCreateForm((current) => !current);
+            const nextShowCreateForm = !showCreateForm;
+
+            setShowCreateForm(nextShowCreateForm);
+            setExpenseTemplate(null);
             setDistributionExpense(null);
             setMessage("");
             setErrorMessage("");
@@ -277,9 +302,14 @@ function AccountingExpensesPage() {
 
       {showCreateForm && (
         <ExpenseCreateForm
+          key={expenseTemplate?.templateKey ?? "manual-expense"}
           apartments={apartments}
+          initialValues={expenseTemplate}
           onCreated={handleExpenseCreated}
-          onCancel={() => setShowCreateForm(false)}
+          onCancel={() => {
+            setShowCreateForm(false);
+            setExpenseTemplate(null);
+          }}
           isSaving={isSaving}
           setIsSaving={setIsSaving}
         />
