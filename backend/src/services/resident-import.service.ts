@@ -515,6 +515,10 @@ function finalizeValidationRows(rows: WorkingValidationRow[]) {
     } else {
       row.action = "Mevcut hesap daireye bağlanacak";
     }
+
+    if (row.warnings.length > 0) {
+      row.action = `${row.action} — Uyarılı kayıt`;
+    }
   }
 }
 
@@ -925,19 +929,12 @@ export async function validateResidentImportRows(params: {
         row.normalizedEmail !== tenantRow.normalizedEmail
     );
 
-    const hasUsableDatabaseOwner =
-      databaseOwner?.user.status === "ACTIVE" ||
-      (databaseOwner?.user.status === "PASSIVE" &&
-        batchOwnerRows.some(
-          (row) =>
-            row.normalizedEmail === databaseOwner.user.email.toLowerCase() &&
-            row.errors.length === 0
-        ));
+    const hasDatabaseOwner = Boolean(databaseOwner);
 
-    if (!hasUsableDatabaseOwner && !validBatchOwner) {
-      addError(
+    if (!hasDatabaseOwner && !validBatchOwner) {
+      addWarning(
         tenantRow,
-        "Kiracı eklenmeden önce aynı daire için aktif bir ev sahibi bulunmalıdır. Ev sahibini Excel'e ayrı satır olarak ekleyin."
+        "Bu dairede ev sahibi bilgisi bulunmuyor. Kiracı kaydedilecek ve yönetici tablosunda sarı uyarı gösterilecek."
       );
     }
 
@@ -1205,25 +1202,6 @@ export async function commitResidentImportRows(params: {
             );
           }
 
-          const ownerLink = await transaction.apartmentResident.findFirst({
-            where: {
-              apartmentId: row.apartmentId as string,
-              type: "OWNER",
-              user: {
-                status: "ACTIVE",
-              },
-            },
-            select: {
-              id: true,
-            },
-          });
-
-          if (!ownerLink) {
-            throw new HttpError(
-              409,
-              `${row.rowNumber}. satırdaki dairede aktif ev sahibi bulunmadığı için kiracı eklenemedi.`
-            );
-          }
         }
 
         await transaction.apartmentResident.create({

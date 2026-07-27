@@ -3,10 +3,31 @@ import ExcelJS from "exceljs";
 import {
   getScopedApartments,
   type ImportActor,
+  type ScopedApartment,
 } from "./resident-import.service.js";
 
 const TEMPLATE_ROW_START = 5;
 const TEMPLATE_ROW_END = 254;
+
+type ResidentType = "OWNER" | "TENANT";
+
+type TemplateBlock = {
+  id: string;
+  name: string;
+  apartments: string[];
+};
+
+type TemplateSite = {
+  id: string;
+  name: string;
+  blocks: TemplateBlock[];
+};
+
+type TemplateTypeDefinition = {
+  type: ResidentType;
+  label: "Ev Sahibi" | "Kiracı";
+  sites: TemplateSite[];
+};
 
 export const COUNTRY_PHONE_CODE_OPTIONS = [
   "+90 Türkiye",
@@ -48,18 +69,6 @@ export const COUNTRY_PHONE_CODE_OPTIONS = [
   "+81 Japonya",
 ] as const;
 
-type TemplateBlock = {
-  id: string;
-  name: string;
-  apartments: string[];
-};
-
-type TemplateSite = {
-  id: string;
-  name: string;
-  blocks: TemplateBlock[];
-};
-
 function sanitizeDefinedName(prefix: string, id: string) {
   return `${prefix}_${id.replace(/[^a-zA-Z0-9_]/g, "_")}`;
 }
@@ -81,12 +90,35 @@ function getColumnLetter(columnNumber: number) {
   return result;
 }
 
+function compareText(leftValue: string, rightValue: string) {
+  return leftValue.localeCompare(rightValue, "tr", {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
+function apartmentHasType(apartment: ScopedApartment, type: ResidentType) {
+  return apartment.residents.some((resident) => resident.type === type);
+}
+
+function isApartmentAvailableForType(
+  apartment: ScopedApartment,
+  type: ResidentType
+) {
+  return !apartmentHasType(apartment, type);
+}
+
 function buildTemplateSites(
-  apartments: Awaited<ReturnType<typeof getScopedApartments>>
+  apartments: ScopedApartment[],
+  type: ResidentType
 ) {
   const siteMap = new Map<string, TemplateSite>();
 
   for (const apartment of apartments) {
+    if (!isApartmentAvailableForType(apartment, type)) {
+      continue;
+    }
+
     const site = apartment.block.site;
     const block = apartment.block;
 
@@ -118,20 +150,14 @@ function buildTemplateSites(
   }
 
   return Array.from(siteMap.values())
-    .sort((first, second) =>
-      first.name.localeCompare(second.name, "tr", { numeric: true })
-    )
+    .sort((first, second) => compareText(first.name, second.name))
     .map((site) => ({
       ...site,
       blocks: site.blocks
-        .sort((first, second) =>
-          first.name.localeCompare(second.name, "tr", { numeric: true })
-        )
+        .sort((first, second) => compareText(first.name, second.name))
         .map((block) => ({
           ...block,
-          apartments: [...block.apartments].sort((first, second) =>
-            first.localeCompare(second, "tr", { numeric: true })
-          ),
+          apartments: [...block.apartments].sort(compareText),
         })),
     }));
 }
@@ -156,16 +182,251 @@ function applyListValidation(
   };
 }
 
+function styleHeaderRow(row: ExcelJS.Row, fillColor: string) {
+  row.eachCell((cell) => {
+    cell.font = {
+      bold: true,
+      color: { argb: "FFFFFFFF" },
+    };
+    cell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: fillColor },
+    };
+    cell.alignment = {
+      horizontal: "center",
+      vertical: "middle",
+      wrapText: true,
+    };
+    cell.border = {
+      top: { style: "thin", color: { argb: "FFCBD5E1" } },
+      bottom: { style: "thin", color: { argb: "FFCBD5E1" } },
+      left: { style: "thin", color: { argb: "FFCBD5E1" } },
+      right: { style: "thin", color: { argb: "FFCBD5E1" } },
+    };
+  });
+}
+
+function populateAvailabilitySheet(params: {
+  sheet: ExcelJS.Worksheet;
+  apartments: ScopedApartment[];
+  type: ResidentType;
+}) {
+  const { sheet, apartments, type } = params;
+  const title =
+    type === "TENANT"
+      ? "KİRACI İÇİN UYGUN DAİRELER"
+      : "EV SAHİBİ İÇİN UYGUN DAİRELER";
+
+  sheet.mergeCells("A1:E1");
+  sheet.getCell("A1").value = title;
+  sheet.getCell("A1").font = {
+    bold: true,
+    color: { argb: "FFFFFFFF" },
+    size: 15,
+  };
+  sheet.getCell("A1").fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: type === "TENANT" ? "FFB45309" : "FF0369A1" },
+  };
+  sheet.getCell("A1").alignment = {
+    horizontal: "center",
+    vertical: "middle",
+  };
+  sheet.getRow(1).height = 28;
+
+  sheet.mergeCells("A2:E2");
+  sheet.getCell("A2").value =
+    type === "TENANT"
+      ? "Bu listede kiracı bağlantısı bulunmayan daireler gösterilir. Ev sahibi bulunmayan dairelere kiracı eklenebilir; yönetici tablosunda sarı uyarı oluşur."
+      : "Bu listede ev sahibi bağlantısı bulunmayan daireler gösterilir. Kiracısı bulunan daireye ev sahibi eklendiğinde sarı uyarı otomatik olarak kalkar.";
+  sheet.getCell("A2").alignment = {
+    vertical: "middle",
+    wrapText: true,
+  };
+  sheet.getCell("A2").font = {
+    italic: true,
+    color: { argb: "FF334155" },
+  };
+  sheet.getCell("A2").fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FFF8FAFC" },
+  };
+  sheet.getRow(2).height = 42;
+
+  const headers = [
+    "Site",
+    "Blok / Apartman",
+    "Daire No",
+    "Mevcut Durum",
+    "Açıklama",
+  ];
+  sheet.getRow(4).values = headers;
+  styleHeaderRow(sheet.getRow(4), "FF0F172A");
+  sheet.getRow(4).height = 30;
+
+  const eligibleApartments = apartments
+    .filter((apartment) => isApartmentAvailableForType(apartment, type))
+    .sort((first, second) => {
+      const siteComparison = compareText(
+        first.block.site.name,
+        second.block.site.name
+      );
+
+      if (siteComparison !== 0) {
+        return siteComparison;
+      }
+
+      const blockComparison = compareText(first.block.name, second.block.name);
+
+      if (blockComparison !== 0) {
+        return blockComparison;
+      }
+
+      return compareText(first.number, second.number);
+    });
+
+  eligibleApartments.forEach((apartment, index) => {
+    const hasOwner = apartmentHasType(apartment, "OWNER");
+    const hasTenant = apartmentHasType(apartment, "TENANT");
+    const row = sheet.getRow(index + 5);
+
+    const currentStatus = hasOwner
+      ? "Ev Sahibi Var"
+      : hasTenant
+        ? "Kiracı Var"
+        : "Boş";
+
+    const explanation =
+      type === "TENANT"
+        ? hasOwner
+          ? "Kiracı eklenebilir."
+          : "Kiracı eklenebilir. Ev sahibi bilgisi eksik uyarısı gösterilir."
+        : hasTenant
+          ? "Ev sahibi eklenebilir. Mevcut sarı uyarı otomatik kalkar."
+          : "Ev sahibi eklenebilir.";
+
+    row.values = [
+      apartment.block.site.name,
+      apartment.block.name,
+      apartment.number,
+      currentStatus,
+      explanation,
+    ];
+    row.height = 25;
+    row.alignment = {
+      vertical: "middle",
+      wrapText: true,
+    };
+
+    row.eachCell((cell) => {
+      cell.border = {
+        top: { style: "thin", color: { argb: "FFE2E8F0" } },
+        bottom: { style: "thin", color: { argb: "FFE2E8F0" } },
+        left: { style: "thin", color: { argb: "FFE2E8F0" } },
+        right: { style: "thin", color: { argb: "FFE2E8F0" } },
+      };
+    });
+
+    const hasWarning = type === "TENANT" ? !hasOwner : hasTenant;
+
+    if (hasWarning) {
+      row.getCell(4).fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFFEF3C7" },
+      };
+      row.getCell(4).font = {
+        bold: true,
+        color: { argb: "FF92400E" },
+      };
+      row.getCell(5).fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFFFFBEB" },
+      };
+    }
+  });
+
+  if (eligibleApartments.length === 0) {
+    sheet.mergeCells("A5:E5");
+    sheet.getCell("A5").value =
+      type === "TENANT"
+        ? "Kiracı eklenebilecek daire bulunamadı."
+        : "Ev sahibi eklenebilecek daire bulunamadı.";
+    sheet.getCell("A5").alignment = {
+      horizontal: "center",
+      vertical: "middle",
+    };
+    sheet.getCell("A5").font = {
+      italic: true,
+      color: { argb: "FF64748B" },
+    };
+  }
+
+  sheet.getColumn(1).width = 28;
+  sheet.getColumn(2).width = 28;
+  sheet.getColumn(3).width = 14;
+  sheet.getColumn(4).width = 22;
+  sheet.getColumn(5).width = 64;
+
+  if (eligibleApartments.length > 0) {
+    sheet.autoFilter = {
+      from: "A4",
+      to: `E${eligibleApartments.length + 4}`,
+    };
+  }
+
+  sheet.views = [{ state: "frozen", ySplit: 4 }];
+}
+
 export async function createResidentImportTemplate(params: {
   actor: ImportActor;
 }) {
-  const scopedApartments = await getScopedApartments(params.actor);
+  const scopedApartments = (await getScopedApartments(
+    params.actor
+  )) as ScopedApartment[];
 
   if (scopedApartments.length === 0) {
     throw new Error("Şablona eklenecek yetkili daire bulunamadı.");
   }
 
-  const sites = buildTemplateSites(scopedApartments);
+  const typeDefinitions: TemplateTypeDefinition[] = [
+    {
+      type: "OWNER",
+      label: "Ev Sahibi",
+      sites: buildTemplateSites(scopedApartments, "OWNER"),
+    },
+    {
+      type: "TENANT",
+      label: "Kiracı",
+      sites: buildTemplateSites(scopedApartments, "TENANT"),
+    },
+  ];
+
+  const totalAvailableApartmentCount = typeDefinitions.reduce(
+    (total, definition) =>
+      total +
+      definition.sites.reduce(
+        (siteTotal, site) =>
+          siteTotal +
+          site.blocks.reduce(
+            (blockTotal, block) => blockTotal + block.apartments.length,
+            0
+          ),
+        0
+      ),
+    0
+  );
+
+  if (totalAvailableApartmentCount === 0) {
+    throw new Error(
+      "Kiracı veya ev sahibi eklenebilecek uygun daire bulunamadı."
+    );
+  }
+
   const workbook = new ExcelJS.Workbook();
 
   workbook.creator = "Sitesis";
@@ -177,11 +438,28 @@ export async function createResidentImportTemplate(params: {
   const inputSheet = workbook.addWorksheet("Sakin Yükleme", {
     views: [{ state: "frozen", ySplit: 4 }],
   });
+  const tenantAvailabilitySheet = workbook.addWorksheet(
+    "Kiracı İçin Uygun Daireler"
+  );
+  const ownerAvailabilitySheet = workbook.addWorksheet(
+    "Ev Sahibi İçin Uygun Daireler"
+  );
   const guideSheet = workbook.addWorksheet("Açıklamalar");
   const exampleSheet = workbook.addWorksheet("Örnekler");
   const listSheet = workbook.addWorksheet("Listeler");
 
   listSheet.state = "veryHidden";
+
+  populateAvailabilitySheet({
+    sheet: tenantAvailabilitySheet,
+    apartments: scopedApartments,
+    type: "TENANT",
+  });
+  populateAvailabilitySheet({
+    sheet: ownerAvailabilitySheet,
+    apartments: scopedApartments,
+    type: "OWNER",
+  });
 
   inputSheet.mergeCells("A1:I1");
   const titleCell = inputSheet.getCell("A1");
@@ -205,8 +483,8 @@ export async function createResidentImportTemplate(params: {
   inputSheet.mergeCells("A2:I2");
   const infoCell = inputSheet.getCell("A2");
   infoCell.value =
-    "Ülke kodu, site, blok ve daire alanlarını açılır listeden seçin. " +
-    "Yönetici şablonunda yalnızca yetkili olunan daireler bulunur.";
+    "Önce kayıt tipini seçin. Site, blok ve daire listeleri seçilen tipe göre yalnızca uygun kayıtları gösterecektir. " +
+    "Şablondaki uygunluk bilgileri dosyanın indirildiği ana aittir; yükleme sırasında sistem tekrar kontrol eder.";
   infoCell.font = {
     italic: true,
     color: { argb: "FF1E3A8A" },
@@ -220,7 +498,7 @@ export async function createResidentImportTemplate(params: {
     vertical: "middle",
     wrapText: true,
   };
-  inputSheet.getRow(2).height = 30;
+  inputSheet.getRow(2).height = 42;
 
   const headers = [
     "Ülke Kodu",
@@ -236,40 +514,26 @@ export async function createResidentImportTemplate(params: {
 
   inputSheet.getRow(4).values = headers;
   inputSheet.getRow(4).height = 34;
-
-  inputSheet.getRow(4).eachCell((cell) => {
-    cell.font = {
-      bold: true,
-      color: { argb: "FFFFFFFF" },
-    };
-    cell.fill = {
-      type: "pattern",
-      pattern: "solid",
-      fgColor: { argb: "FF0F172A" },
-    };
-    cell.alignment = {
-      horizontal: "center",
-      vertical: "middle",
-      wrapText: true,
-    };
-    cell.border = {
-      top: { style: "thin", color: { argb: "FFCBD5E1" } },
-      bottom: { style: "thin", color: { argb: "FFCBD5E1" } },
-      left: { style: "thin", color: { argb: "FFCBD5E1" } },
-      right: { style: "thin", color: { argb: "FFCBD5E1" } },
-    };
-  });
+  styleHeaderRow(inputSheet.getRow(4), "FF0F172A");
 
   const widths = [19, 19, 24, 30, 17, 25, 25, 14, 20];
   widths.forEach((width, index) => {
     inputSheet.getColumn(index + 1).width = width;
   });
 
-  for (let rowNumber = TEMPLATE_ROW_START; rowNumber <= TEMPLATE_ROW_END; rowNumber += 1) {
+  for (
+    let rowNumber = TEMPLATE_ROW_START;
+    rowNumber <= TEMPLATE_ROW_END;
+    rowNumber += 1
+  ) {
     const row = inputSheet.getRow(rowNumber);
     row.height = 22;
 
-    for (let columnNumber = 1; columnNumber <= headers.length; columnNumber += 1) {
+    for (
+      let columnNumber = 1;
+      columnNumber <= headers.length;
+      columnNumber += 1
+    ) {
       const cell = row.getCell(columnNumber);
       cell.numFmt = "@";
       cell.alignment = {
@@ -297,23 +561,21 @@ export async function createResidentImportTemplate(params: {
     );
     applyListValidation(
       row.getCell(6),
-      "=SITE_LIST",
+      `=INDIRECT(IFERROR(VLOOKUP(E${rowNumber},TYPE_SITE_MAP,2,FALSE),"EMPTY_LIST"))`,
       "Site",
-      "Yetkiniz dahilindeki siteyi seçin."
+      "Önce kayıt tipini, sonra uygun siteyi seçin."
     );
-
     applyListValidation(
       row.getCell(7),
-      `=INDIRECT(IFERROR(VLOOKUP(F${rowNumber},SITE_BLOCK_MAP,2,FALSE),"EMPTY_LIST"))`,
+      `=INDIRECT(IFERROR(VLOOKUP(E${rowNumber}&"|"&F${rowNumber},TYPE_SITE_BLOCK_MAP,2,FALSE),"EMPTY_LIST"))`,
       "Blok / Apartman",
-      "Önce siteyi, sonra bu listeden bloğu seçin."
+      "Önce kayıt tipi ve siteyi, sonra uygun bloğu seçin."
     );
-
     applyListValidation(
       row.getCell(8),
-      `=INDIRECT(IFERROR(VLOOKUP(F${rowNumber}&"|"&G${rowNumber},BLOCK_APARTMENT_MAP,2,FALSE),"EMPTY_LIST"))`,
+      `=INDIRECT(IFERROR(VLOOKUP(E${rowNumber}&"|"&F${rowNumber}&"|"&G${rowNumber},TYPE_BLOCK_APARTMENT_MAP,2,FALSE),"EMPTY_LIST"))`,
       "Daire",
-      "Önce site ve bloğu, sonra daireyi seçin."
+      "Seçilen sakin tipine göre yalnızca uygun daireler gösterilir."
     );
   }
 
@@ -348,17 +610,14 @@ export async function createResidentImportTemplate(params: {
   listSheet.getCell("B2").value = "Ev Sahibi";
   listSheet.getCell("B3").value = "Kiracı";
 
-  listSheet.getCell("C1").value = "Site Listesi";
-  sites.forEach((site, index) => {
-    listSheet.getCell(index + 2, 3).value = site.name;
-  });
-
-  listSheet.getCell("D1").value = "Site";
-  listSheet.getCell("E1").value = "Blok Liste Adı";
-  listSheet.getCell("F1").value = "Site|Blok";
-  listSheet.getCell("G1").value = "Daire Liste Adı";
-  listSheet.getCell("H1").value = "Boş Liste";
-  listSheet.getCell("H2").value = "";
+  listSheet.getCell("C1").value = "Kayıt Tipi";
+  listSheet.getCell("D1").value = "Site Liste Adı";
+  listSheet.getCell("E1").value = "Kayıt Tipi|Site";
+  listSheet.getCell("F1").value = "Blok Liste Adı";
+  listSheet.getCell("G1").value = "Kayıt Tipi|Site|Blok";
+  listSheet.getCell("H1").value = "Daire Liste Adı";
+  listSheet.getCell("I1").value = "Boş Liste";
+  listSheet.getCell("I2").value = "";
 
   const sheetReference = quoteSheetName(listSheet.name);
 
@@ -370,73 +629,119 @@ export async function createResidentImportTemplate(params: {
     `${sheetReference}!$B$2:$B$3`,
     "RESIDENT_TYPES"
   );
-  workbook.definedNames.add(
-    `${sheetReference}!$C$2:$C$${sites.length + 1}`,
-    "SITE_LIST"
-  );
-  workbook.definedNames.add(
-    `${sheetReference}!$H$2:$H$2`,
-    "EMPTY_LIST"
-  );
+  workbook.definedNames.add(`${sheetReference}!$I$2:$I$2`, "EMPTY_LIST");
 
-  let listColumnNumber = 10;
-  let siteMapRow = 2;
-  let blockMapRow = 2;
+  let listColumnNumber = 11;
+  let typeSiteMapRow = 2;
+  let typeSiteBlockMapRow = 2;
+  let typeBlockApartmentMapRow = 2;
 
-  for (const site of sites) {
-    const siteRangeName = sanitizeDefinedName("SITE", site.id);
-    const siteColumnLetter = getColumnLetter(listColumnNumber);
+  for (const definition of typeDefinitions) {
+    let siteListRangeName = "EMPTY_LIST";
 
-    listSheet.getCell(1, listColumnNumber).value = siteRangeName;
+    if (definition.sites.length > 0) {
+      siteListRangeName = sanitizeDefinedName(
+        `${definition.type}_SITES`,
+        definition.type
+      );
+      const siteColumnLetter = getColumnLetter(listColumnNumber);
 
-    site.blocks.forEach((block, index) => {
-      listSheet.getCell(index + 2, listColumnNumber).value = block.name;
-    });
+      listSheet.getCell(1, listColumnNumber).value = siteListRangeName;
+      definition.sites.forEach((site, index) => {
+        listSheet.getCell(index + 2, listColumnNumber).value = site.name;
+      });
 
-    workbook.definedNames.add(
-      `${sheetReference}!$${siteColumnLetter}$2:$${siteColumnLetter}$${
-        site.blocks.length + 1
-      }`,
-      siteRangeName
-    );
+      workbook.definedNames.add(
+        `${sheetReference}!$${siteColumnLetter}$2:$${siteColumnLetter}$${
+          definition.sites.length + 1
+        }`,
+        siteListRangeName
+      );
+      listColumnNumber += 1;
+    }
 
-    listSheet.getCell(siteMapRow, 4).value = site.name;
-    listSheet.getCell(siteMapRow, 5).value = siteRangeName;
-    siteMapRow += 1;
-    listColumnNumber += 1;
+    listSheet.getCell(typeSiteMapRow, 3).value = definition.label;
+    listSheet.getCell(typeSiteMapRow, 4).value = siteListRangeName;
+    typeSiteMapRow += 1;
 
-    for (const block of site.blocks) {
-      const blockRangeName = sanitizeDefinedName("BLOCK", block.id);
+    for (const site of definition.sites) {
+      const blockRangeName = sanitizeDefinedName(
+        `${definition.type}_SITE`,
+        site.id
+      );
       const blockColumnLetter = getColumnLetter(listColumnNumber);
 
       listSheet.getCell(1, listColumnNumber).value = blockRangeName;
-
-      block.apartments.forEach((apartmentNumber, index) => {
-        listSheet.getCell(index + 2, listColumnNumber).value =
-          apartmentNumber;
+      site.blocks.forEach((block, index) => {
+        listSheet.getCell(index + 2, listColumnNumber).value = block.name;
       });
 
       workbook.definedNames.add(
         `${sheetReference}!$${blockColumnLetter}$2:$${blockColumnLetter}$${
-          block.apartments.length + 1
+          site.blocks.length + 1
         }`,
         blockRangeName
       );
 
-      listSheet.getCell(blockMapRow, 6).value = `${site.name}|${block.name}`;
-      listSheet.getCell(blockMapRow, 7).value = blockRangeName;
-      blockMapRow += 1;
+      listSheet.getCell(typeSiteBlockMapRow, 5).value =
+        `${definition.label}|${site.name}`;
+      listSheet.getCell(typeSiteBlockMapRow, 6).value = blockRangeName;
+      typeSiteBlockMapRow += 1;
       listColumnNumber += 1;
+
+      for (const block of site.blocks) {
+        const apartmentRangeName = sanitizeDefinedName(
+          `${definition.type}_BLOCK`,
+          block.id
+        );
+        const apartmentColumnLetter = getColumnLetter(listColumnNumber);
+
+        listSheet.getCell(1, listColumnNumber).value = apartmentRangeName;
+        block.apartments.forEach((apartmentNumber, index) => {
+          listSheet.getCell(index + 2, listColumnNumber).value =
+            apartmentNumber;
+        });
+
+        workbook.definedNames.add(
+          `${sheetReference}!$${apartmentColumnLetter}$2:$${apartmentColumnLetter}$${
+            block.apartments.length + 1
+          }`,
+          apartmentRangeName
+        );
+
+        listSheet.getCell(typeBlockApartmentMapRow, 7).value =
+          `${definition.label}|${site.name}|${block.name}`;
+        listSheet.getCell(typeBlockApartmentMapRow, 8).value =
+          apartmentRangeName;
+        typeBlockApartmentMapRow += 1;
+        listColumnNumber += 1;
+      }
     }
   }
 
+  if (typeSiteBlockMapRow === 2) {
+    listSheet.getCell("E2").value = "";
+    listSheet.getCell("F2").value = "EMPTY_LIST";
+    typeSiteBlockMapRow = 3;
+  }
+
+  if (typeBlockApartmentMapRow === 2) {
+    listSheet.getCell("G2").value = "";
+    listSheet.getCell("H2").value = "EMPTY_LIST";
+    typeBlockApartmentMapRow = 3;
+  }
+
   workbook.definedNames.add(
-    `${sheetReference}!$D$2:$E$${siteMapRow - 1}`,
-    "SITE_BLOCK_MAP"
+    `${sheetReference}!$C$2:$D$${typeSiteMapRow - 1}`,
+    "TYPE_SITE_MAP"
   );
   workbook.definedNames.add(
-    `${sheetReference}!$F$2:$G$${blockMapRow - 1}`,
-    "BLOCK_APARTMENT_MAP"
+    `${sheetReference}!$E$2:$F$${typeSiteBlockMapRow - 1}`,
+    "TYPE_SITE_BLOCK_MAP"
+  );
+  workbook.definedNames.add(
+    `${sheetReference}!$G$2:$H$${typeBlockApartmentMapRow - 1}`,
+    "TYPE_BLOCK_APARTMENT_MAP"
   );
 
   // Instructions sheet.
@@ -457,7 +762,7 @@ export async function createResidentImportTemplate(params: {
     vertical: "middle",
   };
   guideSheet.getColumn(1).width = 27;
-  guideSheet.getColumn(2).width = 78;
+  guideSheet.getColumn(2).width = 82;
 
   const guideRows = [
     ["Kural", "Açıklama"],
@@ -470,24 +775,36 @@ export async function createResidentImportTemplate(params: {
       "Yerel numarayı yazın. Başındaki 0 otomatik kaldırılır. Örnek: 05321234567.",
     ],
     [
-      "Site / Blok / Daire",
-      "Önce siteyi seçin. Blok listesi siteye, daire listesi blok seçimine göre açılır.",
+      "Kayıt tipine göre seçim",
+      "Önce Ev Sahibi veya Kiracı seçin. Site, blok ve daire listeleri bu seçime göre yalnızca uygun kayıtları gösterir.",
+    ],
+    [
+      "Kiracı için uygun daire",
+      "Kiracı bağlantısı bulunmayan daireler listelenir. Ev sahibi bulunmasa da kiracı eklenebilir ve yönetici tablosunda sarı uyarı görünür.",
+    ],
+    [
+      "Ev sahibi için uygun daire",
+      "Ev sahibi bağlantısı bulunmayan daireler listelenir. Dairede kiracı varsa ev sahibi eklendiğinde sarı uyarı otomatik kalkar.",
+    ],
+    [
+      "Uygun daire sayfaları",
+      "Kiracı İçin Uygun Daireler ve Ev Sahibi İçin Uygun Daireler sayfalarından güncel durumu görebilirsiniz.",
     ],
     [
       "Yönetici yetkisi",
       "Yönetici tarafından indirilen şablonda yalnızca yetki alanındaki site, blok ve daireler bulunur.",
     ],
     [
-      "Süper admin",
-      "Süper admin tarafından indirilen şablonda sistemdeki tüm site, blok ve daireler bulunur.",
-    ],
-    [
       "Geçici şifre",
       "Yeni hesapta en az 8 karakter zorunludur. Var olan aktif hesapta boş bırakılabilir.",
     ],
     [
+      "Güncellik ve güvenlik",
+      "Excel listeleri dosyanın indirildiği andaki durumu gösterir. Yükleme sırasında backend yetki ve doluluk kontrollerini yeniden yapar.",
+    ],
+    [
       "Kontrol",
-      "Dosya yüklenince kayıtlar önce kontrol ekranına gelir. Hatalar düzeltilmeden veritabanına kayıt yapılmaz.",
+      "Kırmızı hatalar düzeltilmeden kayıt yapılamaz. Sarı uyarılı satırlar geçerlidir ve kaydedilebilir.",
     ],
   ];
 
@@ -552,24 +869,12 @@ export async function createResidentImportTemplate(params: {
   };
 
   exampleSheet.getRow(3).values = headers;
-  exampleSheet.getRow(3).eachCell((cell) => {
-    cell.font = {
-      bold: true,
-      color: { argb: "FFFFFFFF" },
-    };
-    cell.fill = {
-      type: "pattern",
-      pattern: "solid",
-      fgColor: { argb: "FF4C1D95" },
-    };
-    cell.alignment = {
-      horizontal: "center",
-      vertical: "middle",
-      wrapText: true,
-    };
-  });
+  styleHeaderRow(exampleSheet.getRow(3), "FF4C1D95");
 
-  const firstSite = sites[0];
+  const firstDefinition =
+    typeDefinitions.find((definition) => definition.sites.length > 0) ??
+    typeDefinitions[0];
+  const firstSite = firstDefinition?.sites[0];
   const firstBlock = firstSite?.blocks[0];
   const firstApartment = firstBlock?.apartments[0] ?? "";
 
@@ -578,7 +883,7 @@ export async function createResidentImportTemplate(params: {
     "05321234567",
     "Ahmet Yılmaz",
     "ahmet@example.com",
-    "Ev Sahibi",
+    firstDefinition?.label ?? "Ev Sahibi",
     firstSite?.name ?? "",
     firstBlock?.name ?? "",
     firstApartment,

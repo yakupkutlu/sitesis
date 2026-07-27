@@ -119,11 +119,21 @@ const createApartmentResidentSchema = z.object({
   type: z.enum(["OWNER", "TENANT"]),
 });
 
+const updateOwnerAccountSchema = z
+  .object({
+    fullName: z.string().trim().min(2),
+    email: z.string().trim().email(),
+    phone: optionalInternationalPhoneSchema,
+    password: z.string().min(8).optional(),
+  })
+  .strict();
+
 const updateApartmentResidentSchema = z
   .object({
     apartmentId: z.string().uuid().optional(),
     userId: z.string().uuid().optional(),
     type: z.enum(["OWNER", "TENANT"]).optional(),
+    owner: updateOwnerAccountSchema.optional(),
   })
   .strict()
   .refine(
@@ -340,24 +350,6 @@ async function apartmentHasResidentType(params: {
   return Boolean(resident);
 }
 
-async function ensureApartmentHasOwner(params: {
-  apartmentId: string;
-  ignoreId?: string;
-}) {
-  const hasOwner = await apartmentHasResidentType({
-    apartmentId: params.apartmentId,
-    type: "OWNER",
-    ignoreId: params.ignoreId,
-  });
-
-  if (!hasOwner) {
-    throw new HttpError(
-      409,
-      "Kiracı eklenmeden önce bu daireye bir ev sahibi hesabı bağlanmalıdır."
-    );
-  }
-}
-
 const currentOccupantFilter: Prisma.ApartmentResidentWhereInput = {
   OR: [
     {
@@ -456,7 +448,7 @@ router.post(
 
     response.status(200).json({
       success: true,
-      message: "Excel dosyası okundu. Kayıtları kontrol edip hatalı satırları düzeltin.",
+      message: "Excel dosyası okundu. Kırmızı hataları düzeltin; sarı uyarılı satırlar kaydedilebilir.",
       data: {
         fileName: request.file.originalname,
         ...validation,
@@ -500,7 +492,9 @@ router.post(
       message:
         validation.summary.error > 0
           ? "Bazı satırlarda hata bulundu. Kırmızı satırları düzeltin."
-          : "Tüm satırlar kontrol edildi. Toplu kayıt işlemini başlatabilirsiniz.",
+          : validation.summary.warning > 0
+            ? "Satırlar kontrol edildi. Sarı uyarılı kayıtlar dahil toplu kayıt işlemini başlatabilirsiniz."
+            : "Tüm satırlar kontrol edildi. Toplu kayıt işlemini başlatabilirsiniz.",
       data: validation,
     });
   })
@@ -696,9 +690,6 @@ router.post(
       type,
     });
 
-    if (type === "TENANT") {
-      await ensureApartmentHasOwner({ apartmentId });
-    }
 
     const apartmentResident = await executeResidentMutation(
       prisma.apartmentResident.create({
@@ -737,14 +728,20 @@ router.patch(
   requireRole("SUPER_ADMIN", "MANAGER"),
   asyncHandler(async (request: Request, response: Response) => {
     const authenticatedRequest = request as AuthenticatedRequest;
+    const authenticatedUser = authenticatedRequest.user;
 
-    if (!authenticatedRequest.user) {
+    if (!authenticatedUser) {
       throw new HttpError(401, "Oturum bulunamadı.");
     }
 
-    const apartmentResidentId = getRequiredParam(request, "apartmentResidentId");
+    const apartmentResidentId = getRequiredParam(
+      request,
+      "apartmentResidentId"
+    );
 
-    const validationResult = updateApartmentResidentSchema.safeParse(request.body);
+    const validationResult = updateApartmentResidentSchema.safeParse(
+      request.body
+    );
 
     if (!validationResult.success) {
       throw new HttpError(
@@ -776,7 +773,7 @@ router.patch(
     }
 
     if (
-      authenticatedRequest.user.role === "MANAGER" &&
+      authenticatedUser.role === "MANAGER" &&
       targetApartmentResident.user.role === "SUPER_ADMIN"
     ) {
       throw new HttpError(
@@ -785,38 +782,60 @@ router.patch(
       );
     }
 
-    if (authenticatedRequest.user.role === "MANAGER") {
+    if (authenticatedUser.role === "MANAGER") {
       await ensureApartmentIsInsideUserScope({
-        userId: authenticatedRequest.user.id,
-        userRole: authenticatedRequest.user.role,
+        userId: authenticatedUser.id,
+        userRole: authenticatedUser.role,
         apartmentId: targetApartmentResident.apartmentId,
       });
     }
 
-    const { apartmentId, userId, type } = validationResult.data;
+    const { apartmentId, userId, type, owner } = validationResult.data;
 
-    const nextApartmentId = apartmentId ?? targetApartmentResident.apartmentId;
+    const nextApartmentId =
+      apartmentId ?? targetApartmentResident.apartmentId;
     const nextUserId = userId ?? targetApartmentResident.userId;
     const nextType = type ?? targetApartmentResident.type;
 
-    if (apartmentId !== undefined && apartmentId !== targetApartmentResident.apartmentId) {
+    if (owner && nextType !== "TENANT") {
+      throw new HttpError(
+        400,
+        "Ev sahibi bilgileri yalnızca kiracı kaydı düzenlenirken gönderilebilir."
+      );
+    }
+
+    if (
+      apartmentId !== undefined &&
+      apartmentId !== targetApartmentResident.apartmentId
+    ) {
       await ensureApartmentExists(apartmentId);
     }
 
-    await ensureUserCanBeLinkedAsResident({
+    const nextResidentUser = await ensureUserCanBeLinkedAsResident({
       userId: nextUserId,
-      actorRole: authenticatedRequest.user.role,
+      actorRole: authenticatedUser.role,
       residentType: nextType,
       ignoreApartmentResidentId: targetApartmentResident.id,
     });
 
     if (
-      authenticatedRequest.user.role === "MANAGER" &&
+      owner &&
+      owner.email.trim().toLowerCase() ===
+        nextResidentUser.email.trim().toLowerCase()
+    ) {
+      throw new HttpError(
+        400,
+        "Kiracı ve ev sahibi aynı e-posta hesabını kullanamaz."
+      );
+    }
+
+    if (
+      authenticatedUser.role === "MANAGER" &&
       nextApartmentId !== targetApartmentResident.apartmentId
     ) {
       await ensureApartmentIsInsideUserScope({
-        userId: authenticatedRequest.user.id,
-        userRole: authenticatedRequest.user.role,
+        userId: authenticatedUser.id,
+        userRole: authenticatedUser.role,
         apartmentId: nextApartmentId,
       });
     }
@@ -853,16 +872,6 @@ router.patch(
       ignoreId: targetApartmentResident.id,
     });
 
-    if (nextType === "TENANT") {
-      await ensureApartmentHasOwner({
-        apartmentId: nextApartmentId,
-        ignoreId:
-          targetApartmentResident.type === "OWNER"
-            ? targetApartmentResident.id
-            : undefined,
-      });
-    }
-
     const updateData: {
       apartmentId?: string;
       userId?: string;
@@ -881,19 +890,100 @@ router.patch(
       updateData.type = type;
     }
 
-    const updatedApartmentResident = await executeResidentMutation(
-      prisma.apartmentResident.update({
-        where: {
-          id: apartmentResidentId,
-        },
-        data: updateData,
-        include: apartmentResidentInclude,
+    const ownerPasswordHash = owner
+      ? await preparePasswordHash(owner)
+      : undefined;
+
+    const updateResult = await executeResidentMutation(
+      prisma.$transaction(async (transaction) => {
+        let ownerResult:
+          | Awaited<ReturnType<typeof resolveResidentAccount>>
+          | undefined;
+        let ownerLinkId: string | undefined;
+
+        if (owner) {
+          const existingOwnerLink =
+            await transaction.apartmentResident.findFirst({
+              where: {
+                apartmentId: nextApartmentId,
+                type: "OWNER",
+              },
+              select: {
+                id: true,
+              },
+            });
+
+          if (existingOwnerLink) {
+            throw new HttpError(
+              409,
+              "Bu daireye zaten bir ev sahibi atanmış."
+            );
+          }
+        }
+
+        if (Object.keys(updateData).length > 0) {
+          await transaction.apartmentResident.update({
+            where: {
+              id: apartmentResidentId,
+            },
+            data: updateData,
+          });
+        }
+
+        if (owner) {
+          ownerResult = await resolveResidentAccount({
+            transaction,
+            account: owner,
+            passwordHash: ownerPasswordHash,
+            actorRole: authenticatedUser.role,
+            residentType: "OWNER",
+          });
+
+          const ownerLink = await transaction.apartmentResident.create({
+            data: {
+              apartmentId: nextApartmentId,
+              userId: ownerResult.user.id,
+              type: "OWNER",
+            },
+            select: {
+              id: true,
+            },
+          });
+
+          ownerLinkId = ownerLink.id;
+        }
+
+        const updatedApartmentResident =
+          await transaction.apartmentResident.findUnique({
+            where: {
+              id: apartmentResidentId,
+            },
+            include: apartmentResidentInclude,
+          });
+
+        if (!updatedApartmentResident) {
+          throw new HttpError(
+            404,
+            "Güncellenen daire sakini kaydı bulunamadı."
+          );
+        }
+
+        return {
+          updatedApartmentResident,
+          ownerUser: ownerResult?.user,
+          ownerAccountCreated: ownerResult?.created ?? false,
+          ownerAccountReactivated: ownerResult?.reactivated ?? false,
+          ownerLinkId,
+        };
       })
     );
 
+    const updatedApartmentResident =
+      updateResult.updatedApartmentResident;
+
     await createAuditLog({
       request,
-      userId: authenticatedRequest.user.id,
+      userId: authenticatedUser.id,
       action: "UPDATE_APARTMENT_RESIDENT",
       entityType: "ApartmentResident",
       entityId: updatedApartmentResident.id,
@@ -908,17 +998,38 @@ router.patch(
           userId: updatedApartmentResident.userId,
           type: updatedApartmentResident.type,
         },
+        ownerCompleted: Boolean(updateResult.ownerLinkId),
+        ownerLinkId: updateResult.ownerLinkId,
+        ownerUserId: updateResult.ownerUser?.id,
+        ownerUserEmail: updateResult.ownerUser?.email,
+        ownerAccountCreated: updateResult.ownerAccountCreated,
+        ownerAccountReactivated:
+          updateResult.ownerAccountReactivated,
       },
     });
 
+    let message = "Daire sakini kaydı başarıyla güncellendi.";
+
+    if (updateResult.ownerLinkId) {
+      if (updateResult.ownerAccountCreated) {
+        message =
+          "Sakin kaydı güncellendi. Ev sahibi hesabı oluşturulup aynı daireye bağlandı.";
+      } else if (updateResult.ownerAccountReactivated) {
+        message =
+          "Sakin kaydı güncellendi. Pasif ev sahibi hesabı aktifleştirilip aynı daireye bağlandı.";
+      } else {
+        message =
+          "Sakin kaydı güncellendi. Mevcut ev sahibi hesabı aynı daireye bağlandı.";
+      }
+    }
+
     response.status(200).json({
       success: true,
-      message: "Daire sakini kaydı başarıyla güncellendi.",
+      message,
       data: updatedApartmentResident,
     });
   })
 );
-
 
 const updateLinkedResidentStatusSchema = z
   .object({
@@ -1525,16 +1636,6 @@ router.post(
           throw new HttpError(409, "Bu daireye zaten bir kiracı atanmış.");
         }
 
-        if (
-          type === "TENANT" &&
-          existingOwner &&
-          existingOwner.user.status !== "ACTIVE"
-        ) {
-          throw new HttpError(
-            409,
-            "Dairenin ev sahibi hesabı aktif değil. Kiracı eklemeden önce ev sahibi hesabını aktifleştirin."
-          );
-        }
 
         if (type === "TENANT" && existingOwner && owner) {
           throw new HttpError(
@@ -1543,12 +1644,6 @@ router.post(
           );
         }
 
-        if (type === "TENANT" && !existingOwner && !owner) {
-          throw new HttpError(
-            400,
-            "Boş daireye kiracı eklemek için ev sahibi hesap bilgileri zorunludur."
-          );
-        }
 
         let ownerResult:
           | Awaited<ReturnType<typeof resolveResidentAccount>>
@@ -1605,6 +1700,8 @@ router.post(
           ownerAccountReactivated: ownerResult?.reactivated ?? false,
           ownerLinkId,
           usedExistingOwner: type === "TENANT" && Boolean(existingOwner),
+          ownerInfoMissing:
+            type === "TENANT" && !existingOwner && !ownerLinkId,
         };
       })
     );
@@ -1632,17 +1729,22 @@ router.post(
         ownerAccountCreated: result.ownerAccountCreated,
         ownerAccountReactivated: result.ownerAccountReactivated,
         usedExistingOwner: result.usedExistingOwner,
+        ownerInfoMissing: result.ownerInfoMissing,
       },
     });
 
     const message = result.residentAccountReactivated
       ? type === "TENANT"
-        ? "Eski pasif kiracı hesabı yeniden aktifleştirildi ve seçilen daireye bağlandı."
+        ? result.ownerInfoMissing
+          ? "Eski pasif kiracı hesabı yeniden aktifleştirildi ve daireye bağlandı. Ev sahibi bilgisi eksik uyarısı gösterilecek."
+          : "Eski pasif kiracı hesabı yeniden aktifleştirildi ve seçilen daireye bağlandı."
         : "Eski pasif ev sahibi hesabı yeniden aktifleştirildi ve seçilen daireye bağlandı."
       : type === "TENANT"
         ? result.usedExistingOwner
           ? "Kiracı hesabı mevcut ev sahibinin dairesine bağlandı."
-          : "Ev sahibi ve kiracı hesapları daireye bağlandı. Kiracı sakin olarak gösterilecek."
+          : result.ownerLinkId
+            ? "Ev sahibi ve kiracı hesapları daireye bağlandı. Kiracı sakin olarak gösterilecek."
+            : "Kiracı hesabı daireye bağlandı. Ev sahibi bilgisi eksik olduğu için yönetici tablosunda sarı uyarı gösterilecek."
         : "Ev sahibi hesabı daireye bağlandı ve sakin olarak gösterilecek.";
 
     response.status(201).json({

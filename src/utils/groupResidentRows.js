@@ -1,5 +1,6 @@
 function getResidentType(row) {
-  const rawType = row?.residentType ?? row?.rawRecord?.type;
+  const rawType =
+    row?.residentType ?? row?.rawRecord?.type ?? row?.raw?.type;
 
   if (rawType === "OWNER" || row?.role === "Ev Sahibi") {
     return "OWNER";
@@ -17,10 +18,10 @@ function apartmentHasTenant(row) {
     return row.hasTenant;
   }
 
-  const residentLinks = Array.isArray(
-    row?.rawRecord?.apartment?.residents
-  )
-    ? row.rawRecord.apartment.residents
+  const apartment =
+    row?.rawRecord?.apartment ?? row?.raw?.apartment ?? null;
+  const residentLinks = Array.isArray(apartment?.residents)
+    ? apartment.residents
     : [];
 
   return residentLinks.some(
@@ -32,6 +33,7 @@ function getOwnerGroupKey(row) {
   return (
     row?.userId ??
     row?.rawRecord?.userId ??
+    row?.raw?.userId ??
     row?.email ??
     row?.id
   );
@@ -147,20 +149,16 @@ function compareApartmentRows(firstRow, secondRow) {
   });
 }
 
-function buildOwnerSummary(ownerRows, ownerKey) {
-  const apartmentRows = [...ownerRows].sort(compareApartmentRows);
-  const firstVacantApartment =
-    apartmentRows.find((row) => !apartmentHasTenant(row)) ??
-    apartmentRows[0];
+function buildOwnerSummary(visibleOwnerRows, ownerKey) {
+  const apartmentRows = [...visibleOwnerRows].sort(compareApartmentRows);
+  const firstApartment = apartmentRows[0];
 
   return {
-    ...firstVacantApartment,
+    ...firstApartment,
     id: `owner-summary-${ownerKey}`,
     isMultiApartmentOwner: true,
     apartmentCount: apartmentRows.length,
-    vacantApartmentCount: apartmentRows.filter(
-      (row) => !apartmentHasTenant(row)
-    ).length,
+    vacantApartmentCount: apartmentRows.length,
     apartmentRows,
     site: getSharedLocationLabel(
       apartmentRows,
@@ -183,10 +181,11 @@ function buildOwnerSummary(ownerRows, ownerKey) {
 /*
  * Görüntüleme kuralları:
  * 1. Kiracı bağlantıları her zaman gösterilir.
- * 2. Kiracısı bulunan tek dairenin ev sahibi ayrıca gösterilmez.
+ * 2. Kiracısı bulunan dairenin ev sahibi ayrıca gösterilmez.
  * 3. Ev sahibinin bütün daireleri kiradaysa ev sahibi tabloda gösterilmez.
- * 4. En az bir dairesi boşsa ev sahibi bir kez gösterilir.
- * 5. Birden fazla dairesi olan ev sahibinin ok altında tüm daireleri bulunur.
+ * 4. Kiracısız tek dairesi varsa ev sahibi normal bir satır olarak gösterilir.
+ * 5. Kiracısız birden fazla dairesi varsa ev sahibi tek satırda gruplanır.
+ * 6. Okun içinde yalnızca kiracısı olmayan daireler gösterilir.
  */
 export function groupResidentRows(rows = []) {
   const safeRows = Array.isArray(rows) ? rows.filter(Boolean) : [];
@@ -224,21 +223,22 @@ export function groupResidentRows(rows = []) {
     processedOwnerKeys.add(ownerKey);
 
     const ownerRows = ownerGroups.get(ownerKey) ?? [row];
-    const hasAtLeastOneVacantApartment = ownerRows.some(
+    const visibleOwnerRows = ownerRows.filter(
       (ownerRow) => !apartmentHasTenant(ownerRow)
     );
 
-    // Ev sahibinin bütün dairelerinde kiracı varsa kendisi listelenmez.
-    if (!hasAtLeastOneVacantApartment) {
+    // Ev sahibinin bütün dairelerinde kiracı varsa yalnızca kiracılar görünür.
+    if (visibleOwnerRows.length === 0) {
       continue;
     }
 
-    if (ownerRows.length === 1) {
-      visibleRows.push(ownerRows[0]);
+    // Görünür durumda yalnızca bir kiracısız daire varsa gruba gerek yoktur.
+    if (visibleOwnerRows.length === 1) {
+      visibleRows.push(visibleOwnerRows[0]);
       continue;
     }
 
-    visibleRows.push(buildOwnerSummary(ownerRows, ownerKey));
+    visibleRows.push(buildOwnerSummary(visibleOwnerRows, ownerKey));
   }
 
   return visibleRows;

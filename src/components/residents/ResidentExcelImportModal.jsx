@@ -96,11 +96,23 @@ function toRequestRows(rows) {
   }));
 }
 
-function getStatusLabel(status) {
-  if (status === "VALID") return "Geçerli";
-  if (status === "ERROR") return "Hatalı";
-  if (status === "SKIP") return "Zaten Kayıtlı";
+function getStatusLabel(row) {
+  if (row.status === "VALID" && row.warnings.length > 0) {
+    return "Uyarılı / Geçerli";
+  }
+
+  if (row.status === "VALID") return "Geçerli";
+  if (row.status === "ERROR") return "Hatalı";
+  if (row.status === "SKIP") return "Zaten Kayıtlı";
   return "Tekrar Kontrol Et";
+}
+
+function getStatusVisualClass(row) {
+  if (row.status === "VALID" && row.warnings.length > 0) {
+    return "warning";
+  }
+
+  return row.status.toLowerCase();
 }
 
 function ResidentExcelImportModal({ open, onClose, onImported }) {
@@ -119,6 +131,9 @@ function ResidentExcelImportModal({ open, onClose, onImported }) {
       valid: rows.filter((row) => row.status === "VALID").length,
       error: rows.filter((row) => row.status === "ERROR").length,
       skip: rows.filter((row) => row.status === "SKIP").length,
+      warning: rows.filter(
+        (row) => row.status === "VALID" && row.warnings.length > 0
+      ).length,
       unvalidated: rows.filter(
         (row) => !["VALID", "ERROR", "SKIP"].includes(row.status)
       ).length,
@@ -263,8 +278,10 @@ function ResidentExcelImportModal({ open, onClose, onImported }) {
       return;
     }
 
+    const warningText =
+      summary.warning > 0 ? ` (${summary.warning} sarı uyarılı)` : "";
     const confirmed = window.confirm(
-      `${summary.valid} geçerli sakin satırı kaydedilecek. Devam etmek istiyor musunuz?`
+      `${summary.valid} geçerli sakin satırı${warningText} kaydedilecek. Devam etmek istiyor musunuz?`
     );
 
     if (!confirmed) {
@@ -311,9 +328,9 @@ function ResidentExcelImportModal({ open, onClose, onImported }) {
             <span className="section-kicker">Toplu Sakin İşlemi</span>
             <h3 id="resident-import-title">Excel'den Kiracı / Ev Sahibi Yükle</h3>
             <p>
-              Dosyayı yükleyin, kırmızı satırları tabloda düzeltin, tekrar
-              kontrol edin ve ardından tüm geçerli kayıtları tek işlemde
-              kaydedin.
+              Dosyayı yükleyin, kırmızı satırları tabloda düzeltin ve tekrar
+              kontrol edin. Sarı uyarılı satırlar geçerlidir ve toplu kayıt
+              işlemine dahil edilebilir.
             </p>
           </div>
 
@@ -373,6 +390,10 @@ function ResidentExcelImportModal({ open, onClose, onImported }) {
                 <span>Geçerli</span>
                 <strong>{summary.valid}</strong>
               </div>
+              <div className="warning">
+                <span>Uyarılı</span>
+                <strong>{summary.warning}</strong>
+              </div>
               <div className="error">
                 <span>Hatalı</span>
                 <strong>{summary.error}</strong>
@@ -410,7 +431,7 @@ function ResidentExcelImportModal({ open, onClose, onImported }) {
                   {rows.map((row, rowIndex) => (
                     <tr
                       key={`${row.rowNumber}-${rowIndex}`}
-                      className={`resident-import-row ${row.status.toLowerCase()}`}
+                      className={`resident-import-row ${getStatusVisualClass(row)}`}
                     >
                       <td>
                         <strong>{row.rowNumber}</strong>
@@ -555,14 +576,14 @@ function ResidentExcelImportModal({ open, onClose, onImported }) {
                       <td>
                         <div className="resident-import-status-cell">
                           <span
-                            className={`resident-import-status-badge ${row.status.toLowerCase()}`}
+                            className={`resident-import-status-badge ${getStatusVisualClass(row)}`}
                           >
-                            {row.status === "VALID" ? (
+                            {row.status === "VALID" && row.warnings.length === 0 ? (
                               <CheckCircle2 size={14} />
                             ) : (
                               <AlertTriangle size={14} />
                             )}
-                            {getStatusLabel(row.status)}
+                            {getStatusLabel(row)}
                           </span>
 
                           <small>{row.action}</small>

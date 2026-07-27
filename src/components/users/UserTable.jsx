@@ -1,5 +1,6 @@
 ﻿import { Fragment, useState } from "react";
 import {
+  AlertTriangle,
   ChevronDown,
   ChevronRight,
   Edit,
@@ -119,7 +120,19 @@ function UserRow({
       </td>
 
       <td>
-        <span className="table-role-badge">{user.role || "-"}</span>
+        <div className="resident-role-stack">
+          <span className="table-role-badge">{user.role || "-"}</span>
+
+          {user.ownerInfoMissing && (
+            <span
+              className="resident-owner-warning-badge"
+              title="Bu daire için ev sahibi bilgisi henüz girilmedi."
+            >
+              <AlertTriangle size={14} />
+              Ev Sahibi Bilgisi Eksik
+            </span>
+          )}
+        </div>
       </td>
 
       <td>

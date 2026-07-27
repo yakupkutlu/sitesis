@@ -50,6 +50,65 @@ const emptyFormData = {
   ownerPassword: "",
 };
 
+function buildOptionalOwnerPayload({
+  formData,
+  residentType,
+  residentEmail,
+  apartmentHasOwner,
+}) {
+  if (residentType !== "TENANT" || apartmentHasOwner) {
+    return { owner: undefined, error: null };
+  }
+
+  const ownerFullName = formData.ownerFullName.trim();
+  const ownerEmail = formData.ownerEmail.trim();
+  const ownerPhone = formData.ownerPhone.trim();
+  const ownerPassword = formData.ownerPassword;
+
+  const hasAnyOwnerInformation = [
+    ownerFullName,
+    ownerEmail,
+    ownerPhone,
+    ownerPassword,
+  ].some((value) => Boolean(value));
+
+  if (!hasAnyOwnerInformation) {
+    return { owner: undefined, error: null };
+  }
+
+  if (!ownerFullName || !ownerEmail) {
+    return {
+      owner: undefined,
+      error:
+        "Ev sahibi bilgisi eklenecekse ad soyad ve e-posta alanlarını doldurun; bilgiler bilinmiyorsa tüm ev sahibi alanlarını boş bırakın.",
+    };
+  }
+
+  if (ownerPassword && ownerPassword.length < 8) {
+    return {
+      owner: undefined,
+      error: "Ev sahibi geçici şifresi en az 8 karakter olmalıdır.",
+    };
+  }
+
+  if (residentEmail.trim().toLowerCase() === ownerEmail.toLowerCase()) {
+    return {
+      owner: undefined,
+      error: "Kiracı ve ev sahibi aynı e-posta adresini kullanamaz.",
+    };
+  }
+
+  return {
+    owner: {
+      fullName: ownerFullName,
+      email: ownerEmail,
+      phone: ownerPhone || undefined,
+      password: ownerPassword || undefined,
+    },
+    error: null,
+  };
+}
+
 function getDataArray(result) {
   const data = result?.data ?? result;
 
@@ -135,6 +194,12 @@ function mapApartmentResidentToViewModel(item) {
   const site = block.site ?? {};
   const paymentSummary = buildPaymentSummary(item);
   const owner = getOwnerDetails(apartment);
+  const apartmentResidents = Array.isArray(apartment?.residents)
+    ? apartment.residents
+    : [];
+  const apartmentHasOwner = apartmentResidents.some(
+    (residentLink) => residentLink.type === "OWNER"
+  );
 
   return {
     id: item.id,
@@ -154,6 +219,7 @@ function mapApartmentResidentToViewModel(item) {
     remainingDebt: paymentSummary.remainingDebt,
     lastPaymentDate: "-",
     owner,
+    ownerInfoMissing: item.type === "TENANT" && !apartmentHasOwner,
     note: `${site.name ?? "Site"} / ${block.name ?? "Blok"} / ${
       apartment.number ? `Daire ${apartment.number}` : "Daire"
     }`,
@@ -394,6 +460,18 @@ function ResidentsPage() {
       (resident) => resident.type === "OWNER"
     );
 
+    const { owner, error: ownerError } = buildOptionalOwnerPayload({
+      formData,
+      residentType: formData.type,
+      residentEmail: formData.email,
+      apartmentHasOwner,
+    });
+
+    if (ownerError) {
+      setErrorMessage(ownerError);
+      return;
+    }
+
     try {
       setIsSaving(true);
       setMessage("");
@@ -405,10 +483,14 @@ function ResidentsPage() {
           return;
         }
 
-        await updateApartmentResident(editingResident.id, {
-          apartmentId: formData.apartmentId,
-          type: formData.type,
-        });
+        const updateResult = await updateApartmentResident(
+          editingResident.id,
+          {
+            apartmentId: formData.apartmentId,
+            type: formData.type,
+            ...(owner ? { owner } : {}),
+          }
+        );
 
         if (formData.password) {
           await updateResidentPassword(editingResident.id, {
@@ -417,9 +499,12 @@ function ResidentsPage() {
         }
 
         setMessage(
-          formData.password
-            ? "Sakin bilgileri ve şifresi başarıyla güncellendi."
-            : "Sakin daire bağlantısı başarıyla güncellendi."
+          updateResult?.message ??
+            (owner
+              ? "Sakin güncellendi ve ev sahibi aynı daireye bağlandı."
+              : formData.password
+                ? "Sakin bilgileri ve şifresi başarıyla güncellendi."
+                : "Sakin daire bağlantısı başarıyla güncellendi.")
         );
       } else {
         if (!formData.fullName.trim()) {
@@ -437,47 +522,6 @@ function ResidentsPage() {
           return;
         }
 
-        let owner;
-
-        if (formData.type === "TENANT" && !apartmentHasOwner) {
-          if (!formData.ownerFullName.trim()) {
-            setErrorMessage("Ev sahibi ad soyad bilgisi zorunludur.");
-            return;
-          }
-
-          if (!formData.ownerEmail.trim()) {
-            setErrorMessage("Ev sahibi e-posta bilgisi zorunludur.");
-            return;
-          }
-
-          if (
-            formData.ownerPassword &&
-            formData.ownerPassword.length < 8
-          ) {
-            setErrorMessage(
-              "Ev sahibi geçici şifresi en az 8 karakter olmalıdır."
-            );
-            return;
-          }
-
-          if (
-            formData.email.trim().toLowerCase() ===
-            formData.ownerEmail.trim().toLowerCase()
-          ) {
-            setErrorMessage(
-              "Kiracı ve ev sahibi aynı e-posta adresini kullanamaz."
-            );
-            return;
-          }
-
-          owner = {
-            fullName: formData.ownerFullName.trim(),
-            email: formData.ownerEmail.trim(),
-            phone: formData.ownerPhone.trim() || undefined,
-            password: formData.ownerPassword || undefined,
-          };
-        }
-
         const result = await createResidentAndAssignApartment({
           fullName: formData.fullName.trim(),
           email: formData.email.trim(),
@@ -491,7 +535,9 @@ function ResidentsPage() {
         setMessage(
           result?.message ??
             (formData.type === "TENANT"
-              ? "Kiracı ve ev sahibi bilgileri başarıyla kaydedildi."
+              ? owner
+                ? "Kiracı ve ev sahibi başarıyla kaydedildi."
+                : "Kiracı başarıyla kaydedildi. Ev sahibi bilgisi eksik olduğu için sarı uyarı gösterilecektir."
               : "Ev sahibi başarıyla kaydedildi.")
         );
       }

@@ -5,7 +5,7 @@ import {
   FileText,
 } from "lucide-react";
 
-const catalogPath = "/Sitesis_Kullanim_Katalogu.pdf";
+const catalogPath = "/KonutSis_Kullanim_Katalogu.pdf";
 
 function KullanimKatalogu() {
   return (

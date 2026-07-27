@@ -1,5 +1,5 @@
 ﻿import { useMemo } from "react";
-import { Home, Info, UserRound, X } from "lucide-react";
+import { AlertTriangle, Home, Info, UserRound, X } from "lucide-react";
 
 import InternationalPhoneInput from "../common/InternationalPhoneInput";
 
@@ -121,13 +121,11 @@ function ResidentForm({
   const selectedApartmentHasOwner = Boolean(selectedOwner);
 
   const needsOwnerInformation =
-    !editingResident &&
     formData.type === "TENANT" &&
     Boolean(selectedApartment) &&
     !selectedApartmentHasOwner;
 
   const usesExistingOwner =
-    !editingResident &&
     formData.type === "TENANT" &&
     Boolean(selectedApartment) &&
     selectedApartmentHasOwner;
@@ -162,8 +160,9 @@ function ResidentForm({
           </h3>
 
           <p>
-            Ev sahibi ve kiracı hesapları ayrı tutulur. Kiracı varsa sakinler
-            listesinde kiracı, kiracı yoksa ev sahibi görüntülenir.
+            Ev sahibi bilgileri biliniyorsa kiracıyla birlikte girilebilir.
+            Bilgiler henüz bilinmiyorsa kiracı tek başına kaydedilir ve sarı
+            uyarı, ev sahibi eklenene kadar gösterilir.
           </p>
         </div>
 
@@ -320,13 +319,19 @@ function ResidentForm({
                 const owner = residents.find(
                   (resident) => resident.type === "OWNER"
                 );
+                const tenant = residents.find(
+                  (resident) => resident.type === "TENANT"
+                );
+
+                const apartmentStatus = owner?.user?.fullName
+                  ? ` — Ev Sahibi: ${owner.user.fullName}`
+                  : tenant
+                    ? " — Kiracı var / Ev sahibi bilgisi eksik"
+                    : " — Boş";
 
                 return (
                   <option key={apartment.id} value={apartment.id}>
-                    Daire {apartment.number}
-                    {owner?.user?.fullName
-                      ? ` — Ev Sahibi: ${owner.user.fullName}`
-                      : " — Boş"}
+                    Daire {apartment.number}{apartmentStatus}
                   </option>
                 );
               })}
@@ -352,10 +357,27 @@ function ResidentForm({
               <div className="resident-owner-section-header">
                 <UserRound size={20} />
                 <div>
-                  <h4>Ev Sahibi Hesap Bilgileri</h4>
+                  <h4>
+                    {editingResident
+                      ? "Eksik Ev Sahibi Bilgisini Tamamla"
+                      : "Ev Sahibi Hesap Bilgileri — İsteğe Bağlı"}
+                  </h4>
                   <p>
-                    Seçilen dairede kayıtlı ev sahibi bulunmadığı için bu
-                    bilgiler zorunludur.
+                    Ev sahibi bilgileri biliniyorsa ad soyad ve e-posta
+                    alanlarını birlikte doldurun. Bilgiler henüz bilinmiyorsa
+                    tüm alanları boş bırakabilirsiniz.
+                  </p>
+                </div>
+              </div>
+
+              <div className="resident-owner-warning-card" role="status">
+                <AlertTriangle size={20} />
+                <div>
+                  <strong>Alanlar boş bırakılırsa kiracı yine kaydedilir</strong>
+                  <p>
+                    Kiracı sisteme giriş yapabilir. Yönetici tablosundaki sarı
+                    uyarı, aynı daireye ev sahibi eklendiğinde otomatik olarak
+                    kaybolur.
                   </p>
                 </div>
               </div>
@@ -369,7 +391,6 @@ function ResidentForm({
                     value={formData.ownerFullName}
                     onChange={onInputChange}
                     placeholder="Örn: Ahmet Yılmaz"
-                    required
                     disabled={isSaving}
                   />
                 </label>
@@ -382,7 +403,6 @@ function ResidentForm({
                     value={formData.ownerEmail}
                     onChange={onInputChange}
                     placeholder="Örn: ahmet@example.com"
-                    required
                     disabled={isSaving}
                   />
                 </label>

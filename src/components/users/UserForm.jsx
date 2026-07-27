@@ -1,5 +1,5 @@
 ﻿import { useMemo } from "react";
-import { CheckCircle2, Home, Info, UserRound, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Home, Info, UserRound, X } from "lucide-react";
 
 import InternationalPhoneInput from "../common/InternationalPhoneInput";
 
@@ -125,13 +125,11 @@ function UserForm({
   const selectedApartmentHasOwner = Boolean(selectedOwner);
 
   const needsOwnerInformation =
-    !isEditMode &&
     formData.residentType === "TENANT" &&
     Boolean(selectedApartment) &&
     !selectedApartmentHasOwner;
 
   const usesExistingOwner =
-    !isEditMode &&
     formData.residentType === "TENANT" &&
     Boolean(selectedApartment) &&
     selectedApartmentHasOwner;
@@ -164,8 +162,9 @@ function UserForm({
           <h3>{isEditMode ? "Sakin Bilgilerini Düzenle" : "Yeni Sakin Ekle"}</h3>
 
           <p>
-            Kiracı eklenen boş bir daire için ev sahibi hesap bilgileri de
-            istenir. Dairede kayıtlı ev sahibi varsa mevcut hesap korunur.
+            Ev sahibi bilgileri biliniyorsa kiracıyla birlikte girilebilir.
+            Bilgiler henüz bilinmiyorsa kiracı tek başına kaydedilir ve sarı
+            uyarı, ev sahibi eklenene kadar gösterilir.
           </p>
         </div>
 
@@ -317,16 +316,23 @@ function UserForm({
               <option value="">{apartmentPlaceholder}</option>
 
               {apartmentOptions.map((apartment) => {
-                const owner = getApartmentResidents(apartment).find(
+                const residents = getApartmentResidents(apartment);
+                const owner = residents.find(
                   (resident) => resident.type === "OWNER"
                 );
+                const tenant = residents.find(
+                  (resident) => resident.type === "TENANT"
+                );
+
+                const apartmentStatus = owner?.user?.fullName
+                  ? ` — Ev Sahibi: ${owner.user.fullName}`
+                  : tenant
+                    ? " — Kiracı var / Ev sahibi bilgisi eksik"
+                    : " — Boş";
 
                 return (
                   <option key={apartment.id} value={apartment.id}>
-                    Daire {apartment.number}
-                    {owner?.user?.fullName
-                      ? ` — Ev Sahibi: ${owner.user.fullName}`
-                      : " — Boş"}
+                    Daire {apartment.number}{apartmentStatus}
                   </option>
                 );
               })}
@@ -351,10 +357,26 @@ function UserForm({
               <div className="resident-owner-section-header">
                 <UserRound size={20} />
                 <div>
-                  <h4>Ev Sahibi Hesap Bilgileri</h4>
+                  <h4>
+                    {isEditMode
+                      ? "Eksik Ev Sahibi Bilgisini Tamamla"
+                      : "Ev Sahibi Hesap Bilgileri — İsteğe Bağlı"}
+                  </h4>
                   <p>
-                    Seçilen dairede kayıtlı ev sahibi olmadığı için aşağıdaki
-                    bilgiler gereklidir.
+                    Ev sahibi bilgileri biliniyorsa ad soyad ve e-posta
+                    alanlarını birlikte doldurun. Bilgiler henüz bilinmiyorsa
+                    tüm alanları boş bırakabilirsiniz.
+                  </p>
+                </div>
+              </div>
+
+              <div className="resident-owner-warning-card" role="status">
+                <AlertTriangle size={20} />
+                <div>
+                  <strong>Alanlar boş bırakılırsa kiracı yine kaydedilir</strong>
+                  <p>
+                    Kiracı sisteme giriş yapabilir. Sarı uyarı, aynı daireye ev
+                    sahibi eklendiğinde otomatik olarak kaybolur.
                   </p>
                 </div>
               </div>
@@ -369,7 +391,6 @@ function UserForm({
                     onChange={onInputChange}
                     placeholder="Örn: Ahmet Yılmaz"
                     disabled={isSaving}
-                    required
                   />
                 </label>
 
@@ -382,7 +403,6 @@ function UserForm({
                     onChange={onInputChange}
                     placeholder="ahmet@example.com"
                     disabled={isSaving}
-                    required
                   />
                 </label>
 

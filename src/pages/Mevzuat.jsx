@@ -251,11 +251,11 @@ function Mevzuat() {
           </div>
 
           <a
-            href="https://www.mevzuat.gov.tr/"
-            target="_blank"
-            rel="noreferrer"
-            className="primary-button"
-          >
+              href="https://www.mevzuat.gov.tr/mevzuat?MevzuatNo=634&MevzuatTur=1&MevzuatTertip=5"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="primary-button"
+            >
             Resmî Kaynağa Git
           </a>
         </div>

@@ -1,5 +1,6 @@
 ﻿import { Fragment, useState } from "react";
 import {
+  AlertTriangle,
   ChevronDown,
   ChevronRight,
   Edit,
@@ -140,7 +141,19 @@ function ResidentRow({
       </td>
 
       <td>
-        <span className="resident-role-badge">{resident.role}</span>
+        <div className="resident-role-stack">
+          <span className="resident-role-badge">{resident.role}</span>
+
+          {resident.ownerInfoMissing && (
+            <span
+              className="resident-owner-warning-badge"
+              title="Bu daire için ev sahibi bilgisi henüz girilmedi."
+            >
+              <AlertTriangle size={14} />
+              Ev Sahibi Bilgisi Eksik
+            </span>
+          )}
+        </div>
       </td>
 
       <td>

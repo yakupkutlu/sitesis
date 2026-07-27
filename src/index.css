@@ -25343,3 +25343,237 @@ dashboard-layout .topbar-help-button {
     width: 100%;
   }
 }
+/* Bu kodu mevcut src/index.css dosyasının EN ALTINA ekleyin. */
+
+/* =========================================
+   SAKİN / EV SAHİBİ EKSİK BİLGİ UYARILARI
+========================================= */
+.resident-role-stack {
+  display: grid;
+  justify-items: start;
+  gap: 7px;
+}
+
+.resident-owner-warning-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  border: 1px solid #f59e0b;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.resident-owner-warning-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid #f59e0b;
+  border-radius: 16px;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.resident-owner-warning-card > svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.resident-owner-warning-card strong {
+  display: block;
+  margin-bottom: 5px;
+  color: #78350f;
+}
+
+.resident-owner-warning-card p {
+  margin: 0;
+  color: #92400e;
+  line-height: 1.55;
+}
+
+.resident-import-summary-grid {
+  grid-template-columns: repeat(6, minmax(110px, 1fr));
+}
+
+.resident-import-row.warning {
+  background: #fffdf5;
+}
+
+.resident-import-status-badge.warning {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.resident-import-summary-grid .warning {
+  border-color: #f59e0b;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.dashboard-layout.dark-mode .resident-owner-warning-badge,
+.dashboard-layout.dark-mode .resident-import-status-badge.warning {
+  border-color: #d97706;
+  background: rgba(146, 64, 14, 0.28);
+  color: #fde68a;
+}
+
+.dashboard-layout.dark-mode .resident-owner-warning-card {
+  border-color: #d97706;
+  background: rgba(120, 53, 15, 0.22);
+  color: #fde68a;
+}
+
+.dashboard-layout.dark-mode .resident-owner-warning-card strong,
+.dashboard-layout.dark-mode .resident-owner-warning-card p {
+  color: #fde68a;
+}
+
+.dashboard-layout.dark-mode .resident-import-row.warning {
+  background: rgba(120, 53, 15, 0.14);
+}
+
+.dashboard-layout.dark-mode .resident-import-summary-grid .warning {
+  border-color: #d97706;
+  background: rgba(120, 53, 15, 0.22);
+  color: #fde68a;
+}
+
+@media (max-width: 960px) {
+  .resident-import-summary-grid {
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .resident-import-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .resident-owner-warning-badge {
+    white-space: normal;
+  }
+}
+/* =========================================
+   SAKİN / EV SAHİBİ EKSİK BİLGİ UYARILARI
+========================================= */
+.resident-role-stack {
+  display: grid;
+  justify-items: start;
+  gap: 7px;
+}
+
+.resident-owner-warning-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  border: 1px solid #f59e0b;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.resident-owner-warning-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid #f59e0b;
+  border-radius: 16px;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.resident-owner-warning-card > svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.resident-owner-warning-card strong {
+  display: block;
+  margin-bottom: 5px;
+  color: #78350f;
+}
+
+.resident-owner-warning-card p {
+  margin: 0;
+  color: #92400e;
+  line-height: 1.55;
+}
+
+.resident-owner-section .resident-owner-warning-card {
+  margin: 14px 0 18px;
+}
+
+.resident-import-summary-grid {
+  grid-template-columns: repeat(6, minmax(110px, 1fr));
+}
+
+.resident-import-row.warning {
+  background: #fffdf5;
+}
+
+.resident-import-status-badge.warning {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.resident-import-summary-grid .warning {
+  border-color: #f59e0b;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.dashboard-layout.dark-mode .resident-owner-warning-badge,
+.dashboard-layout.dark-mode .resident-import-status-badge.warning {
+  border-color: #d97706;
+  background: rgba(146, 64, 14, 0.28);
+  color: #fde68a;
+}
+
+.dashboard-layout.dark-mode .resident-owner-warning-card {
+  border-color: #d97706;
+  background: rgba(120, 53, 15, 0.22);
+  color: #fde68a;
+}
+
+.dashboard-layout.dark-mode .resident-owner-warning-card strong,
+.dashboard-layout.dark-mode .resident-owner-warning-card p {
+  color: #fde68a;
+}
+
+.dashboard-layout.dark-mode .resident-import-row.warning {
+  background: rgba(120, 53, 15, 0.14);
+}
+
+.dashboard-layout.dark-mode .resident-import-summary-grid .warning {
+  border-color: #d97706;
+  background: rgba(120, 53, 15, 0.22);
+  color: #fde68a;
+}
+
+@media (max-width: 960px) {
+  .resident-import-summary-grid {
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .resident-import-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .resident-owner-warning-badge {
+    white-space: normal;
+  }
+}
