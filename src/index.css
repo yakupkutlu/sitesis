@@ -25577,3 +25577,16 @@ dashboard-layout .topbar-help-button {
     white-space: normal;
   }
 }
+/* Excel önizlemede tüm satırları tek listede göster */
+.resident-import-table-wrapper {
+  max-height: none !important;
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
+/* Uzun Excel listesinde modalın tamamı kaydırılsın */
+.resident-import-modal {
+  max-height: 94vh;
+  overflow-y: auto;
+}
+
